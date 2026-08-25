@@ -4,7 +4,7 @@ license: CC BY 4.0
 
 year: 2000
 
-Global maps of twenty-first century forest carbon fluxes. Nature Climate Change, 11, 234-240. DOI 10.1038/s41558-020-00976-6.
+Harris, N. L. et al. (2021). Global maps of twenty-first century forest carbon fluxes. Nature Climate Change, 11, 234-240. DOI 10.1038/s41558-020-00976-6.
 
 https://data.globalforestwatch.org/datasets/gfw::aboveground-live-woody-biomass-density
 

@@ -4,6 +4,8 @@ import numpy
 import pytest
 import xarray
 
+from jdluc import statistical
+from jdluc.datasets import usda_nass_quickstats
 from jdluc.jurisdictional_direct import Crop, get_crop_name_to_totals
 
 
@@ -105,3 +107,22 @@ def test_get_crop_name_to_totals_with_no_crop_pixels(
         "peatland_conversion_emissions_mt": 0,
         "peatland_occupation_emissions_mt": 0,
     }
+
+
+def test_every_crop_has_a_nass_series() -> None:
+    """`jdluc.datasets` cannot import the pipeline, so `CropSeries` repeats this crop list and
+    nothing else ties the two together. A name in one and not the other is silent rather than loud:
+    `trace` joins the yield in on the left, so the crop still reaches the artifact, carrying
+    hectares and emissions against a NaN emissions factor.
+    """
+    assert {crop.name for crop in Crop} == {
+        crop_series.name for crop_series in usda_nass_quickstats.CropSeries
+    }
+
+
+def test_every_crop_is_also_a_statistical_crop() -> None:
+    """The sLUC-against-jdLUC head-to-head is the one comparison with no external arbiter, and it
+    is per (country, crop). A jdLUC crop the statistical leg does not model has nothing to be
+    compared against, and drops out of that comparison without failing it.
+    """
+    assert {crop.name for crop in Crop} <= {crop.name for crop in statistical.Crop}

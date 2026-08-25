@@ -65,7 +65,11 @@ def _get_dataarray() -> xarray.DataArray:
         return (
             darray.isel(band=0)
             .drop_vars("band")
-            .rio.reproject(dst_crs=4326, resampling=rasterio.enums.Resampling.nearest)
+            .rio.reproject(
+                dst_crs=4326,
+                nodata=DATASET.no_data,
+                resampling=rasterio.enums.Resampling.nearest,
+            )
         )
 
 

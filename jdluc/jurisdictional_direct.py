@@ -38,11 +38,6 @@ class Crop(enum.Enum):
     )
 
 
-CDL_TO_COMMON_CROP_NAME = {
-    crop.value[0].name: crop.name for crop in Crop if len(crop.value) == 1
-}
-
-
 DATASET_NAMES = (DatasetName.USDA_NASS_CDL,)
 
 
@@ -77,11 +72,11 @@ def get_forest_and_peatland_conversion_per_hectare(
         ) + soil.where((before_class == forest_class) & (is_peat != 1), other=0)
         span_to_peatland_conversion[(before, after)] = soil.where(is_peat == 1, other=0)
     return {
-        "forest-emissions:tco2e-per-ha": emit.get_linear_discounted_emissions(
-            span_to_emissions=span_to_forest
+        "forest-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
+            span_to_value=span_to_forest
         ),
-        "peatland-conversion-emissions:tco2e-per-ha": emit.get_linear_discounted_emissions(
-            span_to_emissions=span_to_peatland_conversion
+        "peatland-conversion-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
+            span_to_value=span_to_peatland_conversion
         ),
     }
 
@@ -134,43 +129,60 @@ def get_crop_name_to_totals(
     return utils.get_sum_totals(enum_to_name_to_darray=crop_to_totals)
 
 
-@storage.cache_to_parquet(version=0)
+SCHEMA = {
+    "admin_id": str,
+    "admin_level": str,
+    "crop_hectares": float,
+    "crop_name": str,
+    "emissions_mt": float,
+    "forest_emissions_mt": float,
+    "jurisdiction_name": str,
+    "peatland_conversion_emissions_mt": float,
+    "peatland_crop_hectares": float,
+    "peatland_occupation_emissions_mt": float,
+}
+
+
+@storage.cache_to_parquet(version=1)
 def workflow(
     crop_names: tuple[str, ...],
     iso_3166: str,
     skip_glad_crop_filter: bool,
-    tile_ids: tuple[str, ...],
+    tile_id: str,
 ) -> pandas.DataFrame:
-    crops = tuple(map(Crop.__getitem__, crop_names))
+    crops = tuple(Crop[crop_name] for crop_name in crop_names)
     assert iso_3166 == "USA", "JD only supports USA today"
 
-    logger.info(f"Computing emissions for {crops=:}")
+    logger.info(f"Computing emissions for {crops=:} and {tile_id=:s}")
     merged = geo.exact_merge(
         harmonize.workflow(
             dataset_names=harmonize.LUC_AND_EMISSIONS_DATASET_NAMES,
-            ignore_missing_tiles=False,
+            ignore_missing_tiles=True,
             skip_ingest=False,
-            tile_ids=tile_ids,
-            tile_resolution=tiling.TileResolution.GLAD.value,
+            tile_id=tile_id,
+            tile_resolution=tiling.TileResolution.GLAD,
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(tile_ids=tile_ids),
+        emit.workflow(tile_id=tile_id),
         # CDL
         harmonize.workflow(
             dataset_names=DATASET_NAMES,
-            ignore_missing_tiles=False,
+            ignore_missing_tiles=True,
             skip_ingest=False,
-            tile_ids=tile_ids,
-            tile_resolution=tiling.TileResolution.GLAD.value,
+            tile_id=tile_id,
+            tile_resolution=tiling.TileResolution.GLAD,
         ),
     )
     merged = merged.assign(get_forest_and_peatland_conversion_per_hectare(dset=merged))
 
     def it() -> collections.abc.Iterator[dict[str, float | str]]:
-        for jurisdiction in worldbank_jurisdictions.iter_jurisdiction_for_iso_3166(
+        for (
+            jurisdiction
+        ) in worldbank_jurisdictions.iter_jurisdiction_for_iso_3166_tile_id(
             admin_level=worldbank_jurisdictions.AdminLevel.PROVINCIAL,
             iso_3166=iso_3166,
+            tile_id=tile_id,
         ):
             logger.info(f"Clipping to provincial geometry for {jurisdiction.id=:s}")
             try:
@@ -207,11 +219,15 @@ def workflow(
                 for crop_name, totals in crop_name_to_totals.items():
                     yield totals | {
                         "admin_id": jurisdiction.id,
-                        "admin_level": worldbank_jurisdictions.AdminLevel.PROVINCIAL.name,
+                        "admin_level": jurisdiction.level,
                         "crop_name": crop_name,
                         "jurisdiction_name": jurisdiction.name,
                     }
 
-    return pandas.DataFrame.from_records(data=it()).set_index(
-        ["admin_level", "crop_name", "jurisdiction_name"]
+    if data := list(it()):
+        assert set(data[0]) == set(SCHEMA)
+    return (
+        pandas.DataFrame.from_records(columns=list(SCHEMA), data=data)
+        .astype(SCHEMA)
+        .set_index(["admin_level", "admin_id", "crop_name"])
     )

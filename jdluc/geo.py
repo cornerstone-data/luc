@@ -65,6 +65,10 @@ def convert_geotiff_to_cog(
     )
 
 
+# NB: an equal-area projection, so that parts of one jurisdiction can be ranked by size
+EQUAL_AREA_CRS = "EPSG:6933"
+
+
 def convert_vector_to_flatgeobuf(
     id_column_names: tuple[str, ...],
     name_column_names: tuple[str, ...],
@@ -72,6 +76,12 @@ def convert_vector_to_flatgeobuf(
     path_to_vector: str,
 ) -> None:
     import geopandas
+
+    def maybe_repair_mojibake(name: str) -> str:
+        try:
+            return name.encode("latin-1").decode("utf-8")
+        except UnicodeError:
+            return name
 
     logger.info(
         f"Opening {path_to_vector=:s} for {id_column_names=:} and {name_column_names=:}"
@@ -89,11 +99,16 @@ def convert_vector_to_flatgeobuf(
                 "id": gdf[list(id_column_names)].astype(str).agg(" | ".join, axis=1),
                 "name": gdf[list(name_column_names)]
                 .astype(str)
+                .map(maybe_repair_mojibake)
                 .agg(" | ".join, axis=1),
+                # NB: so that dissolve can inherit values from the largest regions
+                "square_meters": gdf.geometry.to_crs(crs=EQUAL_AREA_CRS).area,
             },
             geometry=gdf.geometry,
         )
+        .sort_values(by="square_meters", ascending=False)
         .dissolve(by="id")
+        .drop(columns="square_meters")
         .reset_index(drop=False)
         .to_file(path_to_flatgeobuf, driver="FlatGeobuf", SPATIAL_INDEX=True)
     )
@@ -184,8 +199,9 @@ def downscale_darray(
     ).name
     chunk_size = 1 << 11  # 2k
     logger.debug(f"Serializing to {path_to_unscaled=:s} with {chunk_size=:d}")
-    with dask.diagnostics.ProgressBar(dt=5, minimum=1):
-        darray.chunk(chunks=chunk_size).rio.to_raster(
+    darray = darray.assign_attrs(long_name=darray.name).chunk(chunks=chunk_size)
+    with dask.diagnostics.ProgressBar():
+        darray.rio.to_raster(
             path_to_unscaled,
             blockxsize=chunk_size,
             blockysize=chunk_size,
@@ -209,6 +225,7 @@ def downscale_darray(
         ) as scaled_vrt,
         tempfile.NamedTemporaryFile(delete=False, suffix=".warped.vrt") as scaled_fp,
     ):
+        assert unscaled_fp.crs.to_epsg() == epsg
         logger.debug(f"Writing warped VRT to {scaled_fp.name=:s}")
         rasterio.shutil.copy(scaled_vrt, scaled_fp.name, driver="VRT")
     ret = rioxarray.open_rasterio(
@@ -221,8 +238,5 @@ def downscale_darray(
         lock=False,
     )
     assert isinstance(ret, xarray.DataArray)
-    return unify_dtype_and_no_data(
-        darray=ret.drop_vars("spatial_ref")
-        .isel(band=0, drop=True)
-        .rename(ret.attrs.pop("long_name"))
-    )
+    ret = ret.drop_vars("spatial_ref").isel(band=0, drop=True)
+    return unify_dtype_and_no_data(darray=ret.rename(ret.attrs.pop("long_name")))

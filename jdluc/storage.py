@@ -4,12 +4,15 @@ import hashlib
 import inspect
 import logging
 import os
+import threading
 import typing
 
 import pandas
 import xarray
 
 logger = logging.getLogger(__name__)
+
+COMPUTE_LOCK = threading.RLock()
 
 
 def path_exists(uri: str) -> bool:
@@ -54,10 +57,8 @@ def write_dask_dataset_to_zarr(dset: xarray.Dataset, path_to_zarr: str) -> None:
     logging.getLogger("distributed.scheduler").setLevel(logging.CRITICAL)
     logging.getLogger("gcsfs").setLevel(logging.WARNING)
 
-    logger.info(
-        f"Saving to {path_to_zarr=:s} with {num_workers=:d} and {dset.chunksizes=:}"
-    )
     with (
+        COMPUTE_LOCK,
         rasterio.Env(
             CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.vrt",
             # 256 MiB
@@ -77,8 +78,15 @@ def write_dask_dataset_to_zarr(dset: xarray.Dataset, path_to_zarr: str) -> None:
             n_workers=1,
             threads_per_worker=num_workers,
         ) as cluster,
-        distributed.Client(cluster) as client,
+        distributed.Client(
+            cluster,
+            # NB: avoid race by not sharing across threads
+            set_as_default=False,
+        ) as client,
     ):
+        logger.info(
+            f"Saving to {path_to_zarr=:s} with {num_workers=:d} and {dset.chunksizes=:}"
+        )
         logger.info(f"Dask dashboard at {client.dashboard_link:s}")
         logger.info("Building graph and writing zarr metadata+coords")
         to_write = dset.drop_vars("spatial_ref", errors="ignore")
@@ -88,8 +96,8 @@ def write_dask_dataset_to_zarr(dset: xarray.Dataset, path_to_zarr: str) -> None:
             compute=False, consolidated=False, group=None, store=path_to_zarr
         )
         logger.info("Submitting task graph to dask scheduler")
-        future = client.compute(delayed)
-        distributed.progress(future)
+        future = client.compute(delayed, retries=5)
+        distributed.progress(future, scheduler=client.scheduler.address)
         future.result()
         logger.info(f"Finished writing to {path_to_zarr=:s}")
 
@@ -161,9 +169,7 @@ class ZarrCacher:
 
 
 class CacherDecoratorProtocol(typing.Protocol[R]):
-    def __call__(
-        self, func: typing.Callable[P, R]
-    ) -> functools._lru_cache_wrapper[R]: ...
+    def __call__(self, func: typing.Callable[P, R]) -> typing.Callable[P, R]: ...
 
 
 def get_cache_decorator(
@@ -182,7 +188,7 @@ def get_cache_decorator(
 
     def decorator(
         func: typing.Callable[P, R],
-    ) -> functools._lru_cache_wrapper[R]:
+    ) -> typing.Callable[P, R]:
         if ignored_args is not None:
             assert set(inspect.signature(func).parameters).issuperset(ignored_args)
 
@@ -218,7 +224,7 @@ def get_cache_decorator(
             # compute graph
             return cacher.deserialize()
 
-        return inner
+        return typing.cast(typing.Callable[P, R], inner)
 
     return decorator
 

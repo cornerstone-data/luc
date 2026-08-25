@@ -29,9 +29,9 @@ This carbon store is maintained by high water levels. When the water table is at
 
 ### Complex carbon structure leads to extended decay
 
-Peat organic matter is not homogeneous. It consists of a complex mix of organic components with widely varying susceptibilities to decomposition. Clymo (1984, 1998) first demonstrated that although approximately 90% of original plant biomass is lost in the upper peat layer within 100 years after drainage, selective decay continues in deeper layers even thereafter as more resistant compounds persist.
+Peat organic matter is not homogeneous. It consists of a complex mix of organic components with widely varying susceptibilities to decomposition. Clymo (1984, 1992) first demonstrated that although approximately 90% of original plant biomass is lost in the upper peat layer within 100 years after drainage, selective decay continues in deeper layers even thereafter as more resistant compounds persist.
 
-Leifeld et al. (2018) showed that the chemical composition of peat shifts progressively as drainage proceeds: the relative abundance of labile compounds (polysaccharides, simple carbohydrates) decreases while recalcitrant compounds (lignin, polyphenols) become proportionally more abundant. This selective depletion of labile carbon is the primary physical mechanism that produces declining emission rates over time — as the most easily decomposed components are consumed, the remaining peat becomes increasingly resistant to further oxidation.
+Bader et al. (2018) showed that the chemical composition of peat shifts progressively as drainage proceeds: the relative abundance of labile compounds (polysaccharides, simple carbohydrates) decreases while recalcitrant compounds (lignin, polyphenols) become proportionally more abundant. This selective depletion of labile carbon is the primary physical mechanism that produces declining emission rates over time — as the most easily decomposed components are consumed, the remaining peat becomes increasingly resistant to further oxidation.
 
 More recently, McCalmont et al. (2021) carefully measured net ecosystem CO₂ exchange at two oil palm plantations of different ages on tropical peat in Malaysian Borneo, reconstructing a 12-year time series. They found that mean annual net emission for the newer plantation (137.8 Mg CO₂ ha⁻¹ yr⁻¹) was an order of magnitude higher than at the mature plantation (17.5 Mg CO₂ ha⁻¹ yr⁻¹), confirming that emissions were front-loaded, but that some emissions persist after long periods.
 
@@ -47,7 +47,7 @@ Two principal methods are used to quantify carbon losses from drained peatlands,
 
 **Subsidence monitoring** measures the physical lowering of the peat surface over time and converts it to carbon loss using measured bulk density and carbon content. It integrates oxidative decomposition and dissolved organic carbon export, but can be confounded by physical compaction which lowers the peat surface without exporting CO₂, especially in the first years after drainage.
 
-The result of the different boundaries from the two basic measurement approaches are results that vary significantly based on local circumstances: on established plantations where compaction has stabilised and root respiration is significant, subsidence-based estimates tend to exceed flux measurements because they capture DOC that flux instruments miss; on bare or recently drained peat where compaction is ongoing and roots are absent, this ordering can reverse (Marliana et al., 2023). It is possible to try to reconcile measurements, but it inevitably requires some inference or modeling.
+The result of the different boundaries from the two basic measurement approaches are results that vary significantly based on local circumstances: on established plantations where compaction has stabilized and root respiration is significant, subsidence-based estimates tend to exceed flux measurements because they capture DOC that flux instruments miss; on bare or recently drained peat where compaction is ongoing and roots are absent, this ordering can reverse (Mos et al., 2023). It is possible to try to reconcile measurements, but it inevitably requires some inference or modeling.
 
 ### IPCC Tier 1 emission factors
 
@@ -55,15 +55,15 @@ The IPCC 2013 Wetlands Supplement made an attempt to consolidate all the best ev
 
 The table below shows these emissions factors.
 
-| Climate zone | Land use | CO₂ oxidation | Dissolved carbon | CH₄ | N₂O | **Total** |
-|---|---|---|---|---|---|---|
-| **Tropical** | Acacia | 73.3 | 3.0 | 1.3 | 1.0 | **78.6** |
-| | Cropland | 51.3 | 3.0 | 1.4 | 2.1 | **57.9** |
-| | Oil palm | 40.3 | 3.0 | 1.2 | 0.5 | **45.0** |
-| **Temperate** | Cropland | 29.0 | 1.1 | 1.6 | 5.6 | **37.3** |
-| | Pasture | 22.4 | 1.1 | 2.0 | 3.5 | **29.0** |
-| **Boreal** | Cropland | 29.0 | 0.4 | 1.6 | 5.6 | **36.6** |
-| | Pasture | 20.9 | 0.4 | 1.6 | 4.1 | **27.0** |
+| Climate zone  | Land use | CO₂ oxidation | Dissolved carbon | CH₄ | N₂O | **Total** |
+| ------------- | -------- | ------------- | ---------------- | --- | --- | --------- |
+| **Tropical**  | Acacia   | 73.3          | 3.0              | 1.3 | 1.0 | **78.6**  |
+|               | Cropland | 51.3          | 3.0              | 1.4 | 2.1 | **57.9**  |
+|               | Oil palm | 40.3          | 3.0              | 1.2 | 0.5 | **45.0**  |
+| **Temperate** | Cropland | 29.0          | 1.1              | 1.6 | 5.6 | **37.3**  |
+|               | Pasture  | 22.4          | 1.1              | 2.0 | 3.5 | **29.0**  |
+| **Boreal**    | Cropland | 29.0          | 0.4              | 1.6 | 5.6 | **36.6**  |
+|               | Pasture  | 20.9          | 0.4              | 1.6 | 4.1 | **27.0**  |
 
 _All values in t CO₂-eq ha⁻¹ yr⁻¹, converted from t C using × 3.667, and using AR6 GWP values_
 
@@ -109,7 +109,7 @@ This equation approximates the three pool model from Qiu et al. (2021) (active, 
 
 Notably, the Swails et al. modeled tropical emissions curve is *lower* than the Qiu et al. temperate emissions curve at all years. This is surprising: there is a theoretical basis to suspect that emissions rates from peat should be higher in tropical regions than temperate and boreal regions — decay is highly temperature dependent, with most models suggesting organic compounds should degrade to CO₂ at least 2x faster for every 10 degrees of average temperature increase. The reversal of the expected relationship in the Qiu and Swails studies is partially explained by the fact that the Qiu curve represents gross peat decomposition, while the Swails curve represents net emissions (after vegetation carbon offsets). But this provides only a partial explanation.
 
-The IPCC reference values for CO₂ emissions show a similar pattern.  Although the absolute IPCC factors are higher for tropical regions, the difference is no larger than the gap that would be expected from age differences alone, if the general shape of the Swails and Qiu curves is correct. In other words, the IPCC data points also fail to show higher tropical emissions, once corrected for age of the measured sites.
+The IPCC reference values for CO₂ emissions show a similar pattern. Although the absolute IPCC factors are higher for tropical regions, the difference is no larger than the gap that would be expected from age differences alone, if the general shape of the Swails and Qiu curves is correct. In other words, the IPCC data points also fail to show higher tropical emissions, once corrected for age of the measured sites.
 
 Given these observations, we do not attempt to build regional or crop specific curves. Rather we simply use a blended version of the Swails model, the Qiu model, and the IPCC values to construct a single reference CO₂ emissions curve for all climate zones and land use types. We generate this curve by:
 
@@ -173,20 +173,22 @@ See the [accompanying python notebook](../analyses/peatland_emissions_modeling.i
 
 This catalogues a partial review of IPCC citations. We believe these to be representative (the IPCC Wetlands Supplement acknowledges the age difference between sites used for the published EFs), but completing this review is an area for refinement.
 
-| IPCC Category | Papers reviewed | Sites with age data | Est. drainage age range |
-|---|---|---|---|
-| Tropical Acacia | Hooijer 2012, Jauhiainen 2012a, Basuki 2012, Hergoualc'h & Verchot 2011 | 125+ sites (Hooijer) + 12 plots (Basuki) | **5–10 yr** |
-| Tropical Oil Palm | Hooijer 2012, Hergoualc'h & Verchot 2011, Melling 2005a/2007 | 42 sites (Hooijer) + 1 site (Melling) | **5–18 yr** |
-| Tropical Cropland | Hergoualc'h & Verchot 2011 (indirect) | few | **8–15 yr** |
-| Boreal/Temperate Cropland | Qiu et al. 2021 Table S2 (summarizing all 39 sites) | 24 of 39 with known ages | **26–300 yr** |
-| Temperate Grassland | Schrier-Uijl et al. 2014 | 2 Dutch sites | **~200–800+ yr** (Dutch polders) |
-| Boreal Grassland | - | - | **unknown** |
+| IPCC Category             | Papers reviewed                                                         | Sites with age data                      | Est. drainage age range          |
+| ------------------------- | ----------------------------------------------------------------------- | ---------------------------------------- | -------------------------------- |
+| Tropical Acacia           | Hooijer 2012, Jauhiainen 2012a, Basuki 2012, Hergoualc'h & Verchot 2011 | 125+ sites (Hooijer) + 12 plots (Basuki) | **5–10 yr**                      |
+| Tropical Oil Palm         | Hooijer 2012, Hergoualc'h & Verchot 2011, Melling 2005a/2007            | 42 sites (Hooijer) + 1 site (Melling)    | **5–18 yr**                      |
+| Tropical Cropland         | Hergoualc'h & Verchot 2011 (indirect)                                   | few                                      | **8–15 yr**                      |
+| Boreal/Temperate Cropland | Qiu et al. 2021 Table S2 (summarizing all 39 sites)                     | 24 of 39 with known ages                 | **26–300 yr**                    |
+| Temperate Grassland       | Schrier-Uijl et al. 2014                                                | 2 Dutch sites                            | **~200–800+ yr** (Dutch polders) |
+| Boreal Grassland          | -                                                                       | -                                        | **unknown**                      |
 
 ## References
 
+- Bader, C., Müller, M., Schulin, R. & Leifeld, J. (2018). Peat decomposability in managed organic soils in relation to land use, organic matter composition and temperature. *Biogeosciences*, 15, 703–719.
+
 - Clymo, R.S. (1984). The limits to peat bog growth. *Philosophical Transactions of the Royal Society of London B*, 303, 605–654.
 
-- Clymo, R.S. (1998). Models of peat growth. *Suo*, 49, 75–80.
+- Clymo, R.S. (1992). Models of peat growth. *Suo*, 43, 127–136.
 
 - Deshmukh, C.S., Susanto, A.P., Nardi, N., et al. (2023). Net greenhouse gas balance of fibre wood plantation on peat in Indonesia. *Nature*, 616, 740–746.
 
@@ -198,11 +200,9 @@ This catalogues a partial review of IPCC citations. We believe these to be repre
 
 - Keck H, Meurer KHE, Jordan S, Kätterer T, Hadden D and Grelle A (2024) Setting-aside cropland did not reduce greenhouse gas emissions from a drained peat soil in Sweden. Front. Environ. Sci. 12:1386134.
 
-- Leifeld, J., Klein, K. & Wüst-Galley, C. (2018). Peat decomposability in managed organic soils in relation to land use, organic matter composition and temperature. *Biogeosciences*, 15, 703–719.
-
-- Marliana, S.N., et al. (2023). Differences in CO₂ emissions on a bare-drained peat area in Sarawak, Malaysia, based on different measurement techniques. *Agriculture*, 13, 622.
-
 - McCalmont, J., Kho, L.K., Teh, Y.A., et al. (2021). Short- and long-term carbon emissions from oil palm plantations converted from logged tropical peat swamp forest. *Global Change Biology*, 27, 2361–2376.
+
+- Mos, H., Harun, M.H., Jantan, N.M., Hashim, Z., Ibrahim, A.S. & Yusup, Y. (2023). Differences in CO₂ emissions on a bare-drained peat area in Sarawak, Malaysia, based on different measurement techniques. *Agriculture*, 13, 622.
 
 - Page, S.E., Rieley, J.O. & Banks, C.J. (2011a). Global and regional importance of the tropical peatland carbon pool. *Global Change Biology*, 17, 798–818.
 
@@ -210,7 +210,11 @@ This catalogues a partial review of IPCC citations. We believe these to be repre
 
 - Qiu, C., Ciais, P., Zhu, D., et al. (2021). Large historical carbon emissions from cultivated northern peatlands. *Science Advances*, 7, eabf1332.
 
-- Swails, E., Hergoualc'h, K., Deng, J., et al. (2022). Peat CO₂ and N₂O flux calibrations for the DNDC model in tropical oil palm plantations on peat. *European Journal of Soil Science*, 73, e13199.
+- Schrier-Uijl, A.P., Kroon, P.S., Hendriks, D.M.D., et al. (2014). Agricultural peatlands: towards a greenhouse gas sink — a synthesis of a Dutch landscape study. *Biogeosciences*, 11, 4559–4576.
+
+- Swails, E., Hergoualc'h, K., Deng, J., Frolking, S. & Novita, N. (2022). How can process-based modeling improve peat CO₂ and N₂O emission factors for oil palm plantations? *Science of the Total Environment*, 839, 156153.
+
+- Tiemeyer, B., Freibauer, A., Albiac Borraz, E., et al. (2020). A new methodology for organic soils in national greenhouse gas inventories: Data synthesis, derivation and application. *Ecological Indicators*, 109, 105838.
 
 - Truskavetskii, R.S. (2014). Carbon budget of drained peat bogs in Ukrainian Polesie. *Eurasian Soil Science*, 47, 687–693.
 

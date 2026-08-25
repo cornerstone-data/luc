@@ -1,34 +1,34 @@
 # Executive summary
 
-This repository implements an open-source, satellite-derived methodology for estimating the land-use-change (LUC) emissions of agricultural commodities, built for corporate GHG inventories under the GHG Protocol **Land Sector and Removals Standard (LSRS)**. It allocates LUC emissions to crops in proportion to their displacement of natural ecosystems, using a high-resolution **jurisdictional-direct (jdLUC)** calculation where detailed crop maps exist (currently the United States) and a coarser **statistical (sLUC)** calculation for the rest of the world.  Both attribution approaches use the same underlying global land conversion and emissions map. The full crop and country lists are in [`coverage.md`](coverage.md).
+This repository implements an open-source, satellite-derived methodology for estimating the land-use-change (LUC) emissions of agricultural commodities, built for corporate GHG inventories under the GHG Protocol **Land Sector and Removals Standard (LSRS)**. It allocates LUC emissions to crops in proportion to their displacement of natural ecosystems, using a high-resolution **jurisdictional-direct (jdLUC)** calculation where detailed crop maps exist (currently the United States) and a coarser **statistical (sLUC)** calculation for the rest of the world. Both attribution approaches use the same underlying global land conversion and emissions map. The full crop and country lists are in [`coverage.md`](coverage.md).
 
 This document is aimed at readers assessing how the methodology maps to the LSRS. The deeper *what* and *why* live in [`methodology.md`](methodology.md). The methodology is a proof of concept intended as a starting point for discussion and collaboration.
 
 ## LSRS conformance at a glance
 
-| LSRS requirement | How this methodology addresses it | Status |
-|---|---|---|
-| **Land-use-change emissions in scope** | Detects high-carbon → low-carbon land-cover transitions across forests, grasslands and peatlands per ~30 m pixel across five GLAD epochs (2000–2020) and quantifies the carbon lost. | Met |
-| **20-year assessment period, linearly discounted (§7.2.1)** | All fluxes are allocated over a 20-year linearly-discounted lookback; more recent conversions are weighted more heavily. GLAD's 5-year spans are aggregated into one discount weight per span. | Met |
-| **Carbon pools (vegetation + soil)** | Includes key carbon pools described on the LSRS as follows: Above-ground biomass (Harris 2021), below-ground/root biomass (Huang 2021), dead organic matter (CDM AR-TOOL-12, forest only), mineral soil organic carbon (IPCC 2019 Tier 1 stock-change, 0–30 cm) and complements with peatland emissions (newly drained + long term drained). | Met |
-| **Jurisdictional direct vs. statistical land use change** | Two legs share one emissions core: jdLUC via spatial intersection with high-resolution crop maps (USDA CDL), and sLUC via each crop's share of local cropland expansion (IFPRI MapSPAM). | Met |
-| **Allocation to commodities** | Product expansion approach is used for sLUC calculation. | Met |
-| **Land management emissions (peatland)** | Peatland drainage is modeled in two parts — a LUC drainage pulse (discounted as a transition) plus an ongoing land-management occupation emission. | Extension — LSRS gives no peatland-specific method |
-| **Carbon removals** | Not tracked; reverse (low- → high-carbon) transitions are excluded. Consistent with the LSRS treatment of LUC emissions; removals would require separate accounting. | By design — not covered |
-| **Jurisdictional reporting** | Per-pixel emissions roll up to World Bank administrative jurisdictions (admin-0/1/2). | Met |
+| LSRS requirement                                            | How this methodology addresses it                                                                                                                                                                                                                                                                                                            | Status                                             |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Land-use-change emissions in scope**                      | Detects high-carbon → low-carbon land-cover transitions across forests, grasslands and peatlands per ~30 m pixel across five GLAD epochs (2000–2020) and quantifies the carbon lost.                                                                                                                                                         | Met                                                |
+| **20-year assessment period, linearly discounted (§7.2.1)** | All fluxes are allocated over a 20-year linearly-discounted lookback; more recent conversions are weighted more heavily. GLAD's 5-year spans are aggregated into one discount weight per span.                                                                                                                                               | Met                                                |
+| **Carbon pools (vegetation + soil)**                        | Includes key carbon pools described on the LSRS as follows: Above-ground biomass (Harris 2021), below-ground/root biomass (Huang 2021), dead organic matter (CDM AR-TOOL-12, forest only), mineral soil organic carbon (IPCC 2019 Tier 1 stock-change, 0–30 cm) and complements with peatland emissions (newly drained + long term drained). | Met                                                |
+| **Jurisdictional direct vs. statistical land use change**   | Two legs share one emissions core: jdLUC via spatial intersection with high-resolution crop maps (USDA CDL), and sLUC via each crop's share of local cropland expansion (IFPRI MapSPAM).                                                                                                                                                     | Met                                                |
+| **Allocation to commodities**                               | Product expansion approach is used for sLUC calculation.                                                                                                                                                                                                                                                                                     | Met                                                |
+| **Land management emissions (peatland)**                    | Peatland drainage is modeled in two parts — a LUC drainage pulse (discounted as a transition) plus an ongoing land-management occupation emission.                                                                                                                                                                                           | Extension — LSRS gives no peatland-specific method |
+| **Carbon removals**                                         | Not tracked; reverse (low- → high-carbon) transitions are excluded. Consistent with the LSRS treatment of LUC emissions; removals would require separate accounting.                                                                                                                                                                         | By design — not covered                            |
+| **Jurisdictional reporting**                                | Per-pixel emissions roll up to World Bank administrative jurisdictions (admin-0/1/2).                                                                                                                                                                                                                                                        | Met                                                |
 
 ## Data output
 
-The published deliverable is a single per-(jurisdiction, crop) table — the **emissions-factors parquet** — indexed by `(admin_level, crop_name, jurisdiction_name, methodology)`, where `admin_level` is `NATIONAL` or `PROVINCIAL` and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Each row carries the headline emissions factor and the quantities behind it; both attribution legs (jdLUC and sLUC) emit the same columns. The full schema is in [`data.md`](data.md#3-emissions-factors-parquet).
+The published deliverable is a single per-(jurisdiction, crop) table — the **emissions-factors parquet** — indexed by `(admin_level, admin_id, crop_name, methodology)`, where `admin_level` is `NATIONAL` or `PROVINCIAL`, `admin_id` is the ISO 3166 alpha-3 code nationally and the World Bank admin-1 code provincially, and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Each row carries the headline emissions factor and the quantities behind it; both attribution legs (jdLUC and sLUC) emit the same columns. The full schema is in [`data.md`](data.md#3-emissions-factors-parquet).
 
-| Column | Units | What it is |
-|---|---|---|
+| Column                           | Units        | What it is                                                  |
+| -------------------------------- | ------------ | ----------------------------------------------------------- |
 | `emissions_factor_kgco2e_per_kg` | kg CO₂e / kg | The headline factor — `1000 × emissions_mt / production_kg` |
-| `emissions_mt` | t CO₂e | Total allocated LUC emissions |
-| `production_kg` | kg | Crop production (NASS × area for jdLUC; MapSPAM for sLUC) |
-| `crop_hectares` | ha | Crop area in the jurisdiction |
-| `yield_kg_per_ha` | kg/ha | `production_kg / crop_hectares` |
-| `peatland_occupation_fraction` | ratio (0–1) | Share of emissions from ongoing peatland occupation |
+| `emissions_mt`                   | t CO₂e       | Total allocated LUC emissions                               |
+| `production_kg`                  | kg           | Crop production (NASS × area for jdLUC; MapSPAM for sLUC)   |
+| `crop_hectares`                  | ha           | Crop area in the jurisdiction, over the 2000–2020 window    |
+| `yield_kg_per_ha`                | kg/ha        | `production_kg / crop_hectares`                             |
+| `peatland_occupation_fraction`   | ratio (0–1)  | Share of emissions from ongoing peatland occupation         |
 
 ## Known deviations and open items
 

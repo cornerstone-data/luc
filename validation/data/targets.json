@@ -1,0 +1,609 @@
+{
+  "note": [
+    "Chosen by hand from the shortlist `--section eligible` prints,",
+    "not by a score; docs/validation.md section 3 says why. Each pair carries the reason it is here.",
+    "Controls live here too, one `controls` list per pair, so the pair identity has a single source.",
+    "`inherited` is a prior figure used once as a sanity check when the first capture sets `baseline`;",
+    "a control fires against `baseline` alone, and a null baseline means not yet frozen.",
+    "Orbae measures are rank controls, not level ones: its export is assessment year 2023 with no 2020",
+    "export coming, so `statistic` is RANK_CORRELATION and their tolerance is in correlation units.",
+    "ORBAE_OVER_WRI holds no term of ours, so movement in it means an anchor was revised rather than",
+    "the pipeline moving, and it is the one measure freezable before any capture. Its cross-country",
+    "rank agreement is weakest for soy (+0.135) and oil palm (+0.018), which the per-country baselines",
+    "below measure every run rather than noting once.",
+    "Deforestation figures in the reasons are WRI's for 2020, in Mt of CO2, at the pinned commit.",
+    "They are linearly discounted over 20 years -- the same GHGP basis as ours, which is what makes",
+    "them comparable -- and they are why a pair is here, not a result.",
+    "All thirty controls are frozen. The Orbae/WRI ranks were baselined from the anchors alone,",
+    "needing no capture since both sides are external; the rest come from the first capture. Six of",
+    "the seven sLUC/WRI controls carrying an inherited figure reproduce it within its quoted",
+    "precision, CAF MAIZE sitting 11% under. The three sLUC/jdLUC controls carrying one do not:",
+    "peatland occupation is weighted by each crop's hectares rather than by its share of the",
+    "expansion, which moved them after those prior figures were set.",
+    "The sLUC/jdLUC controls span 0.667 for rice to 3.259 for cotton, and over all eleven jdLUC crops",
+    "the ratio reaches 53.6 for sugarbeet. Production agrees within 0.78-1.26x throughout and hectares",
+    "within 0.82-1.07x, so the spread is conversion emissions rather than a denominator, and it widens",
+    "as the crop gets smaller. The three Midwestern pairs at 1.155-1.748 are its narrow end, not its",
+    "typical value, which is why holding the internal head-to-head to those three understated it."
+  ],
+  "provenance": {
+    "eligible_pairs": 864,
+    "faostat_release": "2025",
+    "reference_year": 2020,
+    "wri_revision": "559fe23eb752e9df270a1bf93e7f290044026bab"
+  },
+  "targets": [
+    {
+      "basis": "gap",
+      "crop_name": "OILPALM",
+      "iso_3166": "IDN",
+      "reason": "The largest deforestation figure anywhere at 218 Mt, and the measured case of the woody-perennial detection gap: sLUC/WRI is 0.008, decomposing as 0.020 detection x 0.38 allocation. Expected to fail badly; that failure is the point."
+    },
+    {
+      "basis": "gap",
+      "crop_name": "OILPALM",
+      "iso_3166": "MYS",
+      "reason": "68 Mt, second largest. Confirms whether the Indonesian woody-perennial result is a country artifact or the mechanism. 96% provincial area coverage, so the provincial grain is available."
+    },
+    {
+      "basis": "gap",
+      "crop_name": "COCONUT",
+      "iso_3166": "IDN",
+      "reason": "31 Mt on a woody perennial that is not oil palm, so it separates 'any woody perennial' from 'oil palm specifically' in the GLAD cropland-class finding."
+    },
+    {
+      "basis": "gap",
+      "crop_name": "OILPALM",
+      "iso_3166": "COD",
+      "reason": "14 Mt, and African rather than South-East Asian: tests the woody-perennial gap away from peat, where the peatland term cannot be the explanation."
+    },
+    {
+      "basis": "gap",
+      "crop_name": "COCONUT",
+      "iso_3166": "PHL",
+      "reason": "6.2 Mt, and NOT eligible at the provincial grain: the World Bank layer gives PHL 17 regions where GADM gives 81 provinces, so the relation is many-to-one and no key map can express it -- 0 of the 81 names match even fuzzily, because the two sources are at different administrative levels. Carried as a national ratio only, like CAF MAIZE. PHL is the largest single country E3 excludes, holding 24.8 Mt across all crops against 45 Mt for every excluded country combined, and it is a tropical archipelago where coconut dominates -- the woody-perennial regime the detection gap is largest in, so excluding it under-samples the gap most worth measuring. Pairs against IDN COCONUT, holding the crop fixed across two archipelagos."
+    },
+    {
+      "basis": "control",
+      "controls": [
+        {
+          "baseline": 0.19,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": 0.19,
+          "measure": "SLUC_OVER_WRI",
+          "note": "WRI is the outlier in Brazil: sLUC sits at 0.16-0.22x WRI across all three BRA crops, so this ratio is expected to sit low. Reproduces the inherited 0.19.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.918,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "SLUC_OVER_ORBAE",
+          "note": "The closest sLUC/Orbae rank agreement in the set.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.868,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f",
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "ORBAE_OVER_WRI",
+          "note": "Over 16 shared provinces.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "SOYBEAN",
+      "iso_3166": "BRA",
+      "reason": "111 Mt, the largest annual-crop pair in the world, and the largest figure in the eligible set."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "MAIZE",
+      "iso_3166": "BRA",
+      "reason": "49 Mt. Same jurisdictions as BRA SOYBEAN, so it shares tiles and costs little beyond province clips, and it separates crop allocation from country-level forest attribution."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "CASSAVA",
+      "iso_3166": "COD",
+      "reason": "48 Mt on a root crop, which is neither of the two commodities the US leg covers. 26 provinces at 100% area coverage."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "MAIZE",
+      "iso_3166": "IDN",
+      "reason": "39 Mt. An annual in the same country as the largest woody-perennial gap, so it isolates whether Indonesia's disagreement is the crop or the country."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "RICE",
+      "iso_3166": "IDN",
+      "reason": "25 Mt, and the largest flooded-crop pair. Rice carries a methane term the LUC model does not touch, so it checks that the LUC comparison is unaffected by it."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "CASSAVA",
+      "iso_3166": "BRA",
+      "reason": "15 Mt. Pairs against COD CASSAVA on one crop across two continents, holding the crop fixed while the forest regime changes."
+    },
+    {
+      "basis": "control",
+      "controls": [
+        {
+          "baseline": 0.067,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": 0.07,
+          "measure": "SLUC_OVER_WRI",
+          "note": "The dry-forest/soy guard. Reproduces the inherited 0.07 at the precision it was published.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.206,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "SLUC_OVER_ORBAE",
+          "note": "The weakest sLUC/Orbae rank in the set.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.441,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f",
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "ORBAE_OVER_WRI",
+          "note": "Over 16 shared provinces at 100% area coverage. The value is low because soy is the crop the two anchors agree least on, and freezing it is how a change in that disagreement surfaces.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "SOYBEAN",
+      "iso_3166": "PRY",
+      "reason": "15 Mt on 18 provinces at 100% coverage. Chaco dry forest rather than humid tropical, and soy holds constant against BRA, ARG and BOL. Holds the dry-forest/soy control slot, on two qualifications the other Chaco soy pairs lack: WRI's row here is self-consistent, at a deforestation-linked share of 0.669 of harvested area, and Orbae shares 16 of its provinces, enough to freeze the Orbae/WRI rank from the anchors alone."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "MAIZE",
+      "iso_3166": "MEX",
+      "reason": "14 Mt. Dry and temperate-mixed rather than tropical, and the only North American entry besides the USA."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "SUGARCANE",
+      "iso_3166": "BRA",
+      "reason": "11 Mt on 756 Mt of production, the largest denominator in the set by far. A ratooned perennial that is herbaceous, so GLAD's cropland class admits it: the control case for the woody-perennial finding."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "SUGARCANE",
+      "iso_3166": "THA",
+      "reason": "9 Mt across 75 provinces, the finest provincial grain available at this materiality. Pairs against BRA SUGARCANE."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "COTTON",
+      "iso_3166": "BRA",
+      "reason": "10 Mt on a fibre crop, so the product form is seed cotton rather than a food weight. The yield cross-check put WRI and FAOSTAT at 1.017 here, so the denominator is known good."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "RICE",
+      "iso_3166": "KHM",
+      "reason": "9 Mt, and the country whose 13 hand-written province overrides the key map depends on: a wrong override would surface here first."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "MAIZE",
+      "iso_3166": "ZMB",
+      "reason": "9 Mt on miombo woodland, a dry-forest regime absent from every other entry. Only 10 provinces, so provincial coverage is thin."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "BEAN",
+      "iso_3166": "MOZ",
+      "reason": "8 Mt on a pulse, a crop family otherwise unrepresented, in a second miombo country."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "RICE",
+      "iso_3166": "LAO",
+      "reason": "8 Mt. Shares ten-degree tiles with THA and KHM, so it is nearly free once those are computed."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "YAM",
+      "iso_3166": "NGA",
+      "reason": "7 Mt, 56 Mt of production, and a MapSPAM group crop decomposed rather than observed (SWPY). Tests the decomposition path at materiality."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "RICE",
+      "iso_3166": "PHL",
+      "reason": "6.7 Mt on 19 Mt of production, the largest PHL pair. National ratio only, for the same structural reason as PHL COCONUT: 17 World Bank regions against 81 GADM provinces, so E3 fails and the pair is off the eligible shortlist entirely. Carried as the annual counterpart to PHL COCONUT -- rice is herbaceous, so GLAD's cropland class does see it, and holding the country fixed across the two separates 'PHL is under-detected because its crops are perennial' from 'PHL is under-detected because it is PHL'. Pairs against IDN RICE on one crop across two archipelagos. Together the two PHL pairs cover 12.9 of the country's 24.8 Mt."
+    },
+    {
+      "basis": "gap",
+      "crop_name": "OILPALM",
+      "iso_3166": "PNG",
+      "reason": "5 Mt, carried for the forest-pool conservation bound rather than for its materiality: PNG's forest allocation is the most sensitive in the set to the expansion-share denominator, so it is where a regression there surfaces first."
+    },
+    {
+      "basis": "reserved",
+      "controls": [
+        {
+          "baseline": 1.634,
+          "emission_pool": "TOTAL",
+          "inherited": 1.05,
+          "measure": "SLUC_OVER_JDLUC",
+          "note": "The only internal head-to-head, independent of every external anchor. 56% above the inherited 1.05: peatland occupation is weighted by each crop's hectares rather than by its share of the expansion, which favors maize's large area. The jdLUC leg is unmoved.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.813,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_OVER_ORBAE",
+          "note": "The only method-family-matched comparison in the design: every Orbae row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.648,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "SLUC_OVER_ORBAE",
+          "note": "sLUC against the same anchor the jdLUC pair uses, so the two together separate method family from leg.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.738,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f",
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "ORBAE_OVER_WRI",
+          "note": "Over 44 shared provinces, the widest join in the set.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "MAIZE",
+      "iso_3166": "USA",
+      "reason": "The only jdLUC leg, so the only internal head-to-head between the two methodologies. 44 of 51 provinces in WRI's file."
+    },
+    {
+      "basis": "reserved",
+      "controls": [
+        {
+          "baseline": 1.748,
+          "emission_pool": "TOTAL",
+          "inherited": 1.62,
+          "measure": "SLUC_OVER_JDLUC",
+          "note": "The only internal head-to-head, independent of every external anchor. 8% above the inherited 1.62, from the same hectare-weighting of peatland occupation that moved the maize pair.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.835,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_OVER_ORBAE",
+          "note": "The only method-family-matched comparison in the design: every Orbae row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.613,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "SLUC_OVER_ORBAE",
+          "note": "sLUC against the same anchor the jdLUC pair uses, so the two together separate method family from leg.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.443,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f",
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "ORBAE_OVER_WRI",
+          "note": "Over 32 shared provinces, and the weakest anchor-against-anchor rank frozen here. The disagreement is a handful of states rather than a broad method difference: dropping the five worst-ranked puts it above the USA MAIZE pair.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "SOYBEAN",
+      "iso_3166": "USA",
+      "reason": "Largest US pair at 3.45 Mt, and the US soy comparison against BRA and ARG soy on one crop across three regimes."
+    },
+    {
+      "basis": "reserved",
+      "controls": [
+        {
+          "baseline": 1.155,
+          "emission_pool": "TOTAL",
+          "inherited": 1.19,
+          "measure": "SLUC_OVER_JDLUC",
+          "note": "The only internal head-to-head, independent of every external anchor. 3% below the inherited 1.19: hectare-weighting of peatland occupation barely touches wheat, so this pair carries only the drift common to every sLUC pool.",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "WHEAT",
+      "iso_3166": "USA",
+      "reason": "The only wheat pair, at 1.35 Mt. Orbae publishes no US wheat, so this pair carries the internal head-to-head alone."
+    },
+    {
+      "basis": "reserved",
+      "controls": [
+        {
+          "baseline": 3.259,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "SLUC_OVER_JDLUC",
+          "note": "The only internal head-to-head, independent of every external anchor. Frozen at 3.259, outside the 1.155-1.748 the three Midwestern pairs span. The disagreement is in the numerator rather than the denominator this pair was chosen for: production agrees to 0.78x and hectares to 0.82x, so sLUC charges cotton 2.5x the conversion emissions jdLUC does. The two Orbae rows below place that on the statistical leg.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.924,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_OVER_ORBAE",
+          "note": "The only method-family-matched comparison in the design: every Orbae row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg. Frozen at +0.924 over the 17 provinces Orbae covers, the closest any US pair comes to it -- ahead of maize at +0.813 -- which is what makes the sLUC row beside it worth reading. Rank rather than ratio: Orbae's export is assessment year 2023 with no 2020 export coming, and level cannot cross that offset (WRI's own spans 1.42x at the median) where provincial rank very nearly can (+0.961).",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.162,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "SLUC_OVER_ORBAE",
+          "note": "sLUC against the same anchor the jdLUC pair uses, so the two together separate method family from leg. Frozen at +0.162 where jdLUC reaches +0.924 over the same provinces against the same anchor: a third party built the jdLUC way ranks cotton the way our jdLUC leg does and not the way our statistical leg does, which is what makes the head-to-head above a finding about that leg rather than about the comparison. Rank rather than ratio, for the reason the jdLUC row gives.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.718,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f",
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "ORBAE_OVER_WRI",
+          "note": "Baselined at +0.718 over 17 shared provinces at full coverage, from the anchors alone with no capture, the same way the maize and soy rows are. It contains no term of ours, so movement means an anchor was revised rather than the pipeline moving. Cotton is the second-strongest US rank agreement the two anchors reach, behind maize at +0.738 and ahead of soy at +0.443, which is what makes it worth freezing: a weak baseline would report noise. Tolerance is absolute, in correlation units.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "COTTON",
+      "iso_3166": "USA",
+      "reason": "Largest US pair after maize and soy at 1.18 Mt, and southern rather than Midwestern. The one US pair whose denominator carries a product-form conversion: NASS reports ginned lint where MapSPAM and FAOSTAT carry seed cotton, and `usda_nass_quickstats.Series.reported_fraction` divides by 0.36 to cross between them. The first capture clears that constant rather than implicating it -- the two legs' production agrees to 0.78x, and FAOSTAT's own US seed-cotton yield agrees with this denominator to 0.95x -- which leaves the head-to-head on conversion emissions. Orbae covers US cotton at 17 provinces with area, enough for the rank controls."
+    },
+    {
+      "basis": "reserved",
+      "controls": [
+        {
+          "baseline": 0.667,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "SLUC_OVER_JDLUC",
+          "note": "The only internal head-to-head, independent of every external anchor. Frozen at 0.667, the one pair where sLUC sits below jdLUC rather than above: the flooded regime this pair was chosen to reach disagrees in the other direction, which is a different result from disagreeing by a different amount. Production agrees to 0.97x, so the 0.65x on conversion emissions is the whole of it.",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "RICE",
+      "iso_3166": "USA",
+      "reason": "The flooded regime, which no other US pair reaches. Maize, soybean and wheat are all Midwestern row crops on former grassland, so a spread between the legs across them cannot be told apart from a property of that one regime; rice is the cheapest pair that separates the two readings. 0.092 Mt, small on the anchor's own figure and here for what it distinguishes rather than its size. Orbae publishes no US rice, so this pair carries the internal head-to-head alone."
+    },
+    {
+      "basis": "reserved",
+      "controls": [
+        {
+          "baseline": 3.005,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "SLUC_OVER_JDLUC",
+          "note": "The only internal head-to-head, independent of every external anchor. Frozen at 3.005. Hectares agree within 0.2% and production to 0.91x, so conversion emissions carry all of it, on the one US pair that lands on peat. Orbae publishes US sugarcane but only four provinces carry area, too few for a rank control, so nothing external adjudicates this pair.",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "SUGARCANE",
+      "iso_3166": "USA",
+      "reason": "Subtropical, and the only US pair that lands on peat -- the Everglades Agricultural Area that `further_research.md` measures under repeated peatland drainage pulses -- so it exercises the peatland term the grassland pairs never touch. 0.151 Mt. Orbae does publish US sugarcane, but only four provinces carry any area, too few for a rank correlation to mean anything, so this pair carries the internal head-to-head alone."
+    },
+    {
+      "basis": "control",
+      "controls": [
+        {
+          "baseline": 0.423,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": 0.43,
+          "measure": "SLUC_OVER_WRI",
+          "note": "Temperate belt, two anchors. Reproduces the inherited 0.43.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.875,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "SLUC_OVER_ORBAE",
+          "note": "Second anchor on the Argentine belt.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.886,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f",
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "ORBAE_OVER_WRI",
+          "note": "Over 15 shared provinces.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "SOYBEAN",
+      "iso_3166": "ARG",
+      "reason": "6 Mt, temperate grassland-cropland, where the grassland pool has no external anchor at all."
+    },
+    {
+      "basis": "control",
+      "controls": [
+        {
+          "baseline": 0.441,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": 0.46,
+          "measure": "SLUC_OVER_WRI",
+          "note": "Temperate belt, two anchors. Reproduces the inherited 0.46.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.882,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "SLUC_OVER_ORBAE",
+          "note": "Second anchor on the Argentine belt, maize beside soy.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.8,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f",
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "ORBAE_OVER_WRI",
+          "note": "Over 15 shared provinces.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "MAIZE",
+      "iso_3166": "ARG",
+      "reason": "Holds the country fixed against ARG SOYBEAN so a crop-allocation change is separable from a country-level one."
+    },
+    {
+      "basis": "ranked",
+      "crop_name": "SOYBEAN",
+      "iso_3166": "BOL",
+      "reason": "9 Mt on only 7 provinces, the thinnest provincial coverage carried, which is itself worth watching. Not a control, on three counts: WRI's row here contradicts itself, giving more deforestation-linked area than FAOSTAT reports harvested (share 1.123); only 3 provinces are shared with Orbae, below the five-province floor, so the Orbae/WRI rank cannot be frozen; and over those 3 the rank is -0.500. A control cannot rest on a row its own anchor disagrees with itself about, so PRY SOYBEAN holds the dry-forest/soy slot instead. This pair remains a target: agreement is a result, and thin coverage is worth watching."
+    },
+    {
+      "basis": "control",
+      "controls": [
+        {
+          "baseline": 0.319,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": 0.32,
+          "measure": "SLUC_OVER_WRI",
+          "note": "Forest is 68% of the total EF; a second Congo Basin row guards against a single-country fluke. Reproduces the inherited 0.32.",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "MAIZE",
+      "iso_3166": "COD",
+      "reason": "7 Mt, and the implied intensity of ~1,270 tCO2/ha is far above any biome carbon density, so it is the standing example of emissions allocated onto a small production footprint."
+    },
+    {
+      "basis": "control",
+      "controls": [
+        {
+          "baseline": 0.571,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": 0.58,
+          "measure": "SLUC_OVER_WRI",
+          "note": "Miombo and mixed woodland: a different biome from the Congo Basin at a similar ratio. Reproduces the inherited 0.58.",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "MAIZE",
+      "iso_3166": "AGO",
+      "reason": "2 Mt, the smallest carried, kept because it guards the low-materiality end where a rounding or coverage bug would surface."
+    },
+    {
+      "basis": "control",
+      "controls": [
+        {
+          "baseline": 0.357,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": 0.4,
+          "measure": "SLUC_OVER_WRI",
+          "note": "Forest-dominated frontier where the method should be strongest; forest is 83% of the total EF. Sits 11% under the inherited 0.40, the loosest of the seven.",
+          "tolerance": 0.1
+        }
+      ],
+      "crop_name": "MAIZE",
+      "iso_3166": "CAF",
+      "reason": "NOT eligible at the provincial grain: E3 fails structurally, since GADM gives 17 prefectures where the World Bank gives 7 regions and the relation is many-to-one. Carried as a national ratio only."
+    }
+  ]
+}

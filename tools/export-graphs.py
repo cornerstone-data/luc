@@ -86,13 +86,52 @@ METHODOLOGY_TO_ISO_3166_TO_CROP_NAMES = {
     attribute.Methodology.JURISDICTIONAL_DIRECT: {"USA": ("MAIZE", "SOYBEAN", "WHEAT")},
     attribute.Methodology.STATISTICAL: {
         "BRA": ("MAIZE", "SOYBEAN", "OILPALM"),
-        "BOL": ("SOYBEAN",),
+        "BOL": ("SOYBEAN", "PLANTAIN", "BANANA"),
         "ARG": ("SOYBEAN",),
         "CAN": ("SOYBEAN",),
         "IDN": ("OILPALM",),
         "PNG": ("OILPALM",),
+        "GHA": ("RICE", "WHEAT"),
+        "VNM": ("RICE", "SORGHUM"),
+        "MYS": ("RICE", "SORGHUM", "OILPALM"),
+        "CUB": ("SUGARCANE", "RICE", "BANANA"),
+        "ZAF": ("RICE", "WHEAT", "SORGHUM"),
     },
 }
+
+
+def subset_to_crop_names(
+    df: pandas.DataFrame, crop_names: tuple[str, ...]
+) -> pandas.DataFrame:
+    ret = df[df.index.get_level_values("crop_name").isin(crop_names)]
+    missing = sorted(
+        set(crop_names) - set(map(str, ret.index.get_level_values("crop_name")))
+    )
+    if missing:
+        logger.warning(f"Workflow returned no rows for {missing=}")
+    return ret
+
+
+def iter_dfs(
+    iso_3166_to_crop_names: dict[str, tuple[str, ...]],
+    methodology: attribute.Methodology,
+) -> collections.abc.Iterator[pandas.DataFrame]:
+    # The full crop list, so this reuses the caches an ordinary trace.py run populates
+    workflow_crop_names = attribute.get_crop_names(methodology=methodology)
+    for iso_3166, crop_names in iso_3166_to_crop_names.items():
+        logger.info(
+            f"Tracing {methodology.name:s}/{iso_3166:s} with "
+            f"{len(workflow_crop_names):d} crops, tabulating {len(crop_names):d}"
+        )
+        yield subset_to_crop_names(
+            df=trace.workflow(
+                crop_names=workflow_crop_names,
+                iso_3166s=(iso_3166,),
+                methodology=methodology,
+                skip_glad_crop_filter=False,
+            ),
+            crop_names=crop_names,
+        )
 
 
 def iter_path_record(
@@ -153,13 +192,10 @@ def main() -> int:
     write_data_to_graph(
         dfs=[
             pandas.concat(
-                trace.workflow(
-                    crop_names=crop_names,
-                    iso_3166s=(iso_3166,),
+                iter_dfs(
+                    iso_3166_to_crop_names=iso_3166_to_crop_names,
                     methodology=methodology,
-                    skip_glad_crop_filter=False,
                 )
-                for iso_3166, crop_names in iso_3166_to_crop_names.items()
             )
             for methodology, iso_3166_to_crop_names in METHODOLOGY_TO_ISO_3166_TO_CROP_NAMES.items()
         ]

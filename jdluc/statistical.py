@@ -10,7 +10,6 @@ import xarray
 from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
     DatasetName,
-    base,
     gfw_global_peatlands,
     glad_glcluc,
     ifpri_mapspam,
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 class Crop(enum.StrEnum):
     BARLEY = ifpri_mapspam.Crop2000.BARL.name
     BEAN = ifpri_mapspam.Crop2000.BEAN.name
-    CASSAVE = ifpri_mapspam.Crop2000.CASS.name
+    CASSAVA = ifpri_mapspam.Crop2000.CASS.name
     COTTON = ifpri_mapspam.Crop2000.COTT.name
     GROUNDNUT = ifpri_mapspam.Crop2000.GROU.name
     MAIZE = ifpri_mapspam.Crop2000.MAIZ.name
@@ -57,11 +56,7 @@ class Crop(enum.StrEnum):
     YAM = ifpri_mapspam.Crop2005.YAMS.name
 
 
-assert all(
-    e.value
-    in ifpri_mapspam.SHARED_CROP_NAMES | set(ifpri_mapspam.CONSTITUENT_TO_GROUP_NAME)
-    for e in Crop
-)
+assert {e.value for e in Crop} == ifpri_mapspam.RECOVERABLE_CROP_NAMES
 
 
 DATASET_NAMES = (
@@ -89,31 +84,22 @@ GLAD_VARIABLE_NAMES = [
 ]
 
 
-def get_band_type_for_variable_name(variable_name: str) -> base.BandType:
-    if "-per-ha" in variable_name:
-        return base.BandType.INTENSIVE
-    elif variable_name.endswith((":ha", ":tco2e")):
-        return base.BandType.EXTENSIVE
-    else:
-        return base.BandType.CATEGORICAL
-
-
-@storage.cache_to_zarr(version=1)
+@storage.cache_to_zarr(version=0)
 def get_downscaled_luc_emissions(
-    skip_glad_crop_filter: bool, tile_ids: tuple[str, ...]
+    skip_glad_crop_filter: bool, tile_id: str
 ) -> xarray.Dataset:
     logger.info("Computing emissions on the GLAD grid")
     glad_emissions = geo.exact_merge(
         harmonize.workflow(
             dataset_names=harmonize.LUC_AND_EMISSIONS_DATASET_NAMES,
-            ignore_missing_tiles=False,
+            ignore_missing_tiles=True,
             skip_ingest=False,
-            tile_ids=tile_ids,
-            tile_resolution=tiling.TileResolution.GLAD.value,
+            tile_id=tile_id,
+            tile_resolution=tiling.TileResolution.GLAD,
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(tile_ids=tile_ids),
+        emit.workflow(tile_id=tile_id),
     )
 
     logger.info("Splitting forest / peatland-conversion per span")
@@ -151,9 +137,8 @@ def get_downscaled_luc_emissions(
             )
 
     logger.info("Downsampling emissions from the GLAD grid to the MAPSPAM grid")
-    grid = harmonize.Grid.from_tile_ids_resolution(
-        tile_ids=tile_ids,
-        tile_resolution=tiling.TileResolution.MAPSPAM.value,  # type: ignore
+    grid = harmonize.Grid.from_tile_id_resolution(
+        resolution=tiling.TileResolution.MAPSPAM, tile_id=tile_id
     )
     return xarray.Dataset(
         {
@@ -171,131 +156,62 @@ def get_downscaled_luc_emissions(
     )
 
 
-def get_band_name_for_crop_name(
-    crop_name: str,
-    quantity: ifpri_mapspam.Quantity,
-    year: int,
-) -> str:
-    # NB: this works because enum and band orders are the same
-    crop_cls = ifpri_mapspam.YEAR_TO_CROP_CLS[year]
-    name_to_idx = {name: idx for idx, name in enumerate(e.name for e in crop_cls)}
-    idx = name_to_idx[crop_name]
-    year_to_dataset = (
-        ifpri_mapspam.YEAR_TO_PHYSICAL_AREA_DATASET
-        if quantity == ifpri_mapspam.Quantity.PHYSICAL_AREA
-        else ifpri_mapspam.YEAR_TO_PRODUCTION_DATASET
-    )
-    dataset = year_to_dataset[year]
-    return dataset.fully_qualified_band_names[idx]
-
-
-def get_harmonized_quantity(
-    crop_name: str,
-    dset: xarray.Dataset,
-    quantity: ifpri_mapspam.Quantity,
-    year: int,
-) -> xarray.DataArray:
-    def snapshot(
-        crop_name: str, quantity: ifpri_mapspam.Quantity, year: int
-    ) -> xarray.DataArray:
-        variable_name = get_band_name_for_crop_name(
-            crop_name=crop_name, quantity=quantity, year=year
-        )
-        return dset[variable_name].fillna(0)
-
-    if (
-        year == ifpri_mapspam.YEAR_TO_DECOMPOSE
-        and crop_name not in ifpri_mapspam.SHARED_CROP_NAMES
-    ):
-        # Decompose the grouped crops into their constituents, assuming the within-group
-        # proportions match that of the reference year
-        group_name = ifpri_mapspam.CONSTITUENT_TO_GROUP_NAME[crop_name]
-        siblings = sorted(ifpri_mapspam.GROUP_TO_CONSTITUENT_NAMES[group_name])
-        reference_group_area = sum(
-            snapshot(
-                crop_name=s,
-                quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
-                year=ifpri_mapspam.DECOMPOSITION_REFERENCE_YEAR,
-            )
-            for s in siblings
-        )
-        assert isinstance(reference_group_area, xarray.DataArray)
-        constituent_share = xarray.where(
-            reference_group_area > 0,
-            snapshot(
-                crop_name=crop_name,
-                quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
-                year=ifpri_mapspam.DECOMPOSITION_REFERENCE_YEAR,
-            )
-            # NB: this avoids `RuntimeWarning: invalid value encountered in divide`
-            / reference_group_area.where(reference_group_area > 0, other=1),
-            # Group absent in the reference year -> split it evenly
-            1 / len(siblings),
-        )
-        return (
-            snapshot(
-                crop_name=group_name,
-                quantity=quantity,
-                year=ifpri_mapspam.YEAR_TO_DECOMPOSE,
-            )
-            * constituent_share
-        )
-    else:
-        # Simple lookup
-        return snapshot(
-            crop_name=ifpri_mapspam.map_2005_name_to_year(
-                crop_name=crop_name, year=year
-            ),
-            quantity=quantity,
-            year=year,
-        )
-
-
 def get_crop_to_share(
     after: int, before: int, crops: tuple[Crop, ...], dset: xarray.Dataset
 ) -> dict[Crop, xarray.DataArray]:
-    def snapshot_area(crop_name: str, year: int) -> xarray.DataArray:
-        variable_name = get_band_name_for_crop_name(
-            crop_name=crop_name,
-            quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
-            year=year,
-        )
-        return dset[variable_name].fillna(0)
-
-    def expansion(crop_name: str) -> xarray.DataArray:
+    def get_expansion(canonical_crop_name: str) -> xarray.DataArray:
         return (
-            get_harmonized_quantity(
-                crop_name=crop_name,
+            ifpri_mapspam.get_canonical_quantity(
+                canonical_crop_name=canonical_crop_name,
                 dset=dset,
                 quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
                 year=after,
             )
-            - get_harmonized_quantity(
-                crop_name=crop_name,
+            - ifpri_mapspam.get_canonical_quantity(
+                canonical_crop_name=canonical_crop_name,
                 dset=dset,
                 quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
                 year=before,
             )
         ).clip(min=0)
 
-    common_expansion = sum(map(expansion, sorted(ifpri_mapspam.SHARED_CROP_NAMES)))
+    attributed_expansion = sum(
+        get_expansion(canonical_crop_name=name)
+        for name in sorted(ifpri_mapspam.RECOVERABLE_CROP_NAMES)
+    )
 
-    def residual(year: int) -> xarray.DataArray:
-        # NB: no expansion logic is required so we can do simple snapshot lookups
+    # Drop any crops which are being newly tracked so they aren't interpreted as an expansion from zero
+    before_names = ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[before]
+    after_names = ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[after]
+    if (before, after) in ifpri_mapspam.SPANS_WITH_COMPARABLE_CROP_NAMES:
+        before_names = after_names = before_names & after_names
+
+    def get_unattributed(year: int, names: set[str]) -> xarray.DataArray:
+        # NB: no canonical lookup is required -- these names are already `year`'s own, and
+        # nothing divides by them, so the raw band is the whole answer
         ret = sum(
-            snapshot_area(crop_name=e.name, year=year)
-            for e in ifpri_mapspam.YEAR_TO_CROP_CLS[year]
-            if e.name not in ifpri_mapspam.SHARED_CROP_NAMES
+            ifpri_mapspam.get_reported_quantity(
+                dset=dset,
+                quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
+                reported_crop_name=name,
+                year=year,
+            )
+            for name in sorted(names)
         )
         assert isinstance(ret, xarray.DataArray)
         return ret
 
-    residual_expansion = (residual(year=after) - residual(year=before)).clip(min=0)
-    total_expansion = common_expansion + residual_expansion
+    unattributed_expansion = (
+        get_unattributed(year=after, names=after_names)
+        - get_unattributed(year=before, names=before_names)
+    ).clip(min=0)
+    total_expansion = attributed_expansion + unattributed_expansion
     total_expansion = total_expansion.where(total_expansion > 0)
     return {
         # Share is zero when there is no expansion at all
-        crop: (expansion(crop_name=crop.value) / total_expansion).fillna(0)
+        crop: (get_expansion(canonical_crop_name=crop.value) / total_expansion).fillna(
+            0
+        )
         for crop in crops
     }
 
@@ -314,7 +230,7 @@ assert set(GLAD_TO_MAPSPAM_SPAN) == set(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
 def get_crop_name_to_totals(
     dset: xarray.Dataset,
     crop_to_span_to_share: dict[Crop, dict[emit.SpanType, xarray.DataArray]],
-    whole_period_shares: dict[Crop, xarray.DataArray],
+    occupation_shares: dict[Crop, xarray.DataArray],
 ) -> dict[str, dict[str, float]]:
     peatland_fraction = dset[gfw_global_peatlands.DATASET.fully_qualified_band_name]
     hectares = emit.get_hectares_per_pixel(darray=peatland_fraction)
@@ -323,9 +239,10 @@ def get_crop_name_to_totals(
     crop_to_totals: dict[Crop, dict[str, xarray.DataArray]] = collections.defaultdict(
         dict
     )
+    weight_total = sum(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values())
     for crop, span_to_share in crop_to_span_to_share.items():
-        conversion = emit.get_linear_discounted_emissions(
-            span_to_emissions={
+        conversion = emit.get_linear_discounted_total(
+            span_to_value={
                 (before, after): dset[f"emissions:tco2e-per-ha:{before:d}-{after:d}"]
                 * hectares
                 * span_to_share[GLAD_TO_MAPSPAM_SPAN[(before, after)]]
@@ -335,25 +252,35 @@ def get_crop_name_to_totals(
                 ) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
             }
         )
-        peatland = peatland_occupation * whole_period_shares[crop]
-        crop_name = ifpri_mapspam.map_2005_name_to_year(
-            crop_name=crop.value,
-            year=2020,
-        )
-        crop_hectares = dset[
-            get_band_name_for_crop_name(
-                crop_name=crop_name,
-                quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
-                year=2020,
+        peatland = peatland_occupation * occupation_shares[crop]
+        crop_hectares = (
+            emit.get_linear_discounted_total(
+                span_to_value={
+                    glad_span: (
+                        ifpri_mapspam.get_canonical_quantity(
+                            canonical_crop_name=crop.value,
+                            dset=dset,
+                            quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
+                            year=before,
+                        )
+                        + ifpri_mapspam.get_canonical_quantity(
+                            canonical_crop_name=crop.value,
+                            dset=dset,
+                            quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
+                            year=after,
+                        )
+                    )
+                    / 2
+                    for glad_span, (before, after) in GLAD_TO_MAPSPAM_SPAN.items()
+                }
             )
-        ]
-        assert isinstance(crop_hectares, xarray.DataArray)
-
+            / weight_total
+        )
         crop_to_totals[crop]["crop_hectares"] = crop_hectares
         for source in ("forest", "peatland_conversion"):
             crop_to_totals[crop][f"{source:s}_emissions_mt"] = (
-                emit.get_linear_discounted_emissions(
-                    span_to_emissions={
+                emit.get_linear_discounted_total(
+                    span_to_value={
                         (before, after): dset[
                             f"{source:s}:tco2e-per-ha:{before:d}-{after:d}"
                         ]
@@ -368,69 +295,110 @@ def get_crop_name_to_totals(
         )
         crop_to_totals[crop]["peatland_occupation_emissions_mt"] = peatland
         crop_to_totals[crop]["emissions_mt"] = conversion + peatland
-        # Reduce production over the windows using the same linear temporal discounting
-        weight_total = sum(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values())
         crop_to_totals[crop]["production_mt"] = (
-            sum(
-                weight
-                * (
-                    get_harmonized_quantity(
-                        crop_name=crop.value,
-                        dset=dset,
-                        quantity=ifpri_mapspam.Quantity.PRODUCTION,
-                        year=mapspam_before,
+            emit.get_linear_discounted_total(
+                span_to_value={
+                    glad_span: (
+                        ifpri_mapspam.get_canonical_quantity(
+                            canonical_crop_name=crop.value,
+                            dset=dset,
+                            quantity=ifpri_mapspam.Quantity.PRODUCTION,
+                            year=before,
+                        )
+                        + ifpri_mapspam.get_canonical_quantity(
+                            canonical_crop_name=crop.value,
+                            dset=dset,
+                            quantity=ifpri_mapspam.Quantity.PRODUCTION,
+                            year=after,
+                        )
                     )
-                    + get_harmonized_quantity(
-                        crop_name=crop.value,
-                        dset=dset,
-                        quantity=ifpri_mapspam.Quantity.PRODUCTION,
-                        year=mapspam_after,
-                    )
-                )
-                / 2
-                for (
-                    before,
-                    after,
-                ), weight in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.items()
-                for (mapspam_before, mapspam_after) in [
-                    GLAD_TO_MAPSPAM_SPAN[(before, after)]
-                ]
-            )  # type: ignore
+                    / 2
+                    for glad_span, (before, after) in GLAD_TO_MAPSPAM_SPAN.items()
+                }
+            )
             / weight_total
         )
     return utils.get_sum_totals(enum_to_name_to_darray=crop_to_totals)
 
 
-@storage.cache_to_parquet(version=0)
+def get_crop_to_area_share(
+    crops: tuple[Crop, ...], dset: xarray.Dataset, year: int
+) -> dict[Crop, xarray.DataArray]:
+    # NB: the denominator walks `year`'s own taxonomy, so every name here is already reported
+    total_area = sum(
+        ifpri_mapspam.get_reported_quantity(
+            dset=dset,
+            quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
+            reported_crop_name=e.name,
+            year=year,
+        )
+        for e in ifpri_mapspam.YEAR_TO_CROP_CLS[year]
+    )
+    assert isinstance(total_area, xarray.DataArray)
+    total_area = total_area.where(total_area > 0)
+    return {
+        # Share is zero when no crop occupies the cell at all
+        crop: (
+            ifpri_mapspam.get_canonical_quantity(
+                canonical_crop_name=crop.value,
+                dset=dset,
+                quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
+                year=year,
+            )
+            / total_area
+        ).fillna(0)
+        for crop in crops
+    }
+
+
+SCHEMA = {
+    "admin_id": str,
+    "admin_level": str,
+    "crop_hectares": float,
+    "crop_name": str,
+    "emissions_mt": float,
+    "forest_emissions_mt": float,
+    "jurisdiction_name": str,
+    "peatland_conversion_emissions_mt": float,
+    "peatland_crop_hectares": float,
+    "peatland_occupation_emissions_mt": float,
+    "production_mt": float,
+}
+
+
+@storage.cache_to_parquet(version=1)
 def workflow(
     crop_names: tuple[str, ...],
     iso_3166: str,
     skip_glad_crop_filter: bool,
-    tile_ids: tuple[str, ...],
+    tile_id: str,
 ) -> pandas.DataFrame:
     from rioxarray.exceptions import NoDataInBounds
 
     crops = tuple(Crop[crop_name] for crop_name in crop_names)
-    logger.info(f"Computing emissions for {crops=:}")
+    logger.info(f"Computing emissions for {crops=:} and {tile_id=:s}")
     merged = geo.exact_merge(
         # NB: this is deferred because it is expensive and would like to cache it
         get_downscaled_luc_emissions(
-            skip_glad_crop_filter=skip_glad_crop_filter, tile_ids=tile_ids
+            skip_glad_crop_filter=skip_glad_crop_filter, tile_id=tile_id
         ),
         # MAPSPAM
         harmonize.workflow(
             dataset_names=DATASET_NAMES,
-            ignore_missing_tiles=False,
+            ignore_missing_tiles=True,
             skip_ingest=False,
-            tile_ids=tile_ids,
-            tile_resolution=tiling.TileResolution.MAPSPAM.value,
+            tile_id=tile_id,
+            tile_resolution=tiling.TileResolution.MAPSPAM,
         ),
     )
 
     def it() -> collections.abc.Iterator[dict[str, float | str]]:
-        for jurisdiction in worldbank_jurisdictions.iter_jurisdiction_for_iso_3166(
+        for (
+            jurisdiction
+        ) in worldbank_jurisdictions.iter_jurisdiction_for_iso_3166_tile_id(
             admin_level=worldbank_jurisdictions.AdminLevel.PROVINCIAL,
             iso_3166=iso_3166,
+            tile_id=tile_id,
         ):
             logger.info(f"Clipping to provincial geometry from {jurisdiction.id=:s}")
             try:
@@ -445,21 +413,15 @@ def workflow(
                         crops=crops,
                         dset=clipped,
                     )
-                    for (before, after) in GLAD_TO_MAPSPAM_SPAN.values()
+                    for (before, after) in dict.fromkeys(GLAD_TO_MAPSPAM_SPAN.values())
                 }
-                crop_to_span_to_share: dict[
-                    Crop, dict[emit.SpanType, xarray.DataArray]
-                ] = collections.defaultdict(dict)
-                for span, crop_to_share in span_to_crop_to_share.items():
-                    for crop, share in crop_to_share.items():
-                        crop_to_span_to_share[crop][span] = share
-
-                whole_period_shares = get_crop_to_share(
-                    after=max(ifpri_mapspam.YEARS),
-                    before=min(ifpri_mapspam.YEARS),
-                    crops=crops,
-                    dset=clipped,
-                )
+                crop_to_span_to_share = {
+                    crop: {
+                        span: crop_to_share[crop]
+                        for span, crop_to_share in span_to_crop_to_share.items()
+                    }
+                    for crop in crops
+                }
 
                 logger.info(
                     f"Populating emissions for {jurisdiction.id=!s}/{len(crops)=:d} crops"
@@ -467,16 +429,28 @@ def workflow(
                 crop_name_to_totals = get_crop_name_to_totals(
                     crop_to_span_to_share=crop_to_span_to_share,
                     dset=clipped,
-                    whole_period_shares=whole_period_shares,
+                    # NB: unlike conversion emissions, peatland occupation is a land-management flux on land
+                    # that is drained *now* -- it has no relationship to expansion, and expansion is zero on
+                    # the long-established peat cropland that dominates this pool. So allocate it by each
+                    # crop's share of area occupied -- matching the approach for the jurisdictional-direct leg.
+                    occupation_shares=get_crop_to_area_share(
+                        crops=crops,
+                        dset=clipped,
+                        year=max(ifpri_mapspam.YEARS),
+                    ),
                 )
                 for crop_name, totals in crop_name_to_totals.items():
                     yield totals | {
                         "admin_id": jurisdiction.id,
-                        "admin_level": worldbank_jurisdictions.AdminLevel.PROVINCIAL.name,
+                        "admin_level": jurisdiction.level,
                         "crop_name": crop_name,
                         "jurisdiction_name": jurisdiction.name,
                     }
 
-    return pandas.DataFrame.from_records(data=it()).set_index(
-        ["admin_level", "crop_name", "jurisdiction_name"]
+    if data := list(it()):
+        assert set(data[0]) == set(SCHEMA)
+    return (
+        pandas.DataFrame.from_records(columns=list(SCHEMA), data=data)
+        .astype(SCHEMA)
+        .set_index(["admin_level", "admin_id", "crop_name"])
     )

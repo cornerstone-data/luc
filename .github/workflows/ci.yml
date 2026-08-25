@@ -12,8 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.3.2
-        with:
-          enable-cache: true
       - name: Install dependencies
         run: uv sync
       - uses: actions/cache@v6
@@ -28,9 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.3.2
-        with:
-          enable-cache: true
       - name: Install dependencies
         run: uv sync
       - name: pytest (unit only)
-        run: uv run pytest jdluc/__tests__/
+        run: uv run pytest

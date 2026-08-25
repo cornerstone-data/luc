@@ -4,7 +4,8 @@ license: CC BY 4.0
 
 year: ~static
 
-Calvo Buendia, E et al. (2019). 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories. IPCC, Switzerland. https://doi.org/10.5281/zenodo.7303808
+Lewis, M. (2022). IPCC Climate Zones (from the 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories), version 0.1.0 [Data set]. Zenodo. https://doi.org/10.5281/zenodo.7303808
+Calvo Buendia, E et al. (2019). 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories. IPCC, Switzerland. -- the decision tree the raster implements.
 
 https://zenodo.org/records/7303808
 

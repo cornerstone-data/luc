@@ -175,7 +175,7 @@ def main():
     parser.add_argument(
         "--nearest",
         action="store_true",
-        help="Use nearest-neighbour resampling instead of bilinear",
+        help="Use nearest-neighbor resampling instead of bilinear",
     )
     args = parser.parse_args()
 
@@ -199,7 +199,7 @@ def main():
 
     _vmin = args.vmin
     _vmax = args.vmax
-    log.info("Colour range: [%g, %g]", _vmin, _vmax)
+    log.info("Color range: [%g, %g]", _vmin, _vmax)
 
     _resampling = Image.NEAREST if args.nearest else Image.BILINEAR
     log.info("Resampling: %s", "nearest" if args.nearest else "bilinear")

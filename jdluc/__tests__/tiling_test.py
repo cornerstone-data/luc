@@ -2,8 +2,10 @@ import pytest
 import shapely
 
 from jdluc.tiling import (
+    GLOBAL_FOREST_WATCH_TILE_IDS,
     PARTITIONING_TO_IS_VALID_TILE_ID,
     Partitioning,
+    get_box_for_tile_id,
     get_lat_lon_for_tile_id,
     get_tile_id_for_lat_lon,
     iter_ten_degree_tile_id_for_geometry,
@@ -59,3 +61,20 @@ def test_iter_ten_degree_tile_id_for_geometry(
     geometry: shapely.Polygon | shapely.MultiPolygon, expected: tuple[str, ...]
 ) -> None:
     assert tuple(iter_ten_degree_tile_id_for_geometry(geometry=geometry)) == expected
+
+
+def test_get_box_for_tile_id_uses_the_northern_lat() -> None:
+    assert get_box_for_tile_id(tile_id="50N_080W").equals(BOX_40N_080W)
+
+
+@pytest.mark.parametrize("tile_id", GLOBAL_FOREST_WATCH_TILE_IDS)
+def test_get_box_for_tile_id_round_trips(tile_id: str) -> None:
+    # These two functions must agree on the northern-lat convention, because
+    # worldbank_jurisdictions.iter_jurisdiction_for_iso_3166_tile_id skips a province whose
+    # geometry misses this box. Were the conventions to drift by one tile, a province could be
+    # skipped for every tile it belongs to and disappear from the rollup entirely.
+    assert tuple(
+        iter_ten_degree_tile_id_for_geometry(
+            geometry=get_box_for_tile_id(tile_id=tile_id)
+        )
+    ) == (tile_id,)

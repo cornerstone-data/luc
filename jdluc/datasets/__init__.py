@@ -2,6 +2,7 @@ import enum
 
 from jdluc.datasets import (
     base,
+    faostat_production,
     gfw_global_peatlands,
     gfw_harris_agb,
     gfw_tcl,
@@ -24,6 +25,7 @@ class DatasetName(enum.StrEnum):
     ) -> str:
         return name
 
+    FAOSTAT_PRODUCTION = enum.auto()
     GFW_GLOBAL_PEATLANDS = enum.auto()
     GFW_HARRIS_AGB = enum.auto()
     GFW_TREE_COVER_LOSS = enum.auto()
@@ -49,6 +51,7 @@ class DatasetName(enum.StrEnum):
 NAME_TO_CLS: dict[
     DatasetName, base.RasterDataset | base.TabularDataset | base.VectorDataset
 ] = {
+    DatasetName.FAOSTAT_PRODUCTION: faostat_production.DATASET,
     DatasetName.GFW_GLOBAL_PEATLANDS: gfw_global_peatlands.DATASET,
     DatasetName.GFW_HARRIS_AGB: gfw_harris_agb.DATASET,
     DatasetName.GFW_TREE_COVER_LOSS: gfw_tcl.DATASET,
