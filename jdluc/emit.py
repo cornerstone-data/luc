@@ -5,8 +5,12 @@ across the 2000-2020 span transitions, adds ongoing peatland-occupation emission
 the GHGP 20-year linear discount. Returns an xarray.Dataset — per-hectare emissions plus a
 hectares-per-pixel band for downstream area-scaling — which is cached.
 
-Example invocation:
-  uv run python jdluc/emit.py NORTH_AMERICA
+The tile set comes from the positional ISO 3166 alpha-3 codes -- or, with `--backfill`,
+from `tiling.GLOBAL_FOREST_WATCH_TILE_IDS`.
+
+Example invocations:
+  uv run python jdluc/emit.py USA
+  uv run python jdluc/emit.py --backfill
 """
 
 import argparse
@@ -20,7 +24,7 @@ import typing
 import numpy
 import xarray
 
-from jdluc import continents, geo, harmonize, storage, tiling
+from jdluc import geo, harmonize, storage, tiling
 from jdluc.datasets import (
     gfw_global_peatlands,
     gfw_harris_agb,
@@ -28,6 +32,7 @@ from jdluc.datasets import (
     huang_bgb,
     ipcc_climate_zones,
     soilgrids_ocs,
+    worldbank_jurisdictions,
 )
 
 logger = logging.getLogger(__name__)
@@ -205,7 +210,10 @@ def get_mineral_soil_emissions(
             dask="parallelized",
             output_dtypes=[numpy.float32],
         )
-        * soil_organic_carbon
+        # NB: SoilGrids has genuine gaps (water, rock, ice) that harmonize turns into NaN.
+        # Treat a missing stock as zero rather than letting NaN reach emissions-per-hectare,
+        # where it would silently discard the pixel's vegetation emissions too.
+        * soil_organic_carbon.fillna(0)
     ).rename("tco2e-per-ha")
 
 
@@ -248,9 +256,8 @@ PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA = 37.3
 
 
 def get_peatland_occupation_emissions(
-    is_peatland: xarray.DataArray, year_to_land_class: dict[int, xarray.DataArray]
+    is_peatland: xarray.DataArray, latest_land_class: xarray.DataArray
 ) -> xarray.DataArray:
-    latest_land_class = year_to_land_class[max(year_to_land_class)]
     undrained_classes = (
         # still natural
         glad_glcluc.LandClass.FOREST.value,
@@ -263,8 +270,10 @@ def get_peatland_occupation_emissions(
     is_undrained = functools.reduce(
         operator.or_, (latest_land_class == value for value in undrained_classes)
     )
-    return PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA * is_peatland.where(
-        ~is_undrained, other=0
+    return (
+        PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA
+        # NB: ensure no nan's are created which would clobber other nonzero emissions when combined
+        * (is_peatland == 1).astype(numpy.float32).where(~is_undrained, other=0)
     ).rename("tco2e-per-ha")
 
 
@@ -279,14 +288,20 @@ assert all((after - before) == 5 for (before, after) in SPAN_TO_LINEAR_DISCOUNT_
 assert math.isclose(sum(SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values()), 0.2)
 
 
-def get_linear_discounted_emissions(
-    span_to_emissions: dict[SpanType, xarray.DataArray],
+def get_linear_discounted_total(
+    span_to_value: dict[SpanType, xarray.DataArray],
 ) -> xarray.DataArray:
+    """`span_to_value` reduced by the linear discount each span carries.
+
+    Quantity-neutral: a flux -- emissions -- takes the weighted sum as it stands, while a level
+    -- area, production -- divides the result by the weights' total, making the same reduction
+    a weighted mean over the same windows.
+    """
     ret = sum(
-        emissions * SPAN_TO_LINEAR_DISCOUNT_WEIGHT[span]
-        for span, emissions in span_to_emissions.items()
+        value * SPAN_TO_LINEAR_DISCOUNT_WEIGHT[span]
+        for span, value in span_to_value.items()
     )
-    return typing.cast(xarray.DataArray, ret).rename("tco2e-per-ha")
+    return typing.cast(xarray.DataArray, ret)
 
 
 def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
@@ -335,14 +350,14 @@ def get_dset_for_output(name_to_darray: dict[str, xarray.DataArray]) -> xarray.D
 
 
 @storage.cache_to_zarr(version=0)
-def workflow(tile_ids: tuple[str, ...]) -> xarray.Dataset:
-    logger.info(f"Running the land conversion and emissions worflow for {tile_ids=:}")
+def workflow(tile_id: str) -> xarray.Dataset:
+    logger.info(f"Running the land conversion and emissions worflow for {tile_id=:s}")
     dset = harmonize.workflow(
         dataset_names=harmonize.LUC_AND_EMISSIONS_DATASET_NAMES,
-        ignore_missing_tiles=False,
+        ignore_missing_tiles=True,
         skip_ingest=False,
-        tile_ids=tile_ids,
-        tile_resolution=tiling.TileResolution.GLAD.value,
+        tile_id=tile_id,
+        tile_resolution=tiling.TileResolution.GLAD,
     )
 
     logger.info("Mapping GLCLUC values to land classes")
@@ -388,7 +403,7 @@ def workflow(tile_ids: tuple[str, ...]) -> xarray.Dataset:
     }
 
     logger.info("Quantifying soil emissions")
-    is_peatland = dset[gfw_global_peatlands.DATASET.fully_qualified_band_name]
+    is_peatland = dset[gfw_global_peatlands.DATASET.fully_qualified_band_name].fillna(0)
     span_to_soil_emissions = {
         (before, after): get_soil_emissions(
             after=year_to_land_class[after],
@@ -410,10 +425,11 @@ def workflow(tile_ids: tuple[str, ...]) -> xarray.Dataset:
 
     logger.info("Quantifying and adding peatland occupation emissions")
     peatland_occupation_emissions: xarray.DataArray = get_peatland_occupation_emissions(
-        is_peatland=is_peatland, year_to_land_class=year_to_land_class
+        is_peatland=is_peatland,
+        latest_land_class=year_to_land_class[max(year_to_land_class)],
     )
     emissions_per_hectare: xarray.DataArray = (
-        get_linear_discounted_emissions(span_to_emissions=span_to_emissions)
+        get_linear_discounted_total(span_to_value=span_to_emissions)
         + peatland_occupation_emissions
     )
 
@@ -450,14 +466,25 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "continent_names",
-        choices=sorted(e.name for e in continents.Continent),
-        nargs=argparse.ONE_OR_MORE,
+        "iso_3166s",
+        help="cover exactly the tiles these countries' boundaries touch",
+        nargs=argparse.ZERO_OR_MORE,
+        type=worldbank_jurisdictions.iso_3166_str,
     )
+    parser.add_argument("--backfill", action="store_true", help="cover all GFW tiles")
     args = parser.parse_args()
+    assert bool(args.iso_3166s) ^ bool(args.backfill), (
+        "pass either one-or-more iso_3166s or --backfill"
+    )
 
-    for continent_name in map(str, args.continent_names):
-        workflow(tile_ids=continents.Continent[continent_name].value)
+    for tile_id in sorted(
+        tiling.GLOBAL_FOREST_WATCH_TILE_IDS
+        if args.backfill
+        else worldbank_jurisdictions.get_ten_degree_tile_ids_for_iso_3166s(
+            iso_3166s=args.iso_3166s
+        )
+    ):
+        workflow(tile_id=tile_id)
     return 0
 
 

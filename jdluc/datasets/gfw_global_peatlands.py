@@ -7,7 +7,7 @@ year: ~static
 - Crezee, B. et al. Mapping peat thickness and carbon stocks of the central Congo Basin using field data. Nature Geoscience 15: 639-644 (2022). https://www.nature.com/articles/s41561-022-00966-7. Data downloaded from https://congopeat.net/maps/, using classes 4 and 5 only (peat classes).
 - Gumbricht, T. et al. An expert system model for mapping tropical wetlands and peatlands reveals South America as the largest contributor. Global Change Biology 23, 3581-3599 (2017). https://onlinelibrary.wiley.com/doi/full/10.1111/gcb.13689
 - Hastie, A. et al. Risks to carbon storage from land-use change revealed by peat thickness maps of Peru. Nature Geoscience 15: 369-374 (2022). https://www.nature.com/articles/s41561-022-00923-4
-- Miettinen, J., Shi, C. & Liew, S. C. Land cover distribution in the peatlands of Peninsular Malaysia, Sumatra and Borneo in 2015 with changes since 1990. Global Ecological Conservation. 6, 67- 78 (2016). https://www.sciencedirect.com/science/article/pii/S2351989415300470
+- Miettinen, J., Shi, C. & Liew, S. C. Land cover distribution in the peatlands of Peninsular Malaysia, Sumatra and Borneo in 2015 with changes since 1990. Global Ecology and Conservation. 6, 67-78 (2016). https://www.sciencedirect.com/science/article/pii/S2351989415300470
 - Xu et al. PEATMAP: Refining estimates of global peatland distribution based on a meta-analysis. CATENA 160: 134-140 (2018). https://www.sciencedirect.com/science/article/pii/S0341816217303004
 
 https://data.globalforestwatch.org/datasets/gfw::global-peatlands

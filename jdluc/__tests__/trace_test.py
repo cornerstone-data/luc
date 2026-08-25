@@ -68,12 +68,12 @@ JURISDICTIONAL_EMISSIONS = pandas.DataFrame.from_records(
         "forest_emissions_mt",
         "peatland_conversion_emissions_mt",
     ],
-).set_index(["admin_level", "crop_name", "jurisdiction_name", "methodology"])
+).set_index(["admin_level", "admin_id", "crop_name", "methodology"])
 RAW_YIELDS = pandas.DataFrame.from_records(
     [
-        # CORN: 2016 must be excluded; mean(8, 10, 12, 10) over 2017-2020 == 10
+        # MAIZE: 2016 must be excluded; mean(8, 10, 12, 10) over 2017-2020 == 10
         *(
-            ("PROVINCIAL", "USA008", "Delaware", "CORN", year, val)
+            ("PROVINCIAL", "USA008", "Delaware", "MAIZE", year, val)
             for year, val in (
                 (2016, 999.0),
                 (2017, 8.0),
@@ -82,9 +82,9 @@ RAW_YIELDS = pandas.DataFrame.from_records(
                 (2020, 10.0),
             )
         ),
-        # SOYBEANS: mean == 30
+        # SOYBEAN: mean == 30
         *(
-            ("PROVINCIAL", "USA008", "Delaware", "SOYBEANS", year, 30.0)
+            ("PROVINCIAL", "USA008", "Delaware", "SOYBEAN", year, 30.0)
             for year in (2017, 2018, 2019, 2020)
         ),
         # (USA016, WHEAT): deliberately absent -> unmatched
@@ -110,7 +110,7 @@ def test_merge_jurisdictional_emissions_and_yields() -> None:
 
     iter_result = result.iterrows()
     key, corn = next(iter_result)
-    assert key == ("PROVINCIAL", "MAIZE", "Delaware", "JURISDICTIONAL_DIRECT")
+    assert key == ("PROVINCIAL", "USA008", "MAIZE", "JURISDICTIONAL_DIRECT")
     assert corn["yield_kg_per_ha"] == 10.0  # 4-year mean, 2016 excluded
     assert corn["production_kg"] == 1000.0  # 100 ha x 10
     assert corn["emissions_factor_kgco2e_per_kg"] == 200.0  # 200 t x 1000 / 1000 kg
@@ -118,14 +118,14 @@ def test_merge_jurisdictional_emissions_and_yields() -> None:
 
     # zero production -> EF guarded to NaN (not inf); fraction still defined (0/80)
     key, soy = next(iter_result)
-    assert key == ("PROVINCIAL", "SOYBEAN", "Delaware", "JURISDICTIONAL_DIRECT")
+    assert key == ("PROVINCIAL", "USA008", "SOYBEAN", "JURISDICTIONAL_DIRECT")
     assert soy["production_kg"] == 0.0
     assert numpy.isnan(soy["emissions_factor_kgco2e_per_kg"])
     assert soy["peatland_occupation_fraction"] == 0.0
 
     # unmatched yield -> NaN yield/production/EF; zero emissions_mt -> NaN fraction
     key, wheat = next(iter_result)
-    assert key == ("PROVINCIAL", "WHEAT", "Iowa", "JURISDICTIONAL_DIRECT")
+    assert key == ("PROVINCIAL", "USA016", "WHEAT", "JURISDICTIONAL_DIRECT")
     assert numpy.isnan(wheat["yield_kg_per_ha"])
     assert numpy.isnan(wheat["production_kg"])
     assert numpy.isnan(wheat["emissions_factor_kgco2e_per_kg"])
@@ -283,7 +283,7 @@ STATISTICAL_EMISSIONS = pandas.DataFrame.from_records(
         "forest_emissions_mt",
         "peatland_conversion_emissions_mt",
     ],
-).set_index(["admin_level", "crop_name", "jurisdiction_name", "methodology"])
+).set_index(["admin_level", "admin_id", "crop_name", "methodology"])
 
 
 def test_derive_statistical_production_kg_stays_indexed() -> None:
@@ -291,8 +291,8 @@ def test_derive_statistical_production_kg_stays_indexed() -> None:
     # regression guard: must return an indexed frame like its jurisdictional twin
     assert result.index.names == [
         "admin_level",
+        "admin_id",
         "crop_name",
-        "jurisdiction_name",
         "methodology",
     ]
     assert "production_mt" not in result.columns

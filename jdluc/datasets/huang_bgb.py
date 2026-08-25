@@ -1,12 +1,13 @@
-"""Huang et. al. | A global map of root biomass across the world's forests
+"""Huang et al. | A global map of root biomass across the world's forests
 
 license: CC BY 4.0
 
 year: ~2010 (the year of the main covariate AGB)
 
+Huang, Y., Ciais, P., Santoro, M., et al. (2021). A global map of root biomass across the world's forests. Earth System Science Data, 13, 4263-4274. https://doi.org/10.5194/essd-13-4263-2021
 Huang, Yuanyuan; Ciais, Phillipe; Santoro, Maurizio; Makowski, David; Chave, Jerome; Schepaschenko, Dmitry; et al. (2020). Supporting data and code for A global map of root biomass across the world's forests. figshare. Dataset. https://doi.org/10.6084/m9.figshare.12199637.v1
 
-https://www.researchgate.net/publication/354263169_A_global_map_of_root_biomass_across_the_world's_forests
+https://essd.copernicus.org/articles/13/4263/2021/
 
 # Methodology
 

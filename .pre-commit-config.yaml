@@ -18,19 +18,30 @@ repos:
       - id: mypy
         name: mypy
         language: system
-        entry: uv run mypy jdluc
+        entry: uv run mypy jdluc validation
         pass_filenames: false
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.11.26
     hooks:
       - id: uv-lock
+  - repo: https://github.com/hukkin/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          - mdformat-gfm
+        entry: mdformat --number --wrap=no
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: check-added-large-files
+      - id: check-ast
+      - id: check-json
       - id: check-merge-conflict
-      - id: check-yaml
       - id: check-toml
+      - id: check-yaml
       - id: debug-statements
       - id: end-of-file-fixer
+      - id: pretty-format-json
+        args: [--autofix]
       - id: trailing-whitespace

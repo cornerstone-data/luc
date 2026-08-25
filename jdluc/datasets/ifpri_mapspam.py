@@ -28,6 +28,7 @@ import tempfile
 
 import numpy
 import rasterio
+import xarray
 
 from jdluc import config, tiling, utils
 from jdluc.datasets import base
@@ -62,7 +63,7 @@ class Crop2000(enum.StrEnum):
 
 @enum.unique
 class Crop2005(enum.StrEnum):
-    ACOF = "Arabic Coffee"
+    ACOF = "Arabica Coffee"
     BANA = "Banana"
     BARL = "Barley"
     BEAN = "Bean"
@@ -86,7 +87,7 @@ class Crop2005(enum.StrEnum):
     PMIL = "Pearl Millet"
     POTA = "Potato"
     RAPE = "Rapeseed"
-    RCOF = "Robust Coffee"
+    RCOF = "Robusta Coffee"
     REST = "Rest Of Crops"
     RICE = "Rice"
     SESA = "Sesame Seed"
@@ -109,7 +110,7 @@ class Crop2005(enum.StrEnum):
 @enum.unique
 class Crop2010(enum.StrEnum):
     # NB: the 2005/2010 values are the same but we'd like distinct enums
-    ACOF = "Arabic Coffee"
+    ACOF = "Arabica Coffee"
     BANA = "Banana"
     BARL = "Barley"
     BEAN = "Bean"
@@ -133,7 +134,7 @@ class Crop2010(enum.StrEnum):
     PMIL = "Pearl Millet"
     POTA = "Potato"
     RAPE = "Rapeseed"
-    RCOF = "Robust Coffee"
+    RCOF = "Robusta Coffee"
     REST = "Rest Of Crops"
     RICE = "Rice"
     SESA = "Sesame Seed"
@@ -163,7 +164,7 @@ class Crop2020(enum.StrEnum):
     CITR = "Citrus"
     CNUT = "Coconut"
     COCO = "Cocoa"
-    COFF = "Arabic Coffee"
+    COFF = "Arabica Coffee"
     COTT = "Cotton"
     COWP = "Cowpea"
     GROU = "Groundnut"
@@ -182,7 +183,7 @@ class Crop2020(enum.StrEnum):
     PMIL = "Pearl Millet"
     POTA = "Potato"
     RAPE = "Rapeseed"
-    RCOF = "Robust Coffee"
+    RCOF = "Robusta Coffee"
     REST = "Rest Of Crops"
     RICE = "Rice"
     RUBB = "Rubber"
@@ -222,17 +223,20 @@ SHARED_CROP_NAMES = {
     Crop2000.SUGC.name,
     Crop2000.WHEA.name,
 }
-for crop_cls in (Crop2000, Crop2005, Crop2010, Crop2020):
-    assert all(hasattr(crop_cls, name) for name in SHARED_CROP_NAMES)
-all_equal = lambda *values: len(set(values)) == 1
-for name in SHARED_CROP_NAMES:
-    assert all_equal(
-        crop_cls[name].value for crop_cls in (Crop2000, Crop2005, Crop2010, Crop2020)
-    )
+assert all(
+    hasattr(crop_cls, name)
+    for crop_cls in (Crop2000, Crop2005, Crop2010, Crop2020)
+    for name in SHARED_CROP_NAMES
+)
+assert all(
+    len({crop_cls[name].value for crop_cls in (Crop2000, Crop2005, Crop2010, Crop2020)})
+    == 1
+    for name in SHARED_CROP_NAMES
+)
 
 # The 2000 snapshot contains 6 "group" crops which are disaggregated in later snapshots.
 # Assuming the mix of crops within a group for a given 10km pixel is unchanged from 2000
-# to 2005, we can decompose the 2000 crop group into its constituent crops.
+# to a later reference year, we can decompose the 2000 crop group into its constituent crops.
 GROUP_TO_CONSTITUENT_NAMES: dict[str, set[str]] = {
     Crop2000.BANP.name: {Crop2005.BANA.name, Crop2005.PLNT.name},
     Crop2000.COFF.name: {Crop2005.ACOF.name, Crop2005.RCOF.name},
@@ -254,14 +258,35 @@ GROUP_TO_CONSTITUENT_NAMES: dict[str, set[str]] = {
     },
     Crop2000.SWPY.name: {Crop2005.SWPO.name, Crop2005.YAMS.name},
 }
-YEAR_TO_DECOMPOSE = 2000
-DECOMPOSITION_REFERENCE_YEAR = 2005
+DECOMPOSITION_YEAR = 2000
+# Reference years for the decomposition, pooled into a single within-group split rather than
+# ranked by nearness to 2000: a pixel the 2000 snapshot uses but 2005 does not is an
+# inconsistency between MapSPAM's snapshots, not a crop that arrived later.
+DECOMPOSITION_REFERENCE_YEARS = (2005, 2010, 2020)
 CONSTITUENT_TO_GROUP_NAME = {
     constituent: group_name
     for group_name, constituents in GROUP_TO_CONSTITUENT_NAMES.items()
     for constituent in constituents
 }
 assert set(SHARED_CROP_NAMES).isdisjoint(GROUP_TO_CONSTITUENT_NAMES)
+
+RECOVERABLE_CROP_NAMES = SHARED_CROP_NAMES | set(CONSTITUENT_TO_GROUP_NAME)
+assert len(RECOVERABLE_CROP_NAMES) == len(SHARED_CROP_NAMES) + len(
+    CONSTITUENT_TO_GROUP_NAME
+)
+
+# When an "other" group contains no area in ANY reference year, there is no basis for
+# dividing the crops within the decomposition year and we divide crops evenly across the
+# constituents.  This can result in tropical crops being attributed to non-tropical geos.
+# Instead, we'd like to route the unattributable remainder to the residual.
+GROUP_TO_RESIDUAL_NAME: dict[str, str] = {
+    Crop2000.OOIL.name: Crop2005.OOIL.name,
+    Crop2000.OPUL.name: Crop2005.OPUL.name,
+}
+assert all(
+    residual in GROUP_TO_CONSTITUENT_NAMES[group]
+    for group, residual in GROUP_TO_RESIDUAL_NAME.items()
+)
 
 
 CropClsType = type[Crop2000] | type[Crop2005] | type[Crop2010] | type[Crop2020]
@@ -276,17 +301,132 @@ CROP_CLS_TO_YEAR: dict[CropClsType, int] = {
 }
 YEARS = sorted(YEAR_TO_CROP_CLS)
 
+# Every crop name crossing this module's boundary is one of two things.  A *canonical* name is a
+# `CANONICAL_CROP_CLS` name -- the spelling `statistical.Crop` and `RECOVERABLE_CROP_NAMES` use,
+# stable across years, and what `get_canonical_quantity` takes.  A *reported* name is whatever a
+# single year's own taxonomy calls that crop, which is what the bands are keyed by and what
+# `get_band_name` and `get_reported_quantity` take.  2005 is the canonical one because it is the
+# finest taxonomy every later year can be renamed back into, and the one the decomposition splits
+# 2000's groups into.  `get_reported_crop_name` is the only hop between the two.
+CANONICAL_CROP_CLS: type[Crop2005] = Crop2005
 
-def map_2005_name_to_year(crop_name: str, year: int) -> str:
-    return YEAR_TO_CROP_CLS[year](Crop2005[crop_name].value).name
+
+def get_renamed_crop_name(canonical_crop_name: str, year: int) -> str:
+    """`canonical_crop_name` as `year`'s taxonomy spells it, matched on the shared crop label.
+
+    The rename alone -- it cannot see groups, so it is wrong for a constituent in the decompose
+    year.  `get_reported_crop_name` is the one to call; this stays separate because `datasets_test`
+    checks that function against it.
+    """
+    return YEAR_TO_CROP_CLS[year](CANONICAL_CROP_CLS[canonical_crop_name].value).name
 
 
 assert all(
-    map_2005_name_to_year(crop_name=constituent, year=year)
+    get_renamed_crop_name(canonical_crop_name=constituent, year=year)
     for constituent in CONSTITUENT_TO_GROUP_NAME
     for year in YEARS
-    if year != YEAR_TO_DECOMPOSE
+    if year != DECOMPOSITION_YEAR
 )
+
+
+def is_reported_as_group(canonical_crop_name: str, year: int) -> bool:
+    """Whether `year` reports `canonical_crop_name` only as part of a coarser group.
+
+    True for a group constituent in the decompose year and nothing else: that snapshot's taxonomy
+    carries no band of its own for the crop, which is the reason the decomposition exists.
+    """
+    return (
+        year == DECOMPOSITION_YEAR and canonical_crop_name in CONSTITUENT_TO_GROUP_NAME
+    )
+
+
+def get_reported_crop_name(canonical_crop_name: str, year: int) -> str:
+    """The crop `year` reports `canonical_crop_name`'s quantity under.
+
+    Its own name in most years, renamed where that year renames it -- 2020 calls arabica coffee
+    COFF and small millet MILL -- and the group it belongs to where the year is too coarse to
+    name it separately.  This is the canonical-to-reported hop every band lookup needs: `dset` is
+    keyed by reported names, so `get_band_name` and `get_reported_quantity` take the result.
+    """
+    if is_reported_as_group(canonical_crop_name=canonical_crop_name, year=year):
+        return CONSTITUENT_TO_GROUP_NAME[canonical_crop_name]
+    else:
+        return get_renamed_crop_name(canonical_crop_name=canonical_crop_name, year=year)
+
+
+# The crops each snapshot reports that no recoverable crop accounts for, in that snapshot's own
+# naming: nothing can divide by them, so they can only be carried as a lump.  Spelled out rather
+# than derived so that a change to MapSPAM's taxonomy breaks the import, instead of silently
+# changing which crops the share denominator can reach.
+YEAR_TO_UNRECOVERABLE_CROP_NAMES: dict[int, set[str]] = {
+    2000: {"OFIB", "OTHE"},
+    2005: {
+        "COCO",
+        "OCER",
+        "OFIB",
+        "ORTS",
+        "REST",
+        "TEAS",
+        "TEMF",
+        "TOBA",
+        "TROF",
+        "VEGE",
+    },
+    2010: {
+        "COCO",
+        "OCER",
+        "OFIB",
+        "ORTS",
+        "REST",
+        "TEAS",
+        "TEMF",
+        "TOBA",
+        "TROF",
+        "VEGE",
+    },
+    2020: {
+        "CITR",
+        "COCO",
+        "OCER",
+        "OFIB",
+        "ONIO",
+        "ORTS",
+        "REST",
+        "RUBB",
+        "TEAS",
+        "TEMF",
+        "TOBA",
+        "TOMA",
+        "TROF",
+        "VEGE",
+    },
+}
+assert {
+    year: {e.name for e in YEAR_TO_CROP_CLS[year]}
+    - {
+        get_reported_crop_name(canonical_crop_name=name, year=year)
+        for name in RECOVERABLE_CROP_NAMES
+    }
+    for year in YEARS
+} == YEAR_TO_UNRECOVERABLE_CROP_NAMES
+
+
+# Snapshot pairs whose crop names can be matched directly.  Every pair involving the decompose year
+# is excluded: it is a different MapSPAM release (v3.0.7 against v3.2) and its unrecoverable
+# vocabulary is nearly disjoint from 2005's -- a catch-all OTHE leaves and nine crops appear in its
+# place, holding 560 Mha against their 161 and correlating at r = 0.17 per pixel.  A name on only
+# one side of that boundary says the release did not use it, not that the crop was absent.
+SPANS_WITH_COMPARABLE_CROP_NAMES: set[tuple[int, int]] = {
+    (2005, 2010),
+    (2005, 2020),
+    (2010, 2020),
+}
+assert {
+    (before, after)
+    for before in YEARS
+    for after in YEARS
+    if before < after and DECOMPOSITION_YEAR not in (before, after)
+} == SPANS_WITH_COMPARABLE_CROP_NAMES
 
 
 class Quantity(enum.StrEnum):
@@ -455,3 +595,113 @@ YEAR_TO_PHYSICAL_AREA_DATASET = {
     2020: PHYSICAL_AREA_2020,
 }
 assert set(YEAR_TO_PHYSICAL_AREA_DATASET) == set(YEAR_TO_PRODUCTION_DATASET)
+
+
+def get_band_name(quantity: Quantity, reported_crop_name: str, year: int) -> str:
+    """The fully-qualified band carrying `reported_crop_name`'s `quantity` in `year`.
+
+    Takes a reported name -- it indexes `year`'s own taxonomy, so a canonical name that year
+    renames or groups is a `KeyError`.  Resolve with `get_reported_crop_name` first.
+
+    Positional: the band list is built from the same enum in the same order, so a crop's index in
+    the taxonomy is its index among the bands.  `datasets_test` pins that for every year and
+    quantity, since nothing in the band names themselves would reveal a reordering.
+    """
+    crop_cls = YEAR_TO_CROP_CLS[year]
+    name_to_idx = {name: idx for idx, name in enumerate(e.name for e in crop_cls)}
+    idx = name_to_idx[reported_crop_name]
+    year_to_dataset = (
+        YEAR_TO_PHYSICAL_AREA_DATASET
+        if quantity == Quantity.PHYSICAL_AREA
+        else YEAR_TO_PRODUCTION_DATASET
+    )
+    return year_to_dataset[year].fully_qualified_band_names[idx]
+
+
+def get_reported_quantity(
+    dset: xarray.Dataset, quantity: Quantity, reported_crop_name: str, year: int
+) -> xarray.DataArray:
+    """`reported_crop_name`'s `quantity` exactly as `year` stores it.
+
+    The as-reported twin of `get_canonical_quantity`: same quantity, no decomposition and no
+    renaming, so it takes a reported name where that one takes a canonical one.
+    """
+    variable_name = get_band_name(
+        quantity=quantity, reported_crop_name=reported_crop_name, year=year
+    )
+    # NB: a crop absent from a snapshot (or no-data there) counts as zero hectares
+    return dset[variable_name].fillna(0)
+
+
+def get_canonical_quantity(
+    canonical_crop_name: str,
+    dset: xarray.Dataset,
+    quantity: Quantity,
+    year: int,
+) -> xarray.DataArray:
+    """`canonical_crop_name`'s `quantity` in `year`.
+
+    Does whatever `year` requires to honor a canonical name -- following that year's renaming,
+    and decomposing a group where the year is too coarse to name the crop -- so that one name
+    means one crop across every year.  `get_reported_quantity` is the raw counterpart.
+    """
+    if is_reported_as_group(canonical_crop_name=canonical_crop_name, year=year):
+        # Decompose the grouped crops into their constituents, assuming the within-group
+        # proportions match those the reference years pool to.  Each quantity is split by its
+        # own distribution -- splitting production by AREA share would assume every constituent
+        # of the group yields the same in this pixel, and bananas outyield plantains 2-3x.
+        group_name = CONSTITUENT_TO_GROUP_NAME[canonical_crop_name]
+        siblings = sorted(GROUP_TO_CONSTITUENT_NAMES[group_name])
+
+        def reference(canonical_name: str) -> xarray.DataArray:
+            ret = sum(
+                get_reported_quantity(
+                    dset=dset,
+                    quantity=quantity,
+                    reported_crop_name=get_reported_crop_name(
+                        canonical_crop_name=canonical_name, year=reference_year
+                    ),
+                    year=reference_year,
+                )
+                for reference_year in DECOMPOSITION_REFERENCE_YEARS
+            )
+            assert isinstance(ret, xarray.DataArray)
+            return ret
+
+        reference_group = sum(reference(canonical_name=s) for s in siblings)
+        assert isinstance(reference_group, xarray.DataArray)
+        constituent_share = xarray.where(
+            reference_group > 0,
+            reference(canonical_name=canonical_crop_name)
+            # NB: this avoids `RuntimeWarning: invalid value encountered in divide`
+            / reference_group.where(reference_group > 0, other=1),
+            # No reference year places the group here
+            (
+                # The group has a catch-all constituent, so give it the whole unattributable
+                # remainder rather than handing a slice to every named sibling
+                float(canonical_crop_name == GROUP_TO_RESIDUAL_NAME[group_name])
+                if group_name in GROUP_TO_RESIDUAL_NAME
+                # No catch-all to route to, so an even split is the only option among named crops
+                else 1 / len(siblings)
+            ),
+        )
+        return (
+            get_reported_quantity(
+                dset=dset,
+                quantity=quantity,
+                # NB: the group is already a reported name -- it exists only in the decompose year
+                reported_crop_name=group_name,
+                year=DECOMPOSITION_YEAR,
+            )
+            * constituent_share
+        )
+    else:
+        # Simple lookup
+        return get_reported_quantity(
+            dset=dset,
+            quantity=quantity,
+            reported_crop_name=get_reported_crop_name(
+                canonical_crop_name=canonical_crop_name, year=year
+            ),
+            year=year,
+        )

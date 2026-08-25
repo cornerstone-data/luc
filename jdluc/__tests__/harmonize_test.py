@@ -29,78 +29,48 @@ def test_xy_validated(x: int, y: int, fails: bool) -> None:
 
 @pytest.mark.parametrize(
     (
-        "tile_ids",
+        "tile_id",
         "origin",
-        "tiles",
         "transform",
-        "resolution",
     ),
     (
         pytest.param(
-            ("00N_000W",),
+            "00N_000W",
             tiling.XY(0, 0),
-            tiling.XY(1, 1),
             (0, 1 / 4_000, 0, 0, 0, -1 / 4_000),
-            tiling.XY(40_000, 40_000),
-            id="One ten-degree-tile",
+            id="origin at 0,0",
         ),
         pytest.param(
-            ("00N_000W", "00N_010E", "10S_000W", "10S_010E"),
-            tiling.XY(0, 0),
-            tiling.XY(2, 2),
-            (0, 1 / 4_000, 0, 0, 0, -1 / 4_000),
-            tiling.XY(2 * 40_000, 2 * 40_000),
-            id="2x2 ten-degree-tiles with NW=0,0",
-        ),
-        pytest.param(
-            ("60N_060W", "60S_060E"),
+            "60N_060W",
             tiling.XY(-60, 60),
-            tiling.XY(13, 13),
             (-60, 1 / 4_000, 0, 60, 0, -1 / 4_000),
-            tiling.XY(13 * 40_000, 13 * 40_000),
-            id="two tiles spanning a 13x13 area",
+            id="north-west of the meridian",
+        ),
+        pytest.param(
+            "60S_060E",
+            tiling.XY(60, -60),
+            (60, 1 / 4_000, 0, -60, 0, -1 / 4_000),
+            id="south-east of the meridian",
         ),
     ),
 )
-def test_grid_from_tile_ids_resolution(
-    tile_ids: tuple[str, ...],
+def test_grid_from_tile_id_resolution(
+    tile_id: str,
     origin: tiling.XY,
-    tiles: tiling.XY,
     transform: tuple[float, float, float, float, float, float],
-    resolution: tiling.XY,
 ) -> None:
-    result = Grid.from_tile_ids_resolution(
-        tile_ids=tile_ids, tile_resolution=tiling.TileResolution.GLAD
+    result = Grid.from_tile_id_resolution(
+        resolution=tiling.TileResolution.GLAD, tile_id=tile_id
     )
     assert result.origin == origin
-    assert result.tiles == tiles
-    assert result.tile_resolution == tiling.TileResolution.GLAD
+    assert result.resolution == tiling.TileResolution.GLAD.value
+    assert type(result.resolution) is tiling.XY
     assert result.transform == transform
-    assert result.resolution == resolution
-
-
-@pytest.mark.parametrize(
-    ("tile_id", "offset"),
-    (("00N_000W", tiling.XY(0, 0)), ("90S_180E", tiling.XY(180, 90))),
-)
-def test_grid_get_offset_for_tile(tile_id: str, offset: tiling.XY) -> None:
-    grid = Grid.from_tile_ids_resolution(
-        tile_ids=("00N_000W",), tile_resolution=tiling.XY(10, 10)
-    )
-    assert grid.get_offset_for_tile(tile_id=tile_id) == offset
-
-
-def test_grid_get_offset_for_tile_raises() -> None:
-    grid = Grid.from_tile_ids_resolution(
-        tile_ids=("00N_000W",), tile_resolution=tiling.XY(10, 10)
-    )
-    with pytest.raises(AssertionError):
-        grid.get_offset_for_tile(tile_id="10N_010W")
 
 
 def test_grid_get_offset_for_world() -> None:
-    grid = Grid.from_tile_ids_resolution(
-        tile_ids=("60N_060W",), tile_resolution=tiling.XY(10, 10)
+    grid = Grid.from_tile_id_resolution(
+        resolution=tiling.XY(10, 10), tile_id="60N_060W"
     )
     assert grid.get_offset_for_world(
         resolution=tiling.XY(360, 180), span=tiling.XY(360, 180)
@@ -108,8 +78,8 @@ def test_grid_get_offset_for_world() -> None:
 
 
 def test_grid_get_resolution_for_world() -> None:
-    grid = Grid.from_tile_ids_resolution(
-        tile_ids=("60N_060W",), tile_resolution=tiling.XY(10, 10)
+    grid = Grid.from_tile_id_resolution(
+        resolution=tiling.XY(10, 10), tile_id="60N_060W"
     )
     assert grid.get_resolution_for_world(
         resolution=tiling.XY(360, 180), span=tiling.XY(360, 180)
@@ -131,14 +101,12 @@ def test_grid_get_resolution_for_world() -> None:
 def test_grid_get_resampling_for_band_type(
     band_type: BandType, resolution: tiling.XY, expected: str
 ) -> None:
-    grid = Grid(
-        origin=tiling.XY(0, 0), tiles=tiling.XY(2, 2), tile_resolution=tiling.XY(2, 2)
-    )
+    grid = Grid(origin=tiling.XY(0, 0), resolution=tiling.XY(2, 2))
     assert (
         grid.get_resampling_for_band_type(
             band_type=band_type,
             src_resolution=resolution,
-            dest_resolution=grid.tile_resolution,
+            dest_resolution=grid.resolution,
         ).name
         == expected
     )
@@ -154,14 +122,12 @@ def test_grid_get_resampling_for_band_type(
 def test_grid_get_resampling_for_band_type_raises(
     src_resolution: tiling.XY, match: str
 ) -> None:
-    grid = Grid(
-        origin=tiling.XY(0, 0), tiles=tiling.XY(2, 2), tile_resolution=tiling.XY(2, 2)
-    )
+    grid = Grid(origin=tiling.XY(0, 0), resolution=tiling.XY(2, 2))
     with pytest.raises(NotImplementedError, match=match):
         assert grid.get_resampling_for_band_type(
             band_type=BandType.EXTENSIVE,
             src_resolution=src_resolution,
-            dest_resolution=grid.tile_resolution,
+            dest_resolution=grid.resolution,
         )
 
 
@@ -170,9 +136,7 @@ def test_grid_get_resampling_for_band_type_upsamples_clipped_world() -> None:
     # degree: comparing its full resolution against the grid would pick
     # downsampling, but once clipped to the grid extent it is coarser than the
     # destination and must be upsampled.
-    grid = Grid(
-        origin=tiling.XY(0, 0), tiles=tiling.XY(1, 1), tile_resolution=tiling.XY(36, 36)
-    )
+    grid = Grid(origin=tiling.XY(0, 0), resolution=tiling.XY(36, 36))
     world_resolution = tiling.XY(360, 180)  # 1 px/degree, coarser than the grid
     src_resolution = grid.get_resolution_for_world(
         resolution=world_resolution, span=tiling.XY(360, 180)
@@ -180,7 +144,7 @@ def test_grid_get_resampling_for_band_type_upsamples_clipped_world() -> None:
     # Clipped to the grid's 10x10-degree extent the source is only 10x10 px,
     # versus the 36x36 px destination, even though the full source is 360x180.
     assert src_resolution == tiling.XY(10, 10)
-    assert world_resolution.x > grid.tile_resolution.x  # the old, buggy comparison
+    assert world_resolution.x > grid.resolution.x  # the old, buggy comparison
     assert (
         grid.get_resampling_for_band_type(
             band_type=BandType.INTENSIVE,

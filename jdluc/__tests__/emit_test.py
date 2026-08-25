@@ -10,12 +10,13 @@ from jdluc.datasets.ipcc_climate_zones import Zone
 from jdluc.emit import (
     CARBON_PER_BIOMASS_LIVE_WOOD,
     CO2E_PER_CARBON,
+    SPAN_TO_LINEAR_DISCOUNT_WEIGHT,
     get_belowground_carbon,
     get_dead_organic_matter_carbon,
     get_grassland_carbon,
     get_hectares_per_pixel,
     get_land_class,
-    get_linear_discounted_emissions,
+    get_linear_discounted_total,
     get_mineral_soil_emissions,
     get_peatland_occupation_emissions,
     get_soil_emissions,
@@ -202,7 +203,7 @@ def test_get_soil_emissions() -> None:
 
 
 def test_get_peatland_occupation_emissions() -> None:
-    is_peatland = [[1] * 7]
+    is_peatland = [[1] * 7 + [numpy.nan, 0]]
     land_class = [
         [
             LandClass.BUILT_UP.value,
@@ -212,28 +213,44 @@ def test_get_peatland_occupation_emissions() -> None:
             LandClass.OCEAN.value,
             LandClass.SNOW_ICE.value,
             LandClass.WATER.value,
+            # drained, but the peat mask is no-data / not peat
+            LandClass.CROPLAND.value,
+            LandClass.CROPLAND.value,
         ]
     ]
     result = get_peatland_occupation_emissions(
         is_peatland=get_darray_for_data(data=is_peatland),
-        year_to_land_class={
-            2020: get_darray_for_data(data=land_class),
-        },
+        latest_land_class=get_darray_for_data(data=land_class),
     )
     assert result.name == "tco2e-per-ha"
-    assert numpy.array_equal(result.data, [[37.3, 37.3, 0, 0, 0, 0, 0]])
+    # a no-data peat mask must read as "not peat" rather than propagating NaN into the total
+    numpy.testing.assert_allclose(result.data, [[37.3, 37.3, 0, 0, 0, 0, 0, 0, 0]])
 
 
-def test_get_linear_discounted_emissions() -> None:
-    result = get_linear_discounted_emissions(
-        span_to_emissions={
+def test_get_soil_emissions_tolerates_missing_soil_carbon() -> None:
+    # SoilGrids has genuine gaps over water, rock and ice; a missing stock must not poison
+    # the pixel, which would silently discard its vegetation emissions too
+    result = get_soil_emissions(
+        after=get_darray_for_data(data=[[LandClass.CROPLAND.value] * 2]),
+        before=get_darray_for_data(data=[[LandClass.FOREST.value] * 2]),
+        climate_zones=get_darray_for_data(data=[[Zone.TROPICAL_WET.value] * 2]),
+        is_peatland=get_darray_for_data(data=[[0, 1]]),
+        soil_organic_carbon=get_darray_for_data(data=[[numpy.nan, numpy.nan]]),
+    )
+    assert not numpy.isnan(result.data).any()
+    # mineral pixel falls back to zero stock; the peat pulse does not depend on SoilGrids
+    numpy.testing.assert_allclose(result.data, [[0, 621]])
+
+
+def test_get_linear_discounted_total() -> None:
+    result = get_linear_discounted_total(
+        span_to_value={
             (2000, 2005): get_darray_for_data(data=[[1]]),
             (2005, 2010): get_darray_for_data(data=[[2]]),
             (2010, 2015): get_darray_for_data(data=[[3]]),
             (2015, 2020): get_darray_for_data(data=[[4]]),
         }
     )
-    assert result.name == "tco2e-per-ha"
     assert numpy.array_equal(result.data, [[0.625]])
 
 
@@ -246,3 +263,25 @@ def test_get_hectares_per_pixel() -> None:
             [[1237126.38106379, 1237126.38106379], [1236937.9607238, 1236937.9607238]]
         ),
     )
+
+
+def test_get_linear_discounted_total_imposes_no_quantity() -> None:
+    # Area and production run through this too, so a name of its own would be a lie for two of
+    # the three callers.  The caller names the result.
+    result = get_linear_discounted_total(
+        span_to_value=dict.fromkeys(
+            SPAN_TO_LINEAR_DISCOUNT_WEIGHT, get_darray_for_data(data=[[1]])
+        )
+    )
+    assert result.name is None
+
+
+def test_get_linear_discounted_total_over_the_weight_total_is_a_mean() -> None:
+    # How `statistical` puts area and production on the emissions' window: the same reduction,
+    # normalised.  A quantity that never moves must survive it unchanged.
+    result = get_linear_discounted_total(
+        span_to_value=dict.fromkeys(
+            SPAN_TO_LINEAR_DISCOUNT_WEIGHT, get_darray_for_data(data=[[7]])
+        )
+    ) / sum(SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values())
+    numpy.testing.assert_allclose(result.data, [[7]])

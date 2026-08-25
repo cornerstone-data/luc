@@ -9,8 +9,12 @@ It then derives, identically for both, each crop's emissions factor (kgCO2e per 
 peatland-occupation fraction, and rolls the provincials up to national totals. Returns a
 pandas.DataFrame indexed by (admin level, crop, jurisdiction) which is cached.
 
-Example invocation:
+The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
+from every country in the World Bank admin-0 layer.
+
+Example invocations:
   uv run python jdluc/trace.py --methodology-name STATISTICAL USA
+  uv run python jdluc/trace.py --methodology-name STATISTICAL --backfill
 """
 
 import argparse
@@ -19,7 +23,7 @@ import logging
 
 import pandas
 
-from jdluc import attribute, jurisdictional_direct, storage
+from jdluc import attribute, storage
 from jdluc.datasets import usda_nass_quickstats, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,16 @@ logger = logging.getLogger(__name__)
 
 NASS_YIELD_YEARS = (2017, 2018, 2019, 2020)
 KG_PER_TONNE = 1000
+CANONICAL_KEY = ("admin_level", "admin_id", "crop_name", "methodology")
+ADDITIVE_COLUMNS = (
+    "crop_hectares",
+    "forest_emissions_mt",
+    "peatland_crop_hectares",
+    "peatland_conversion_emissions_mt",
+    "peatland_occupation_emissions_mt",
+    "emissions_mt",
+    "production_kg",
+)
 
 
 def derive_jurisdictional_production_kg(
@@ -37,7 +51,6 @@ def derive_jurisdictional_production_kg(
         .groupby(level=["admin_id", "crop_name"])["yield_kg_per_ha"]
         .mean()
         .reset_index()
-        .replace(jurisdictional_direct.CDL_TO_COMMON_CROP_NAME)
     )
     merged = emissions.reset_index().merge(
         reduced_yields, how="left", on=["admin_id", "crop_name"]
@@ -48,7 +61,7 @@ def derive_jurisdictional_production_kg(
     merged["production_kg"] = merged["crop_hectares"] * merged["yield_kg_per_ha"]
     return (
         merged.drop(columns="yield_kg_per_ha")
-        .set_index(["admin_level", "crop_name", "jurisdiction_name", "methodology"])
+        .set_index(list(CANONICAL_KEY))
         .sort_index()
     )
 
@@ -89,15 +102,7 @@ def iter_national_from_provincials(
 
         ret = {
             column_name: float(group[column_name].sum())
-            for column_name in (
-                "crop_hectares",
-                "forest_emissions_mt",
-                "peatland_crop_hectares",
-                "peatland_conversion_emissions_mt",
-                "peatland_occupation_emissions_mt",
-                "emissions_mt",
-                "production_kg",
-            )
+            for column_name in ADDITIVE_COLUMNS
         }
         yield ret | {
             "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
@@ -117,7 +122,7 @@ def iter_national_from_provincials(
         }  # type: ignore
 
 
-@storage.cache_to_parquet(version=1)
+@storage.cache_to_parquet(version=0)
 def workflow(
     crop_names: tuple[str, ...],
     iso_3166s: tuple[str, ...],
@@ -125,11 +130,13 @@ def workflow(
     skip_glad_crop_filter: bool,
 ) -> pandas.DataFrame:
     emissions = attribute.workflow(
+        concurrency=attribute.DEFAULT_CONCURRENCY,
         crop_names=crop_names,
         iso_3166s=iso_3166s,
         methodology=methodology,
         skip_glad_crop_filter=skip_glad_crop_filter,
     )
+    assert tuple(emissions.index.names) == CANONICAL_KEY
     emissions_and_yields = (
         derive_jurisdictional_production_kg(
             emissions=emissions, raw_yields=usda_nass_quickstats.load()
@@ -155,7 +162,9 @@ def workflow(
                     admin_level=worldbank_jurisdictions.AdminLevel.NATIONAL
                 ).loc[iso_3166]["name"]
             ),
-            provincials=provincials[provincials.admin_id.str.startswith(iso_3166)],
+            provincials=provincials[
+                provincials.index.get_level_values("admin_id").str.startswith(iso_3166)
+            ],
         )
     )
     return pandas.concat(
@@ -176,24 +185,37 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "iso_3166s", nargs=argparse.ONE_OR_MORE, type=attribute.iso_3166_str
+        "iso_3166s",
+        nargs=argparse.ZERO_OR_MORE,
+        type=worldbank_jurisdictions.iso_3166_str,
+    )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="trace every country in the World Bank admin-0 layer",
     )
     parser.add_argument(
         "--methodology-name",
         choices=sorted(e.name for e in attribute.Methodology),
         default=attribute.Methodology.STATISTICAL.name,
     )
-    parser.add_argument("--process-few-crops", action="store_true")
     parser.add_argument("--skip-display", action="store_true")
     parser.add_argument("--skip-glad-crop-filter", action="store_true")
     args = parser.parse_args()
+    assert bool(args.iso_3166s) ^ bool(args.backfill), (
+        "pass either one-or-more iso_3166s or --backfill"
+    )
 
     methodology = attribute.Methodology[str(args.methodology_name)]
     df = workflow(
-        crop_names=attribute.get_crop_names(
-            methodology=methodology, process_few_crops=args.process_few_crops
+        crop_names=attribute.get_crop_names(methodology=methodology),
+        iso_3166s=tuple(
+            sorted(
+                worldbank_jurisdictions.get_all_iso_3166s()
+                if args.backfill
+                else args.iso_3166s
+            )
         ),
-        iso_3166s=tuple(sorted(args.iso_3166s)),
         methodology=methodology,
         skip_glad_crop_filter=args.skip_glad_crop_filter,
     )

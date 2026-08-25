@@ -1,0 +1,54 @@
+{
+  "KHM.11_1": {
+    "note": "Kracheh / Kratie",
+    "world_bank_id": "KHM011"
+  },
+  "KHM.14_1": {
+    "note": "Mondol Kiri / Mondul Kiri",
+    "world_bank_id": "KHM012"
+  },
+  "KHM.15_1": {
+    "note": "Otdar Mean Chey / Oddar Meanchey",
+    "world_bank_id": "KHM013"
+  },
+  "KHM.17_1": {
+    "note": "Pouthisat / Pursat",
+    "world_bank_id": "KHM018"
+  },
+  "KHM.20_1": {
+    "note": "Rotanokiri / Ratanak Kiri",
+    "world_bank_id": "KHM019"
+  },
+  "KHM.21_1": {
+    "note": "Siemreab / Siemreap",
+    "world_bank_id": "KHM020"
+  },
+  "KHM.22_1": {
+    "note": "Stoeng Treng / Stung Treng",
+    "world_bank_id": "KHM022"
+  },
+  "KHM.24_1": {
+    "note": "Takev / Takeo",
+    "world_bank_id": "KHM024"
+  },
+  "KHM.25_1": {
+    "note": "Tbong Khmum / Tboung Khmum",
+    "world_bank_id": "KHM025"
+  },
+  "KHM.2_1": {
+    "note": "Batdambang / Battambang",
+    "world_bank_id": "KHM002"
+  },
+  "KHM.5_1": {
+    "note": "Kampong Spoe / Kampong Speu",
+    "world_bank_id": "KHM005"
+  },
+  "KHM.6_1": {
+    "note": "Kampong Thum / Kampong Thom",
+    "world_bank_id": "KHM006"
+  },
+  "KHM.9_1": {
+    "note": "Kaoh Kong / Koh Kong",
+    "world_bank_id": "KHM010"
+  }
+}

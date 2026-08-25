@@ -1,10 +1,15 @@
-"""Mosaic ingested source tiles onto a common grid and harmonize them into one dataset.
+"""Place one ingested source tile per dataset onto a common grid and harmonize them.
 
-For a tile set, each raster dataset's tiles are stitched into a per-band GDAL VRT, warped to
-a shared grid, and returned as an xarray.Dataset with one variable per source band. The result is cached.
+For a single ten-degree tile, each raster dataset's tile becomes a per-band GDAL VRT on the
+shared grid, returned as an xarray.Dataset with one variable per source band. Whole-world
+datasets are windowed onto the same grid. The result is cached.
 
-Example invocation:
-  uv run python jdluc/harmonize.py NORTH_AMERICA
+The tile set comes from the positional ISO 3166 alpha-3 codes -- or, with `--backfill`,
+from `tiling.GLOBAL_FOREST_WATCH_TILE_IDS`.
+
+Example invocations:
+  uv run python jdluc/harmonize.py USA
+  uv run python jdluc/harmonize.py --backfill
 """
 
 import argparse
@@ -18,14 +23,11 @@ import numpy
 import rasterio
 import rasterio.enums
 import rasterio.errors
-import rasterio.shutil
-import rasterio.transform
-import rasterio.vrt
 import rioxarray
 import xarray
 
-from jdluc import config, continents, geo, ingest, storage, tiling
-from jdluc.datasets import NAME_TO_CLS, DatasetName, base
+from jdluc import config, geo, ingest, storage, tiling
+from jdluc.datasets import NAME_TO_CLS, DatasetName, base, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +76,12 @@ def iter_vrt_band_header(
 ) -> collections.abc.Iterator[str]:
     yield f'  <VRTRasterBand dataType="{dtype:s}" band="1">'
     yield f"    <Description>{band_name:s}</Description>"
-    yield f"    <NoDataValue>{no_data}</NoDataValue>"
+    if no_data is not None:
+        yield f"    <NoDataValue>{no_data}</NoDataValue>"
 
 
 def iter_vrt_band_content(
     band_idx: int,
-    dest_offset: tiling.XY,
     dest_resolution: tiling.XY,
     path_to_tile: str,
     resampling: rasterio.enums.Resampling,
@@ -90,65 +92,47 @@ def iter_vrt_band_content(
     yield f'      <SourceFilename relativeToVRT="0">{path_to_tile:s}</SourceFilename>'
     yield f"      <SourceBand>{band_idx:d}</SourceBand>"
     yield f'      <SrcRect xOff="{src_offset.x:d}" yOff="{src_offset.y:d}" xSize="{src_resolution.x:d}" ySize="{src_resolution.y:d}"/>'
-    yield f'      <DstRect xOff="{dest_offset.x:d}" yOff="{dest_offset.y:d}" xSize="{dest_resolution.x:d}" ySize="{dest_resolution.y:d}"/>'
+    # NB: a VRT covers exactly one tile, so the destination rect always starts at the origin
+    yield f'      <DstRect xOff="0" yOff="0" xSize="{dest_resolution.x:d}" ySize="{dest_resolution.y:d}"/>'
     yield "    </SimpleSource>"
 
 
 @dataclasses.dataclass
 class Grid:
     origin: tiling.XY
-    tiles: tiling.XY
-    tile_resolution: tiling.XY
+    resolution: tiling.XY
 
     @property
     def epsg(self) -> int:
         return 4326
 
     @classmethod
-    def from_tile_ids_resolution(
-        cls, tile_ids: collections.abc.Sequence[str], tile_resolution: tiling.XY
+    def from_tile_id_resolution(
+        cls, tile_id: str, resolution: tiling.XY
     ) -> typing.Self:
-        lats, lons = zip(*map(tiling.get_lat_lon_for_tile_id, tile_ids), strict=True)
+        lat, lon = tiling.get_lat_lon_for_tile_id(tile_id=tile_id)
         return cls(
-            origin=tiling.XY(x=min(lons), y=max(lats)),
-            tiles=tiling.XY(
-                x=(max(lons) - min(lons)) // 10 + 1,
-                y=(max(lats) - min(lats)) // 10 + 1,
-            ).validated(),
-            tile_resolution=tile_resolution,
+            origin=tiling.XY(x=lon, y=lat),
+            # NB: sanitize the provided resolution to the class we want
+            resolution=tiling.XY(x=resolution.x, y=resolution.y),
         )
 
     @property
     def transform(self) -> tuple[float, float, float, float, float, float]:
         return (
             self.origin.x,
-            10 / self.tile_resolution.x,
+            10 / self.resolution.x,
             0,
             self.origin.y,
             0,
-            -10 / self.tile_resolution.y,
+            -10 / self.resolution.y,
         )
-
-    @property
-    def resolution(self) -> tiling.XY:
-        return tiling.XY(
-            x=self.tiles.x * self.tile_resolution.x,
-            y=self.tiles.y * self.tile_resolution.y,
-        ).validated()
 
     @property
     def iter_preamble(self) -> collections.abc.Iterator[str]:
         yield f'<VRTDataset rasterXSize="{self.resolution.x:d}" rasterYSize="{self.resolution.y:d}">'
         yield f"  <SRS>EPSG:{self.epsg:d}</SRS>"
         yield f"  <GeoTransform>{', '.join(map(str, self.transform))}</GeoTransform>"
-
-    def get_offset_for_tile(self, tile_id: str) -> tiling.XY:
-        lat, lon = tiling.get_lat_lon_for_tile_id(tile_id=tile_id)
-        return tiling.XY(
-            x=(lon - self.origin.x) // 10 * self.tile_resolution.x,
-            # Y index increases downward
-            y=(self.origin.y - lat) // 10 * self.tile_resolution.y,
-        ).validated()
 
     def get_offset_for_world(self, resolution: tiling.XY, span: tiling.XY) -> tiling.XY:
         pixels_per_degree = tiling.XY(
@@ -164,42 +148,12 @@ class Grid:
         self, resolution: tiling.XY, span: tiling.XY
     ) -> tiling.XY:
         return tiling.XY(
-            x=resolution.x * 10 // span.x * self.tiles.x,
-            y=resolution.y * 10 // span.y * self.tiles.y,
+            x=resolution.x * 10 // span.x,
+            y=resolution.y * 10 // span.y,
         ).validated()
 
     @staticmethod
-    def get_downsampling_for_band_type(
-        band_type: base.BandType,
-    ) -> rasterio.enums.Resampling:
-        match band_type:
-            case base.BandType.CATEGORICAL:
-                return rasterio.enums.Resampling.mode
-            case base.BandType.EXTENSIVE:
-                raise NotImplementedError("GDAL doesn't implement sum resampling")
-            case base.BandType.INTENSIVE:
-                return rasterio.enums.Resampling.average
-            case _:
-                raise ValueError(band_type)
-
-    @staticmethod
-    def get_upsampling_for_band_type(
-        band_type: base.BandType,
-    ) -> rasterio.enums.Resampling:
-        match band_type:
-            case base.BandType.CATEGORICAL:
-                return rasterio.enums.Resampling.nearest
-            case base.BandType.EXTENSIVE:
-                raise NotImplementedError(
-                    "GDAL doesn't implement distribution resampling"
-                )
-            case base.BandType.INTENSIVE:
-                return rasterio.enums.Resampling.bilinear
-            case _:
-                raise ValueError(band_type)
-
     def get_resampling_for_band_type(
-        self,
         band_type: base.BandType,
         dest_resolution: tiling.XY,
         src_resolution: tiling.XY,
@@ -210,65 +164,83 @@ class Grid:
             src_resolution.x > dest_resolution.x
             and src_resolution.y > dest_resolution.y
         ):
-            return self.get_downsampling_for_band_type(band_type=band_type)
+            match band_type:
+                case base.BandType.CATEGORICAL:
+                    return rasterio.enums.Resampling.mode
+                case base.BandType.EXTENSIVE:
+                    raise NotImplementedError("GDAL doesn't implement sum resampling")
+                case base.BandType.INTENSIVE:
+                    return rasterio.enums.Resampling.average
+                case _:
+                    raise ValueError(band_type)
         else:
-            return self.get_upsampling_for_band_type(band_type=band_type)
+            match band_type:
+                case base.BandType.CATEGORICAL:
+                    return rasterio.enums.Resampling.nearest
+                case base.BandType.EXTENSIVE:
+                    raise NotImplementedError(
+                        "GDAL doesn't implement distribution resampling"
+                    )
+                case base.BandType.INTENSIVE:
+                    return rasterio.enums.Resampling.bilinear
+                case _:
+                    raise ValueError(band_type)
 
 
-def get_vrt_for_dataset_band_tile_ids(
+def get_vrt_for_dataset_band_tile_id(
     band_idx: int,
     band_name: str,
     dataset: base.RasterDataset,
     grid: Grid,
     ignore_missing_tiles: bool,
     root: str,
-    tile_ids: collections.abc.Sequence[str],
+    tile_id: str,
 ) -> str:
     lines = list(grid.iter_preamble)
 
     logger.info(f"Processing {dataset=} and {band_name=:s}")
     if dataset.partitioning == tiling.Partitioning.TEN_DEGREE_TILE:
-        includes_band_header = False
-        for tile_id in tile_ids:
-            try:
-                tile = Tile.from_dataset_tile_id(
-                    root=root,
-                    dataset=dataset,
-                    tile_id=tile_id,
+        try:
+            tile = Tile.from_dataset_tile_id(
+                root=root,
+                dataset=dataset,
+                tile_id=tile_id,
+            )
+        except rasterio.errors.RasterioIOError:
+            if ignore_missing_tiles:
+                logger.warning(
+                    f"{tile_id=:s} is missing for {dataset=} but due to {ignore_missing_tiles=} we are emitting an all-no-data band"
                 )
-            except rasterio.errors.RasterioIOError:
-                if ignore_missing_tiles:
-                    logger.warning(
-                        f"{tile_id=:s} is missing for {dataset=} but due to {ignore_missing_tiles=} we are continuing"
-                    )
-                    continue
-                else:
-                    raise
-            else:
-                if not includes_band_header:
-                    lines.extend(
-                        iter_vrt_band_header(
-                            band_name=band_name,
-                            dtype=tile.dtype,
-                            no_data=tile.no_data,
-                        )
-                    )
-                    includes_band_header = True
+                # Yield an empty tile band
                 lines.extend(
-                    iter_vrt_band_content(
-                        band_idx=band_idx,
-                        dest_offset=grid.get_offset_for_tile(tile_id=tile_id),
-                        dest_resolution=grid.tile_resolution,
-                        path_to_tile=tile.gdal_path,
-                        resampling=grid.get_resampling_for_band_type(
-                            band_type=tile.band_type,
-                            dest_resolution=grid.tile_resolution,
-                            src_resolution=tile.resolution,
-                        ),
-                        src_offset=tiling.XY(x=0, y=0),
-                        src_resolution=tile.resolution,
+                    iter_vrt_band_header(
+                        band_name=band_name, dtype="Float32", no_data=dataset.no_data
                     )
                 )
+            else:
+                raise
+        else:
+            lines.extend(
+                iter_vrt_band_header(
+                    band_name=band_name,
+                    dtype=tile.dtype,
+                    no_data=tile.no_data,
+                )
+            )
+            lines.extend(
+                iter_vrt_band_content(
+                    band_idx=band_idx,
+                    dest_resolution=grid.resolution,
+                    path_to_tile=tile.gdal_path,
+                    resampling=grid.get_resampling_for_band_type(
+                        band_type=tile.band_type,
+                        dest_resolution=grid.resolution,
+                        src_resolution=tile.resolution,
+                    ),
+                    src_offset=tiling.XY(x=0, y=0),
+                    src_resolution=tile.resolution,
+                )
+            )
     elif dataset.partitioning == tiling.Partitioning.WHOLE_WORLD:
         tile = Tile.from_dataset_tile_id(
             root=root,
@@ -292,7 +264,6 @@ def get_vrt_for_dataset_band_tile_ids(
         lines.extend(
             iter_vrt_band_content(
                 band_idx=band_idx,
-                dest_offset=tiling.XY(x=0, y=0),
                 dest_resolution=grid.resolution,
                 path_to_tile=tile.gdal_path,
                 resampling=grid.get_resampling_for_band_type(
@@ -309,28 +280,11 @@ def get_vrt_for_dataset_band_tile_ids(
     lines.append("  </VRTRasterBand>")
     lines.append("</VRTDataset>")
 
-    with tempfile.NamedTemporaryFile(
-        delete=False, mode="w", suffix=".mosaic.vrt"
-    ) as fp:
-        logger.debug(f"Writing mosaic to {fp.name=:s}")
+    with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".vrt") as fp:
+        logger.debug(f"Writing VRT to {fp.name=:s}")
         fp.writelines(line + "\n" for line in lines)
-        mosaic_path = fp.name
-
-    with (
-        rasterio.open(mosaic_path) as mosaic_fp,
-        rasterio.vrt.WarpedVRT(
-            mosaic_fp,
-            crs="EPSG:4326",
-            transform=rasterio.transform.Affine.from_gdal(*grid.transform),
-            width=grid.resolution.x,
-            height=grid.resolution.y,
-            resampling=rasterio.enums.Resampling.nearest,
-        ) as warped_vrt,
-        tempfile.NamedTemporaryFile(delete=False, suffix=".warped.vrt") as warped_fp,
-    ):
-        logger.debug(f"Writing warped VRT to {warped_fp.name=:s}")
-        rasterio.shutil.copy(warped_vrt, warped_fp.name, driver="VRT")
-    return warped_fp.name
+        path_to_vrt = fp.name
+    return path_to_vrt
 
 
 def get_dset_for_output(path_to_vrts: collections.abc.Sequence[str]) -> xarray.Dataset:
@@ -345,11 +299,10 @@ def get_dset_for_output(path_to_vrts: collections.abc.Sequence[str]) -> xarray.D
             lock=False,
         )
         assert isinstance(darray, xarray.DataArray)
+        darray = darray.isel(band=0, drop=True)
         darrays.append(
             geo.unify_dtype_and_no_data(
-                darray=darray.isel(band=0, drop=True).rename(
-                    darray.attrs.pop("long_name")
-                )
+                darray=darray.rename(darray.attrs.pop("long_name"))
             )
         )
 
@@ -361,38 +314,38 @@ def workflow(
     dataset_names: tuple[DatasetName, ...],
     ignore_missing_tiles: bool,
     skip_ingest: bool,
-    tile_ids: tuple[str, ...],
+    tile_id: str,
     tile_resolution: tiling.XY,
 ) -> xarray.Dataset:
     logger.info(
-        f"Running the harmonize workflow for {dataset_names=:} and {tile_ids=:}"
+        f"Running the harmonize workflow for {dataset_names=:} and {tile_id=:s}"
     )
     datasets = list(map(NAME_TO_CLS.__getitem__, dataset_names))
     cfg = config.Config.from_dot_env()
 
     if not skip_ingest:
         for dataset in datasets:
+            # NB: this doesn't take advantage of ingest's concurrency, so
+            # consider running ingest over the AOI beforehand
             ingest.workflow(
-                concurrency=ingest.DEFAULT_CONCURRENCY,
+                concurrency=1,
                 dataset=dataset,
                 overwrite=False,
                 root=cfg.ingest_root,
-                tile_ids=tile_ids,
+                tile_ids=(tile_id,),
             )
 
     logger.info(f"Constructing common grid for {tile_resolution=:}")
-    grid = Grid.from_tile_ids_resolution(
-        tile_ids=tile_ids, tile_resolution=tile_resolution
-    )
+    grid = Grid.from_tile_id_resolution(tile_id=tile_id, resolution=tile_resolution)
     path_to_vrts = [
-        get_vrt_for_dataset_band_tile_ids(
+        get_vrt_for_dataset_band_tile_id(
             band_idx=band_idx,
             band_name=band_name,
             root=cfg.ingest_root,
             dataset=dataset,
             grid=grid,
             ignore_missing_tiles=ignore_missing_tiles,
-            tile_ids=tile_ids,
+            tile_id=tile_id,
         )
         for dataset in datasets
         if isinstance(dataset, base.RasterDataset)
@@ -421,10 +374,12 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "continent_names",
-        choices=sorted(e.name for e in continents.Continent),
-        nargs=argparse.ONE_OR_MORE,
+        "iso_3166s",
+        help="cover exactly the tiles these countries' boundaries touch",
+        nargs=argparse.ZERO_OR_MORE,
+        type=worldbank_jurisdictions.iso_3166_str,
     )
+    parser.add_argument("--backfill", action="store_true", help="cover all GFW tiles")
     parser.add_argument(
         "--grid-name",
         choices=sorted(e.name for e in tiling.TileResolution),
@@ -434,14 +389,23 @@ def main() -> int:
     parser.add_argument("--ignore-missing-tiles", action="store_true")
     parser.add_argument("--skip-ingest", action="store_true")
     args = parser.parse_args()
+    assert bool(args.iso_3166s) ^ bool(args.backfill), (
+        "pass either one-or-more iso_3166s or --backfill"
+    )
 
-    for continent_name in map(str, args.continent_names):
+    for tile_id in sorted(
+        tiling.GLOBAL_FOREST_WATCH_TILE_IDS
+        if args.backfill
+        else worldbank_jurisdictions.get_ten_degree_tile_ids_for_iso_3166s(
+            iso_3166s=args.iso_3166s
+        )
+    ):
         workflow(
             dataset_names=LUC_AND_EMISSIONS_DATASET_NAMES,
             ignore_missing_tiles=args.ignore_missing_tiles,
             skip_ingest=args.skip_ingest,
-            tile_ids=continents.Continent[continent_name].value,
-            tile_resolution=tiling.TileResolution[str(args.grid_name)].value,
+            tile_id=tile_id,
+            tile_resolution=tiling.TileResolution[str(args.grid_name)],
         )
     return 0
 
