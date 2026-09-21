@@ -10,7 +10,7 @@ control checked with the wrong arithmetic, and a table drawn from two runs of th
 import pandas
 import pytest
 
-from validation import report, schema
+from validation import report, schema, targets
 from validation.__tests__ import fixture
 
 
@@ -34,20 +34,6 @@ def test_a_missing_value_renders_as_a_dash() -> None:
     assert report.format_number(None) == "—"
     assert report.format_number(float("nan")) == "—"
     assert report.format_number(0.4) == "0.400"
-
-
-def test_conservation_fires_only_above_the_pool() -> None:
-    """The bound is the one check that needs no anchor, so it has to be right on its own."""
-    pools = pandas.DataFrame.from_records(
-        data=[
-            {"iso_3166": "XAA", "attributed_tonnes": 9.0e6, "pool_tonnes": 1.0e7},
-            {"iso_3166": "XAB", "attributed_tonnes": 2.5e7, "pool_tonnes": 1.0e7},
-        ]
-    )
-    (finding,) = report.get_conservation_findings(forest_pools=pools)
-    assert finding.severity == schema.Severity.BLOCKING
-    assert finding.affected_iso_3166s == ("XAB",)
-    assert finding.magnitude_tonnes == 1.5e7
 
 
 @pytest.mark.parametrize(
@@ -187,16 +173,14 @@ def test_every_pattern_only_row_is_labelled_as_shape_and_not_level() -> None:
     assert "| rolled_up (62%) |" in level
 
 
-def test_the_document_leads_with_findings_then_conservation() -> None:
+def test_the_document_leads_with_findings_before_tables() -> None:
     """A table invites a conclusion the findings may already have disqualified, so order matters."""
     document = report.render(
         comparisons=fixture.get_comparisons(),
-        forest_pools=fixture.get_forest_pools(),
-        unanchored=fixture.get_unanchored_targets(),
+        uncompared=fixture.get_uncompared_targets(),
     )
     for earlier, later in (
-        ("### Findings", "### Forest-pool conservation"),
-        ("### Forest-pool conservation", "### Comparisons"),
+        ("### Findings", "### Comparisons"),
         ("### Comparisons", "### Coverage"),
     ):
         assert document.index(earlier) < document.index(later), (
@@ -208,8 +192,7 @@ def test_coverage_names_the_targets_no_anchor_covered() -> None:
     """Silence is not agreement; an omitted target reads as a checked one."""
     document = report.render(
         comparisons=fixture.get_comparisons(),
-        forest_pools=fixture.get_forest_pools(),
-        unanchored=fixture.get_unanchored_targets(),
+        uncompared=fixture.get_uncompared_targets(),
     )
     assert "XAE-WHEAT" in document
 
@@ -224,25 +207,6 @@ def test_the_size_note_appears_only_past_the_limit() -> None:
     assert f"{report.PULL_REQUEST_BODY_LIMIT:,d}" in note
 
 
-def test_conservation_says_it_has_not_run_rather_than_going_missing() -> None:
-    """`forest_pools` is None until a capture exists, so this is the path every run takes today.
-
-    An omitted section reads as a passing one, and this is the check that outranks every anchor: a
-    country attributing more forest emissions than its pool holds makes its comparisons moot.
-    """
-    document = report.render(
-        comparisons=fixture.get_comparisons(),
-        forest_pools=None,
-        unanchored=fixture.get_unanchored_targets(),
-    )
-    assert "### Forest-pool conservation" in document
-    assert "Not run" in document
-    # Still in its place ahead of the tables, so nothing below reads as qualified by it.
-    assert document.index("### Forest-pool conservation") < document.index(
-        "### Comparisons"
-    )
-
-
 def test_a_blocking_finding_cannot_be_buried_under_a_larger_advisory() -> None:
     """Severity first, then magnitude: an advisory worth 90 Mt still sorts below a blocking one."""
 
@@ -250,11 +214,11 @@ def test_a_blocking_finding_cannot_be_buried_under_a_larger_advisory() -> None:
         slug: str, severity: schema.Severity, magnitude: float | None
     ) -> schema.Finding:
         return schema.Finding(
-            slug=slug,
-            severity=severity,
-            message="Invented",
             confidence=schema.Confidence.HIGH,
             magnitude_tonnes=magnitude,
+            message="Invented",
+            severity=severity,
+            slug=slug,
         )
 
     rendered = report.render_findings(
@@ -268,3 +232,30 @@ def test_a_blocking_finding_cannot_be_buried_under_a_larger_advisory() -> None:
     assert [
         line.split("**")[1] for line in rendered.splitlines() if line.startswith("- `")
     ] == ["big-blocking", "small-blocking", "unsized-defect", "big-advisory"]
+
+
+def test_an_armed_control_that_reached_no_row_is_not_silent() -> None:
+    """A guard that did not fire and one that held are the same absence in the document.
+
+    Every armed control but one is given a row here, so the finding has to name that one and stay
+    quiet about the rest -- both halves of the check, since reporting all of them always would be
+    as uninformative as reporting none.
+    """
+    armed = [control for control in targets.iter_controls() if control.is_frozen]
+    missing, *rest = armed
+    (finding,) = report.get_unevaluated_control_findings(
+        comparisons=pandas.DataFrame.from_records(
+            data=[
+                {
+                    "iso_3166": control.target.iso_3166,
+                    "crop_name": control.target.crop_name,
+                    "measure": control.measure,
+                }
+                for control in rest
+            ]
+        )
+    )
+    assert finding.severity == schema.Severity.ADVISORY
+    assert finding.affected_rows == 1
+    assert finding.affected_iso_3166s == (missing.target.iso_3166,)
+    assert missing.target.slug in finding.message

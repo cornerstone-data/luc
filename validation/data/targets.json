@@ -37,7 +37,7 @@
       "basis": "gap",
       "crop_name": "OILPALM",
       "iso_3166": "IDN",
-      "reason": "The largest deforestation figure anywhere at 218 Mt, and the measured case of the woody-perennial detection gap: sLUC/WRI is 0.008, decomposing as 0.020 detection x 0.38 allocation. Expected to fail badly; that failure is the point."
+      "reason": "The largest deforestation figure anywhere at 218 Mt, and the pipeline's only test of a per-crop destination layer: Descals is what lets standing palm resolve to cropland at all. sLUC/WRI is 0.429, the highest of Indonesia's crops against WRI where coconut, maize and rice sit at 0.32-0.33, so the perennial detection gap this pair was carried for no longer binds on palm. Still a gap rather than a control: a two-fold shortfall against the anchor is not a relationship to freeze."
     },
     {
       "basis": "gap",
@@ -67,14 +67,14 @@
       "basis": "control",
       "controls": [
         {
-          "baseline": 0.19,
+          "baseline": 0.441,
           "baseline_source_versions": {
             "WRI": "559fe23eb752"
           },
           "emission_pool": "FOREST",
           "inherited": 0.19,
           "measure": "SLUC_OVER_WRI",
-          "note": "WRI is the outlier in Brazil: sLUC sits at 0.16-0.22x WRI across all three BRA crops, so this ratio is expected to sit low. Reproduces the inherited 0.19.",
+          "note": "WRI is the outlier in Brazil: sLUC sits at 0.40-0.54x WRI across the five BRA crops WRI reaches, so a ratio under 1 here is the country's pattern rather than this pair's.",
           "tolerance": 0.1
         },
         {
@@ -141,18 +141,18 @@
       "basis": "control",
       "controls": [
         {
-          "baseline": 0.067,
+          "baseline": 0.341,
           "baseline_source_versions": {
             "WRI": "559fe23eb752"
           },
           "emission_pool": "FOREST",
           "inherited": 0.07,
           "measure": "SLUC_OVER_WRI",
-          "note": "The dry-forest/soy guard. Reproduces the inherited 0.07 at the precision it was published.",
+          "note": "The dry-forest/soy guard, and the lowest of the three soy pairs against WRI -- 0.341 where BRA reaches 0.441 and ARG 0.568.",
           "tolerance": 0.1
         },
         {
-          "baseline": 0.206,
+          "baseline": 0.794,
           "baseline_source_versions": {
             "ORBAE": "22830b2b1f1f"
           },
@@ -245,7 +245,7 @@
       "basis": "gap",
       "crop_name": "OILPALM",
       "iso_3166": "PNG",
-      "reason": "5 Mt, carried for the forest-pool conservation bound rather than for its materiality: PNG's forest allocation is the most sensitive in the set to the expansion-share denominator, so it is where a regression there surfaces first."
+      "reason": "5 Mt, carried as a sentinel rather than for its materiality: PNG's forest allocation is the most sensitive in the set to the expansion-share denominator, so it is where a regression there surfaces first. Its sLUC/WRI sits far below the other palm pairs for a reason that is not palm, measured on tile 00N_140E: 11.98% of tree-cover losses carry any destination at 2020, of which Descals palm supplies 9.03% and GACED30 cropland 0.02% -- 4.0 kha against MapSPAM's 693 kha nationally. Where palm exists it resolves, 71.2% of its pixels sitting on a loss inside the lookback. PNG's loss is dominated by selective logging, and its agriculture is shifting cultivation the FAO cropland definition excludes, so a low ratio here is the anchor's attribution before it is a detection failure. The shifting-cultivation entry in further_research.md carries the measurement."
     },
     {
       "basis": "reserved",
@@ -255,11 +255,11 @@
           "emission_pool": "TOTAL",
           "inherited": 1.05,
           "measure": "SLUC_OVER_JDLUC",
-          "note": "The only internal head-to-head, independent of every external anchor. 56% above the inherited 1.05: peatland occupation is weighted by each crop's hectares rather than by its share of the expansion, which favors maize's large area. The jdLUC leg is unmoved.",
+          "note": "The only internal head-to-head, independent of every external anchor. sLUC sits above jdLUC because peatland occupation is weighted by each crop's hectares rather than by its share of the expansion, which favors maize's large area. The jdLUC leg is unmoved.",
           "tolerance": 0.1
         },
         {
-          "baseline": 0.813,
+          "baseline": 0.629,
           "baseline_source_versions": {
             "ORBAE": "22830b2b1f1f"
           },
@@ -308,11 +308,11 @@
           "emission_pool": "TOTAL",
           "inherited": 1.62,
           "measure": "SLUC_OVER_JDLUC",
-          "note": "The only internal head-to-head, independent of every external anchor. 8% above the inherited 1.62, from the same hectare-weighting of peatland occupation that moved the maize pair.",
+          "note": "The only internal head-to-head, independent of every external anchor. Above jdLUC from the same hectare-weighting of peatland occupation that moves the maize pair.",
           "tolerance": 0.1
         },
         {
-          "baseline": 0.835,
+          "baseline": 0.655,
           "baseline_source_versions": {
             "ORBAE": "22830b2b1f1f"
           },
@@ -357,11 +357,11 @@
       "basis": "reserved",
       "controls": [
         {
-          "baseline": 1.155,
+          "baseline": 0.829,
           "emission_pool": "TOTAL",
           "inherited": 1.19,
           "measure": "SLUC_OVER_JDLUC",
-          "note": "The only internal head-to-head, independent of every external anchor. 3% below the inherited 1.19: hectare-weighting of peatland occupation barely touches wheat, so this pair carries only the drift common to every sLUC pool.",
+          "note": "The only internal head-to-head, independent of every external anchor. One of the two pairs where sLUC sits below jdLUC: production agrees to 1.01x and hectares to 0.91x, so the 0.83x on total emissions is the whole of it.",
           "tolerance": 0.1
         }
       ],
@@ -373,11 +373,11 @@
       "basis": "reserved",
       "controls": [
         {
-          "baseline": 3.259,
+          "baseline": 2.687,
           "emission_pool": "TOTAL",
           "inherited": null,
           "measure": "SLUC_OVER_JDLUC",
-          "note": "The only internal head-to-head, independent of every external anchor. Frozen at 3.259, outside the 1.155-1.748 the three Midwestern pairs span. The disagreement is in the numerator rather than the denominator this pair was chosen for: production agrees to 0.78x and hectares to 0.82x, so sLUC charges cotton 2.5x the conversion emissions jdLUC does. The two Orbae rows below place that on the statistical leg.",
+          "note": "The only internal head-to-head, independent of every external anchor. Sits outside the 0.829-1.748 the three Midwestern pairs span. The disagreement is in the numerator rather than the denominator this pair was chosen for: production agrees to 0.69x and hectares to 0.74x, so sLUC charges cotton 1.9x the total emissions jdLUC does. The two Orbae rows below place that on the statistical leg.",
           "tolerance": 0.1
         },
         {
@@ -388,7 +388,7 @@
           "emission_pool": "LUC_ONLY",
           "inherited": null,
           "measure": "JDLUC_OVER_ORBAE",
-          "note": "The only method-family-matched comparison in the design: every Orbae row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg. Frozen at +0.924 over the 17 provinces Orbae covers, the closest any US pair comes to it -- ahead of maize at +0.813 -- which is what makes the sLUC row beside it worth reading. Rank rather than ratio: Orbae's export is assessment year 2023 with no 2020 export coming, and level cannot cross that offset (WRI's own spans 1.42x at the median) where provincial rank very nearly can (+0.961).",
+          "note": "The only method-family-matched comparison in the design: every Orbae row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg. +0.924 over the 17 provinces Orbae covers, the highest any US pair reaches -- ahead of soybean at +0.655 and maize at +0.629 -- which is what makes the sLUC row beside it worth reading. Rank rather than ratio: Orbae's export is assessment year 2023 with no 2020 export coming, and level cannot cross that offset (WRI's own spans 1.42x at the median) where provincial rank very nearly can (+0.961).",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
         },
@@ -400,7 +400,7 @@
           "emission_pool": "LUC_ONLY",
           "inherited": null,
           "measure": "SLUC_OVER_ORBAE",
-          "note": "sLUC against the same anchor the jdLUC pair uses, so the two together separate method family from leg. Frozen at +0.162 where jdLUC reaches +0.924 over the same provinces against the same anchor: a third party built the jdLUC way ranks cotton the way our jdLUC leg does and not the way our statistical leg does, which is what makes the head-to-head above a finding about that leg rather than about the comparison. Rank rather than ratio, for the reason the jdLUC row gives.",
+          "note": "sLUC against the same anchor the jdLUC pair uses, so the two together separate method family from leg. +0.162 where jdLUC reaches +0.924 over the same provinces against the same anchor: a third party built the jdLUC way ranks cotton the way our jdLUC leg does and not the way our statistical leg does, which is what makes the head-to-head above a finding about that leg rather than about the comparison. Rank rather than ratio, for the reason the jdLUC row gives.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
         },
@@ -426,11 +426,11 @@
       "basis": "reserved",
       "controls": [
         {
-          "baseline": 0.667,
+          "baseline": 0.833,
           "emission_pool": "TOTAL",
           "inherited": null,
           "measure": "SLUC_OVER_JDLUC",
-          "note": "The only internal head-to-head, independent of every external anchor. Frozen at 0.667, the one pair where sLUC sits below jdLUC rather than above: the flooded regime this pair was chosen to reach disagrees in the other direction, which is a different result from disagreeing by a different amount. Production agrees to 0.97x, so the 0.65x on conversion emissions is the whole of it.",
+          "note": "The only internal head-to-head, independent of every external anchor. The flooded regime this pair was chosen to reach, and one of the two pairs where sLUC sits below jdLUC rather than above -- wheat is the other, at 0.829. Production agrees to 0.88x, so the 0.73x on total emissions carries it.",
           "tolerance": 0.1
         }
       ],
@@ -442,11 +442,11 @@
       "basis": "reserved",
       "controls": [
         {
-          "baseline": 3.005,
+          "baseline": 3.807,
           "emission_pool": "TOTAL",
           "inherited": null,
           "measure": "SLUC_OVER_JDLUC",
-          "note": "The only internal head-to-head, independent of every external anchor. Frozen at 3.005. Hectares agree within 0.2% and production to 0.91x, so conversion emissions carry all of it, on the one US pair that lands on peat. Orbae publishes US sugarcane but only four provinces carry area, too few for a rank control, so nothing external adjudicates this pair.",
+          "note": "The only internal head-to-head, independent of every external anchor. The widest disagreement in the set: hectares agree to 0.79x and production to 0.75x, so the 2.84x on total emissions carries all of it, on the one US pair that lands on peat. Orbae publishes US sugarcane but only four provinces carry area, too few for a rank control, so nothing external adjudicates this pair.",
           "tolerance": 0.1
         }
       ],
@@ -458,14 +458,14 @@
       "basis": "control",
       "controls": [
         {
-          "baseline": 0.423,
+          "baseline": 0.568,
           "baseline_source_versions": {
             "WRI": "559fe23eb752"
           },
           "emission_pool": "FOREST",
           "inherited": 0.43,
           "measure": "SLUC_OVER_WRI",
-          "note": "Temperate belt, two anchors. Reproduces the inherited 0.43.",
+          "note": "Temperate belt, two anchors. Sits beside its maize pair at 0.637, so a move in one without the other localizes to the crop rather than to the country.",
           "tolerance": 0.1
         },
         {
@@ -502,14 +502,14 @@
       "basis": "control",
       "controls": [
         {
-          "baseline": 0.441,
+          "baseline": 0.637,
           "baseline_source_versions": {
             "WRI": "559fe23eb752"
           },
           "emission_pool": "FOREST",
           "inherited": 0.46,
           "measure": "SLUC_OVER_WRI",
-          "note": "Temperate belt, two anchors. Reproduces the inherited 0.46.",
+          "note": "Temperate belt, two anchors. Sits beside its soybean pair at 0.568, so a move in one without the other localizes to the crop rather than to the country.",
           "tolerance": 0.1
         },
         {
@@ -552,14 +552,14 @@
       "basis": "control",
       "controls": [
         {
-          "baseline": 0.319,
+          "baseline": 0.597,
           "baseline_source_versions": {
             "WRI": "559fe23eb752"
           },
           "emission_pool": "FOREST",
           "inherited": 0.32,
           "measure": "SLUC_OVER_WRI",
-          "note": "Forest is 68% of the total EF; a second Congo Basin row guards against a single-country fluke. Reproduces the inherited 0.32.",
+          "note": "Forest is 68% of the total EF; a second Congo Basin row guards against a single-country fluke, at 0.597 against CAF's 0.261.",
           "tolerance": 0.1
         }
       ],
@@ -571,14 +571,14 @@
       "basis": "control",
       "controls": [
         {
-          "baseline": 0.571,
+          "baseline": 1.761,
           "baseline_source_versions": {
             "WRI": "559fe23eb752"
           },
           "emission_pool": "FOREST",
           "inherited": 0.58,
           "measure": "SLUC_OVER_WRI",
-          "note": "Miombo and mixed woodland: a different biome from the Congo Basin at a similar ratio. Reproduces the inherited 0.58.",
+          "note": "Miombo and mixed woodland: a different biome from the Congo Basin. The only pair in the set where sLUC exceeds WRI, of the seven this comparison carries.",
           "tolerance": 0.1
         }
       ],
@@ -590,14 +590,14 @@
       "basis": "control",
       "controls": [
         {
-          "baseline": 0.357,
+          "baseline": 0.261,
           "baseline_source_versions": {
             "WRI": "559fe23eb752"
           },
           "emission_pool": "FOREST",
           "inherited": 0.4,
           "measure": "SLUC_OVER_WRI",
-          "note": "Forest-dominated frontier where the method should be strongest; forest is 83% of the total EF. Sits 11% under the inherited 0.40, the loosest of the seven.",
+          "note": "Forest-dominated frontier where the method should be strongest; forest is 83% of the total EF. The lowest sLUC/WRI of the seven this comparison carries.",
           "tolerance": 0.1
         }
       ],

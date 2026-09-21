@@ -35,7 +35,7 @@ def test_get_ten_degree_tile_ids_for_country() -> None:
         "10S_060W",
         "10S_070W",
         "10S_080W",
-        # This tile is not in the GFW tileset
+        # This tile is not in the GNW tileset
         # "20S_030W",
         "20S_050W",
         "20S_060W",

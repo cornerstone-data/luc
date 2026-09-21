@@ -149,7 +149,7 @@ class Production:
     admin_id: str
     admin_level: str
     area_hectares: float
-    crop_name: str
+    commodity_name: str
     jurisdiction_name: str
     production_kg: float
     year: int
@@ -188,14 +188,16 @@ def get_records_for_path(path_to_zip: str) -> list[dict[str, str | float]]:
         element_code = int(row["Element Code"])
         if element_code not in element_codes:
             continue
-        crop_name = ITEM_CODE_TO_CROP_NAME.get(int(row["Item Code"]))
-        if crop_name is None:
+        commodity_name = ITEM_CODE_TO_CROP_NAME.get(int(row["Item Code"]))
+        if commodity_name is None:
             continue
         iso_3166 = get_iso_3166(m49_code=row["Area Code (M49)"])
         if iso_3166 is None:
             continue
         names[iso_3166] = row["Area"]
-        values = accumulated.setdefault((iso_3166, crop_name, int(row["Year"])), {})
+        values = accumulated.setdefault(
+            (iso_3166, commodity_name, int(row["Year"])), {}
+        )
         if element_code == AREA_HARVESTED_ELEMENT_CODE:
             values["area_hectares"] = float(row["Value"])
         else:
@@ -207,12 +209,12 @@ def get_records_for_path(path_to_zip: str) -> list[dict[str, str | float]]:
             admin_id=worldbank_jurisdictions.iso_3166_str(iso_3166),
             admin_level=worldbank_jurisdictions.AdminLevel.NATIONAL.name,
             area_hectares=float(values["area_hectares"]),
-            crop_name=crop_name,
+            commodity_name=commodity_name,
             jurisdiction_name=names[iso_3166],
             production_kg=float(values["production_kg"]),
             year=year,
         )
-        for (iso_3166, crop_name, year), values in sorted(accumulated.items())
+        for (iso_3166, commodity_name, year), values in sorted(accumulated.items())
         if "area_hectares" in values
         if "production_kg" in values
     ]
@@ -238,19 +240,20 @@ DATASET = base.TabularDataset(
         "admin_level",
         "admin_id",
         "jurisdiction_name",
-        "crop_name",
+        "commodity_name",
         "year",
     ],
     product_name="production-crops",
     source_name="faostat",
-    version="v0",
+    # v1: crop_name -> commodity_name
+    version="v1",
 )
 
 
 def load() -> pandas.DataFrame:
     uri = storage.join_uri(
-        root=config.Config.from_dot_env().ingest_root,
         prefix=DATASET.get_prefix(tile_id="world"),
+        root=config.Config.from_dot_env().ingest_root,
     )
     logger.info(f"Loading production from {uri=:s}")
     return pandas.read_parquet(path=uri)

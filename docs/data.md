@@ -16,14 +16,14 @@ Of the three artifacts below, one is published and two are not.
 
 Unless noted otherwise, every raster artifact shares these conventions:
 
-| Property          | Value                                                                                                                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| CRS               | `EPSG:4326`                                                                                                                                  |
-| Grid / resolution | GLAD native — `0.00025°` (~30 m). The statistical leg additionally works on a coarser ~10 km MapSPAM grid (`0.0833°`); see `methodology.md`. |
-| Dimensions        | `(y, x)` per variable, one variable per band                                                                                                 |
-| Dtype             | `float32` (all variables, including categorical codes)                                                                                       |
-| No-data           | `NaN`                                                                                                                                        |
-| Format            | zarr (rasters) / parquet (tables), chunked for out-of-core reads                                                                             |
+| Property          | Value                                                                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CRS               | `EPSG:4326`                                                                                                                                         |
+| Grid / resolution | The GLAD tile grid — `0.00025°` (~30 m). The statistical leg additionally works on a coarser ~10 km MapSPAM grid (`0.0833°`); see `methodology.md`. |
+| Dimensions        | `(y, x)` per variable, one variable per band                                                                                                        |
+| Dtype             | `float32` (all variables, including categorical codes)                                                                                              |
+| No-data           | `NaN`                                                                                                                                               |
+| Format            | zarr (rasters) / parquet (tables), chunked for out-of-core reads                                                                                    |
 
 Emission quantities use two unit conventions: `t CO₂e/ha` (tonnes CO₂e per hectare, on the raster layers) and `t CO₂e` (metric tonnes, on the tabular rollups — the `*_mt` columns). Areas are hectares (`ha`), production is kilograms (`kg`).
 
@@ -35,17 +35,20 @@ Written by the `harmonize` stage; a pipeline output, not a published artifact (s
 
 Every source raster reprojected and warped onto the common grid — the input to the emissions core. One variable per fully-qualified source band, named `{source}:{product}:{band}`.
 
-| Variable                                                        | Type    | Units       | Description                                                                          |
-| --------------------------------------------------------------- | ------- | ----------- | ------------------------------------------------------------------------------------ |
-| `glad:glcluc:year=2000` … `glad:glcluc:year=2020`               | float32 | GLCLUC code | GLAD land-cover/land-use class, one variable per year (2000, 2005, 2010, 2015, 2020) |
-| `gfw:harris-agb:aboveground-biomass-mg-per-ha`                  | float32 | Mg/ha       | Forest above-ground woody biomass (2000)                                             |
-| `huang:bgb:belowground-biomass-mg-per-ha`                       | float32 | Mg/ha       | Forest below-ground (root) biomass                                                   |
-| `soilgrids:organic-carbon-stocks:organic-soil-carbon-mg-per-ha` | float32 | Mg/ha       | Soil organic carbon stock, 0–30 cm                                                   |
-| `gfw:global-peatlands:is-peatland`                              | float32 | 0/1         | Binary peatland mask                                                                 |
-| `ipcc:climate-zones:climate-zone`                               | float32 | zone code   | IPCC climate domain per pixel                                                        |
+| Variable                                                        | Type    | Units            | Description                                                                         |
+| --------------------------------------------------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------- |
+| `gnw:tree-cover-loss:lossyear`                                  | float32 | years since 2000 | Year of gross tree-cover loss; 0 where the pixel never lost cover                   |
+| `liao:gaced30:year=2000` … `liao:gaced30:year=2024`             | float32 | 0/10             | Annual cropland extent, one variable per year                                       |
+| `gpw:grassland:year=2000` … `gpw:grassland:year=2024`           | float32 | class code       | Annual grassland class (cultivated, natural, open shrubland), one variable per year |
+| `gnw:harris-agb:aboveground-biomass-mg-per-ha`                  | float32 | Mg/ha            | Forest above-ground woody biomass (2000)                                            |
+| `huang:bgb:belowground-biomass-mg-per-ha`                       | float32 | Mg/ha            | Forest below-ground (root) biomass                                                  |
+| `soilgrids:organic-carbon-stocks:organic-soil-carbon-mg-per-ha` | float32 | Mg/ha            | Soil organic carbon stock, 0–30 cm                                                  |
+| `gnw:global-peatlands:is-peatland`                              | float32 | 0/1              | Binary peatland mask                                                                |
+| `ipcc:climate-zones:climate-zone`                               | float32 | zone code        | IPCC climate domain per pixel                                                       |
 
 ```python
 import xarray
+
 # written by the harmonize stage
 harmonized = xarray.open_zarr("<scratch-root>/<cache-key>.zarr", consolidated=False)
 ```
@@ -54,20 +57,25 @@ harmonized = xarray.open_zarr("<scratch-root>/<cache-key>.zarr", consolidated=Fa
 
 Written by the `emit` stage; a pipeline output, not a published artifact (see [Access](#access)).
 
-The crop-agnostic, per-pixel, per-span LUC emissions produced by the `emit` stage. Spans are the four consecutive GLAD intervals `2000-2005`, `2005-2010`, `2010-2015`, `2015-2020`; per-year layers cover `2000, 2005, 2010, 2015, 2020`.
+The crop-agnostic, per-pixel, per-span LUC emissions produced by the `emit` stage. A conversion is dated to the year its source class ended, and charged to the span containing that year; the spans are `2000-2005`, `2005-2010`, `2010-2015` and `2015-2020`.
 
-| Variable                                             | Type    | Units          | Description                                                                                                 |
-| ---------------------------------------------------- | ------- | -------------- | ----------------------------------------------------------------------------------------------------------- |
-| `land-class:{year}`                                  | float32 | LandClass code | Per-year land class (Forest, Grassland, Cropland, Built-up, Water, Snow/ice, Ocean), stored as a float code |
-| `vegetation-emissions:tco2e-per-ha:{before}-{after}` | float32 | t CO₂e/ha      | Per-span vegetation-carbon loss (above-ground, below-ground, dead organic matter, grassland)                |
-| `soil-emissions:tco2e-per-ha:{before}-{after}`       | float32 | t CO₂e/ha      | Per-span soil-carbon loss (mineral stock change + peatland drainage pulse)                                  |
-| `emissions:tco2e-per-ha:{before}-{after}`            | float32 | t CO₂e/ha      | Per-span total (vegetation + soil), before temporal discounting                                             |
-| `peatland-occupation:tco2e-per-ha`                   | float32 | t CO₂e/ha      | Current-year annual peatland-occupation emissions                                                           |
-| `emissions-per-hectare:tco2e-per-ha`                 | float32 | t CO₂e/ha      | 20-year linearly-discounted LUC emissions + peatland occupation — the headline per-hectare layer            |
-| `hectares-per-pixel:ha`                              | float32 | ha             | Pixel area (varies with latitude)                                                                           |
+| Variable                                             | Type    | Units           | Description                                                                                              |
+| ---------------------------------------------------- | ------- | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `conversion`                                         | float32 | Conversion code | Which of the five conversions fired on the pixel, or none                                                |
+| `conversion-year`                                    | float32 | year            | The year the pixel's source class ended — its tree-cover loss year, or its last departure from grassland |
+| `destination-dataset`                                | float32 | Dataset bitmask | Which layers claimed the pixel at the assessment year — one bit each, so a contested pixel keeps both    |
+| `vegetation-emissions:tco2e-per-ha:{before}-{after}` | float32 | t CO₂e/ha       | Per-span vegetation-carbon loss (above-ground, below-ground, dead organic matter, grassland)             |
+| `soil-emissions:tco2e-per-ha:{before}-{after}`       | float32 | t CO₂e/ha       | Per-span soil-carbon loss (mineral stock change + peatland drainage pulse)                               |
+| `emissions:tco2e-per-ha:{before}-{after}`            | float32 | t CO₂e/ha       | Per-span total (vegetation + soil), before temporal discounting                                          |
+| `cropland-peatland-occupation:tco2e-per-ha`          | float32 | t CO₂e/ha       | Current-year annual peatland-occupation emissions under cropland                                         |
+| `pastureland-peatland-occupation:tco2e-per-ha`       | float32 | t CO₂e/ha       | The same under pasture, split from cropland on the 30 m grid                                             |
+| `dropped-emissions:tco2e-per-ha`                     | float32 | t CO₂e/ha       | Source carbon no destination claimed, reported beside the total rather than inside it                    |
+| `emissions-per-hectare:tco2e-per-ha`                 | float32 | t CO₂e/ha       | 20-year linearly-discounted LUC emissions + peatland occupation — the headline per-hectare layer         |
+| `hectares-per-pixel:ha`                              | float32 | ha              | Pixel area (varies with latitude)                                                                        |
 
 ```python
 import xarray
+
 # written by the emit stage
 emissions = xarray.open_zarr("<scratch-root>/<cache-key>.zarr", consolidated=False)
 ```
@@ -76,27 +84,28 @@ emissions = xarray.open_zarr("<scratch-root>/<cache-key>.zarr", consolidated=Fal
 
 Deposited per data version as `emissions-factors.parquet` (see [Access](#access)).
 
-The final per-(jurisdiction, crop) table produced by the `trace` stage. Indexed by `(admin_level, admin_id, crop_name, methodology)` — all strings — where `admin_level` is `PROVINCIAL` (World Bank admin-1) or `NATIONAL` (admin-0, summed from provincial rows) and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`.
+The final per-(jurisdiction, crop) table produced by the `trace` stage. Indexed by `(admin_level, admin_id, commodity_name, methodology)` — all strings — where `admin_level` is `PROVINCIAL` (World Bank admin-1) or `NATIONAL` (admin-0, summed from provincial rows) and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Two `commodity_name` values are not crops: `PASTURE`, which carries emissions and area but no production, and `DROPPED`, which carries only the emissions no destination layer claimed. Neither takes a production figure, so neither is published with an emissions factor.
 
-| Column                             | Type    | Units        | Description                                                                                  |
-| ---------------------------------- | ------- | ------------ | -------------------------------------------------------------------------------------------- |
-| `jurisdiction_name`                | string  | —            | Display name (e.g. `United States of America \| Iowa`)                                       |
-| `crop_hectares`                    | float64 | ha           | Crop area in the jurisdiction (land occupation), on production's discounted 2000–2020 window |
-| `peatland_crop_hectares`           | float64 | ha           | Crop area on peatland                                                                        |
-| `emissions_mt`                     | float64 | t CO₂e       | Total allocated LUC emissions                                                                |
-| `peatland_occupation_emissions_mt` | float64 | t CO₂e       | Annual peatland-occupation emissions on crop pixels                                          |
-| `forest_emissions_mt`              | float64 | t CO₂e       | Forest-conversion emissions                                                                  |
-| `peatland_conversion_emissions_mt` | float64 | t CO₂e       | Peatland-conversion (drainage-pulse) emissions                                               |
-| `production_kg`                    | float64 | kg           | Crop production (NASS yield × area for the direct leg; MapSPAM for the statistical leg)      |
-| `yield_kg_per_ha`                  | float64 | kg/ha        | `production_kg / crop_hectares`                                                              |
-| `emissions_factor_kgco2e_per_kg`   | float64 | kg CO₂e / kg | `1000 × emissions_mt / production_kg` — the headline factor                                  |
-| `peatland_occupation_fraction`     | float64 | ratio (0–1)  | `peatland_occupation_emissions_mt / emissions_mt`                                            |
+| Column                             | Type    | Units        | Description                                                                                |
+| ---------------------------------- | ------- | ------------ | ------------------------------------------------------------------------------------------ |
+| `jurisdiction_name`                | string  | —            | Display name (e.g. `United States of America \| Iowa`)                                     |
+| `commodity_hectares`               | float64 | ha           | Area the commodity occupies (land occupation), on production's discounted 2000–2020 window |
+| `peatland_commodity_hectares`      | float64 | ha           | Commodity area on peatland                                                                 |
+| `emissions_mt`                     | float64 | t CO₂e       | Total allocated LUC emissions                                                              |
+| `peatland_occupation_emissions_mt` | float64 | t CO₂e       | Annual peatland-occupation emissions on the commodity's pixels                             |
+| `forest_emissions_mt`              | float64 | t CO₂e       | Forest-conversion emissions                                                                |
+| `grassland_emissions_mt`           | float64 | t CO₂e       | Grassland-conversion emissions                                                             |
+| `peatland_conversion_emissions_mt` | float64 | t CO₂e       | Peatland-conversion (drainage-pulse) emissions                                             |
+| `production_kg`                    | float64 | kg           | Crop production (NASS yield × area for the direct leg; MapSPAM for the statistical leg)    |
+| `yield_kg_per_ha`                  | float64 | kg/ha        | `production_kg / commodity_hectares`                                                       |
+| `emissions_factor_kgco2e_per_kg`   | float64 | kg CO₂e / kg | `1000 × emissions_mt / production_kg` — the headline factor                                |
 
 Both attribution legs emit the same columns.
 
 ```python
 import pandas
+
 emission_factors = pandas.read_parquet("emissions-factors.parquet")
 ```
 
-The `attribute` stage writes an intermediate rollup parquet with the same index and the non-derived subset of these columns (`crop_hectares`, `peatland_crop_hectares`, `emissions_mt`, `peatland_occupation_emissions_mt`, `forest_emissions_mt`, `peatland_conversion_emissions_mt`, and — statistical only — `production_mt`); `trace` joins production and appends the ratio columns (`production_kg`, `yield_kg_per_ha`, `emissions_factor_kgco2e_per_kg`, `peatland_occupation_fraction`).
+The `attribute` stage writes an intermediate rollup parquet with the same index and the non-derived subset of these columns (`commodity_hectares`, `peatland_commodity_hectares`, `emissions_mt`, `peatland_occupation_emissions_mt`, `forest_emissions_mt`, `grassland_emissions_mt`, `peatland_conversion_emissions_mt`, and — statistical only — `production_mt`); `trace` joins production and appends the ratio columns (`production_kg`, `yield_kg_per_ha`, `emissions_factor_kgco2e_per_kg`).

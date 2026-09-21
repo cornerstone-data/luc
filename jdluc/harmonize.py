@@ -5,16 +5,19 @@ shared grid, returned as an xarray.Dataset with one variable per source band. Wh
 datasets are windowed onto the same grid. The result is cached.
 
 The tile set comes from the positional ISO 3166 alpha-3 codes -- or, with `--backfill`,
-from `tiling.GLOBAL_FOREST_WATCH_TILE_IDS`.
+from `tiling.GLOBAL_NATURE_WATCH_TILE_IDS`; `--stack` narrows which dataset stacks are built,
+so a cache can be warmed ahead of the stage that reads it.
 
 Example invocations:
   uv run python jdluc/harmonize.py USA
   uv run python jdluc/harmonize.py --backfill
+  uv run python jdluc/harmonize.py --backfill --stack CROP_SUPPLEMENT
 """
 
 import argparse
 import collections.abc
 import dataclasses
+import enum
 import logging
 import tempfile
 import typing
@@ -26,7 +29,7 @@ import rasterio.errors
 import rioxarray
 import xarray
 
-from jdluc import config, geo, ingest, storage, tiling
+from jdluc import config, geo, ingest, storage, tiling, utils
 from jdluc.datasets import NAME_TO_CLS, DatasetName, base, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
@@ -55,7 +58,7 @@ class Tile:
     def from_dataset_tile_id(
         cls, dataset: base.RasterDataset, root: str, tile_id: str
     ) -> typing.Self:
-        uri = storage.join_uri(root=root, prefix=dataset.get_prefix(tile_id=tile_id))
+        uri = storage.join_uri(prefix=dataset.get_prefix(tile_id=tile_id), root=root)
         with rasterio.open(fp=uri) as ds:
             rio_dtype = next(iter(ds.dtypes))
             return cls(
@@ -202,8 +205,8 @@ def get_vrt_for_dataset_band_tile_id(
     if dataset.partitioning == tiling.Partitioning.TEN_DEGREE_TILE:
         try:
             tile = Tile.from_dataset_tile_id(
-                root=root,
                 dataset=dataset,
+                root=root,
                 tile_id=tile_id,
             )
         except rasterio.errors.RasterioIOError:
@@ -243,8 +246,8 @@ def get_vrt_for_dataset_band_tile_id(
             )
     elif dataset.partitioning == tiling.Partitioning.WHOLE_WORLD:
         tile = Tile.from_dataset_tile_id(
-            root=root,
             dataset=dataset,
+            root=root,
             tile_id=tiling.WHOLE_WORLD_TILE_ID,
         )
         lines.extend(
@@ -268,8 +271,8 @@ def get_vrt_for_dataset_band_tile_id(
                 path_to_tile=tile.gdal_path,
                 resampling=grid.get_resampling_for_band_type(
                     band_type=tile.band_type,
-                    src_resolution=src_resolution,
                     dest_resolution=grid.resolution,
+                    src_resolution=src_resolution,
                 ),
                 src_offset=src_offset,
                 src_resolution=src_resolution,
@@ -293,9 +296,8 @@ def get_dset_for_output(path_to_vrts: collections.abc.Sequence[str]) -> xarray.D
     for path_to_vrt in path_to_vrts:
         logger.debug(f"Opening {path_to_vrt=:s} with {chunk_size=:d}")
         darray = rioxarray.open_rasterio(
-            filename=path_to_vrt,
             chunks=chunk_size,
-            # Remove the serialization lock because this is read-only
+            filename=path_to_vrt,
             lock=False,
         )
         assert isinstance(darray, xarray.DataArray)
@@ -309,7 +311,7 @@ def get_dset_for_output(path_to_vrts: collections.abc.Sequence[str]) -> xarray.D
     return xarray.Dataset({darray.name: darray for darray in darrays})
 
 
-@storage.cache_to_zarr(version=0, ignored_args=["ignore_missing_tiles", "skip_ingest"])
+@storage.cache_to_zarr(ignored_args=["ignore_missing_tiles", "skip_ingest"], version=0)
 def workflow(
     dataset_names: tuple[DatasetName, ...],
     ignore_missing_tiles: bool,
@@ -325,8 +327,6 @@ def workflow(
 
     if not skip_ingest:
         for dataset in datasets:
-            # NB: this doesn't take advantage of ingest's concurrency, so
-            # consider running ingest over the AOI beforehand
             ingest.workflow(
                 concurrency=1,
                 dataset=dataset,
@@ -336,15 +336,15 @@ def workflow(
             )
 
     logger.info(f"Constructing common grid for {tile_resolution=:}")
-    grid = Grid.from_tile_id_resolution(tile_id=tile_id, resolution=tile_resolution)
+    grid = Grid.from_tile_id_resolution(resolution=tile_resolution, tile_id=tile_id)
     path_to_vrts = [
         get_vrt_for_dataset_band_tile_id(
             band_idx=band_idx,
             band_name=band_name,
-            root=cfg.ingest_root,
             dataset=dataset,
             grid=grid,
             ignore_missing_tiles=ignore_missing_tiles,
+            root=cfg.ingest_root,
             tile_id=tile_id,
         )
         for dataset in datasets
@@ -356,20 +356,38 @@ def workflow(
     return get_dset_for_output(path_to_vrts=path_to_vrts)
 
 
-LUC_AND_EMISSIONS_DATASET_NAMES = (
-    DatasetName.GFW_GLOBAL_PEATLANDS,
-    DatasetName.GFW_HARRIS_AGB,
-    DatasetName.GLAD_GLCLUC,
-    DatasetName.HUANG_BGB,
-    DatasetName.IPCC_CLIMATE_ZONES,
-    DatasetName.SOILGRIDS_OCS,
+@enum.unique
+class Stack(enum.Enum):
+    LUC_AND_EMISSIONS = (
+        DatasetName.GNW_GLOBAL_PEATLANDS,
+        DatasetName.GNW_HARRIS_AGB,
+        DatasetName.GNW_TREE_COVER_LOSS,
+        DatasetName.GPW_GRASSLAND,
+        DatasetName.HUANG_BGB,
+        DatasetName.IPCC_CLIMATE_ZONES,
+        DatasetName.LIAO_GACED30,
+        DatasetName.SOILGRIDS_OCS,
+    )
+    CROP_SUPPLEMENT = (DatasetName.DESCALS_OIL_PALM,)
+
+
+def all_unique(it: collections.abc.Iterable[str]) -> bool:
+    return len(values := list(it)) == len(set(values))
+
+
+assert all_unique(
+    band_name
+    for stack in Stack
+    for dataset in map(NAME_TO_CLS.__getitem__, stack.value)
+    if isinstance(dataset, base.RasterDataset)
+    for band_name in dataset.fully_qualified_band_names
 )
 
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -379,7 +397,7 @@ def main() -> int:
         nargs=argparse.ZERO_OR_MORE,
         type=worldbank_jurisdictions.iso_3166_str,
     )
-    parser.add_argument("--backfill", action="store_true", help="cover all GFW tiles")
+    parser.add_argument("--backfill", action="store_true", help="cover all GNW tiles")
     parser.add_argument(
         "--grid-name",
         choices=sorted(e.name for e in tiling.TileResolution),
@@ -387,26 +405,50 @@ def main() -> int:
         type=str,
     )
     parser.add_argument("--ignore-missing-tiles", action="store_true")
+    parser.add_argument(
+        "--modulus",
+        default=1,
+        type=int,
+        help="split the tiles into this many disjoint shards",
+    )
+    parser.add_argument(
+        "--residues",
+        action="append",
+        type=int,
+        help="build only these shards, each in [0, --modulus); repeatable, all by default",
+    )
+    parser.add_argument(
+        "--stack",
+        action="append",
+        choices=sorted(stack.name for stack in Stack),
+        help="build only this stack; repeatable, and every stack by default",
+    )
     parser.add_argument("--skip-ingest", action="store_true")
     args = parser.parse_args()
     assert bool(args.iso_3166s) ^ bool(args.backfill), (
         "pass either one-or-more iso_3166s or --backfill"
     )
 
-    for tile_id in sorted(
-        tiling.GLOBAL_FOREST_WATCH_TILE_IDS
-        if args.backfill
-        else worldbank_jurisdictions.get_ten_degree_tile_ids_for_iso_3166s(
-            iso_3166s=args.iso_3166s
-        )
-    ):
-        workflow(
-            dataset_names=LUC_AND_EMISSIONS_DATASET_NAMES,
-            ignore_missing_tiles=args.ignore_missing_tiles,
-            skip_ingest=args.skip_ingest,
-            tile_id=tile_id,
-            tile_resolution=tiling.TileResolution[str(args.grid_name)],
-        )
+    stacks = tuple(Stack[name] for name in args.stack) if args.stack else tuple(Stack)
+    for stack in stacks:
+        for tile_id in utils.iter_sharded(
+            modulus=int(args.modulus),
+            residues=args.residues,
+            values=(
+                tiling.GLOBAL_NATURE_WATCH_TILE_IDS
+                if args.backfill
+                else worldbank_jurisdictions.get_ten_degree_tile_ids_for_iso_3166s(
+                    iso_3166s=args.iso_3166s
+                )
+            ),
+        ):
+            workflow(
+                dataset_names=stack.value,
+                ignore_missing_tiles=args.ignore_missing_tiles,
+                skip_ingest=args.skip_ingest,
+                tile_id=tile_id,
+                tile_resolution=tiling.TileResolution[str(args.grid_name)],
+            )
     return 0
 
 

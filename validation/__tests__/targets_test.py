@@ -159,9 +159,9 @@ def test_a_baseline_travels_with_the_anchors_it_was_frozen_against(
     with get_context(refusal=refusal):
         targets.check_document(
             document=get_document(
-                measure=measure.name,
                 baseline=baseline,
                 baseline_source_versions=versions,
+                measure=measure.name,
             )
         )
 
@@ -356,14 +356,14 @@ def test_a_control_with_no_baseline_is_carried_rather_than_armed() -> None:
     """Every control in the file is frozen, so this state exists only here -- and it is the state a
     newly added control arrives in, where reading it as armed would fire on the first capture."""
     carried = targets.Control(
-        target=targets.Target(
-            iso_3166="XAA", crop_name="MAIZE", basis="control", reason="Invented"
-        ),
-        emission_pool=schema.EmissionPool.FOREST,
-        measure=targets.Measure.SLUC_OVER_WRI,
-        inherited=0.40,
         baseline=None,
+        emission_pool=schema.EmissionPool.FOREST,
+        inherited=0.40,
+        measure=targets.Measure.SLUC_OVER_WRI,
         note="Invented",
+        target=targets.Target(
+            basis="control", crop_name="MAIZE", iso_3166="XAA", reason="Invented"
+        ),
     )
     assert not carried.is_frozen
     assert carried.tolerance == targets.DEFAULT_TOLERANCE
@@ -374,7 +374,7 @@ def test_a_target_slug_is_the_pair_a_report_prints() -> None:
     """`render_coverage` prints these and `iter_control_targets` dedups on them, so the separator is
     load-bearing in two places that never see each other."""
     target = targets.Target(
-        iso_3166="XAA", crop_name="MAIZE", basis="ranked", reason="Invented"
+        basis="ranked", crop_name="MAIZE", iso_3166="XAA", reason="Invented"
     )
     assert target.slug == "XAA-MAIZE"
 

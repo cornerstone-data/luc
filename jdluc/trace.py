@@ -5,9 +5,9 @@ each crop's total production — the only step that depends on methodology:
   - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield (4-year mean).
   - STATISTICAL: production = MAPSPAM production, carried straight through the attribute.
 
-It then derives, identically for both, each crop's emissions factor (kgCO2e per kg) and
-peatland-occupation fraction, and rolls the provincials up to national totals. Returns a
-pandas.DataFrame indexed by (admin level, crop, jurisdiction) which is cached.
+It then derives, identically for both, each commodity's yield (kg per hectare) and emissions
+factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
+pandas.DataFrame indexed by (admin_level, admin_id, commodity_name, methodology).
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -23,7 +23,7 @@ import logging
 
 import pandas
 
-from jdluc import attribute, storage
+from jdluc import attribute, emit, storage
 from jdluc.datasets import usda_nass_quickstats, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
@@ -31,15 +31,14 @@ logger = logging.getLogger(__name__)
 
 NASS_YIELD_YEARS = (2017, 2018, 2019, 2020)
 KG_PER_TONNE = 1000
-CANONICAL_KEY = ("admin_level", "admin_id", "crop_name", "methodology")
+CANONICAL_KEY = ("admin_level", "admin_id", "commodity_name", "methodology")
 ADDITIVE_COLUMNS = (
-    "crop_hectares",
-    "forest_emissions_mt",
-    "peatland_crop_hectares",
-    "peatland_conversion_emissions_mt",
-    "peatland_occupation_emissions_mt",
+    "commodity_hectares",
     "emissions_mt",
+    "peatland_commodity_hectares",
+    "peatland_occupation_emissions_mt",
     "production_kg",
+    *(component.column for component in emit.EmissionComponent),
 )
 
 
@@ -48,17 +47,17 @@ def derive_jurisdictional_production_kg(
 ) -> pandas.DataFrame:
     reduced_yields = (
         raw_yields[raw_yields.index.get_level_values("year").isin(NASS_YIELD_YEARS)]
-        .groupby(level=["admin_id", "crop_name"])["yield_kg_per_ha"]
+        .groupby(level=["admin_id", "commodity_name"])["yield_kg_per_ha"]
         .mean()
         .reset_index()
     )
     merged = emissions.reset_index().merge(
-        reduced_yields, how="left", on=["admin_id", "crop_name"]
+        reduced_yields, how="left", on=["admin_id", "commodity_name"]
     )
     unmatched = int(merged["yield_kg_per_ha"].isna().sum())
     if unmatched:
         logger.warning(f"{unmatched:d} (admin, crop) row(s) had no matching NASS yield")
-    merged["production_kg"] = merged["crop_hectares"] * merged["yield_kg_per_ha"]
+    merged["production_kg"] = merged["commodity_hectares"] * merged["yield_kg_per_ha"]
     return (
         merged.drop(columns="yield_kg_per_ha")
         .set_index(list(CANONICAL_KEY))
@@ -74,17 +73,14 @@ def derive_statistical_production_kg(emissions: pandas.DataFrame) -> pandas.Data
 
 def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
     df["yield_kg_per_ha"] = (
-        df["production_kg"].div(df["crop_hectares"]).where(df["crop_hectares"] > 0)
+        df["production_kg"]
+        .div(df["commodity_hectares"])
+        .where(df["commodity_hectares"] > 0)
     )
     df["emissions_factor_kgco2e_per_kg"] = (
         (df["emissions_mt"] * KG_PER_TONNE)
         .div(df["production_kg"])
         .where(df["production_kg"] > 0)
-    )
-    df["peatland_occupation_fraction"] = (
-        df["peatland_occupation_emissions_mt"]
-        .div(df["emissions_mt"])
-        .where(df["emissions_mt"] > 0)
     )
     return df
 
@@ -95,7 +91,7 @@ def iter_national_from_provincials(
     national_name: str,
     provincials: pandas.DataFrame,
 ) -> collections.abc.Iterator[dict[str, str | float]]:
-    for crop_name, group in sorted(provincials.groupby(by="crop_name")):
+    for commodity_name, group in sorted(provincials.groupby(by="commodity_name")):
 
         def safe_div(numer: float, denom: float) -> float:
             return float("nan") if denom == 0 else numer / denom
@@ -106,35 +102,31 @@ def iter_national_from_provincials(
         }
         yield ret | {
             "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
-            "crop_name": str(crop_name),
+            "commodity_name": str(commodity_name),
             "jurisdiction_name": national_name,
             "admin_id": iso_3166,
             "yield_kg_per_ha": safe_div(
-                numer=ret["production_kg"], denom=ret["crop_hectares"]
+                numer=ret["production_kg"], denom=ret["commodity_hectares"]
             ),
             "emissions_factor_kgco2e_per_kg": safe_div(
                 numer=ret["emissions_mt"] * KG_PER_TONNE, denom=ret["production_kg"]
-            ),
-            "peatland_occupation_fraction": safe_div(
-                numer=ret["peatland_occupation_emissions_mt"], denom=ret["emissions_mt"]
             ),
             "methodology": methodology.name,
         }  # type: ignore
 
 
-@storage.cache_to_parquet(version=0)
+@storage.cache_to_parquet(ignored_args=["concurrency"], version=1)
 def workflow(
+    concurrency: int,
     crop_names: tuple[str, ...],
     iso_3166s: tuple[str, ...],
     methodology: attribute.Methodology,
-    skip_glad_crop_filter: bool,
 ) -> pandas.DataFrame:
     emissions = attribute.workflow(
-        concurrency=attribute.DEFAULT_CONCURRENCY,
+        concurrency=concurrency,
         crop_names=crop_names,
         iso_3166s=iso_3166s,
         methodology=methodology,
-        skip_glad_crop_filter=skip_glad_crop_filter,
     )
     assert tuple(emissions.index.names) == CANONICAL_KEY
     emissions_and_yields = (
@@ -179,8 +171,8 @@ def workflow(
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -194,13 +186,13 @@ def main() -> int:
         action="store_true",
         help="trace every country in the World Bank admin-0 layer",
     )
+    parser.add_argument("--concurrency", default=8, type=int)
+    parser.add_argument("--display-results", action="store_true")
     parser.add_argument(
         "--methodology-name",
         choices=sorted(e.name for e in attribute.Methodology),
         default=attribute.Methodology.STATISTICAL.name,
     )
-    parser.add_argument("--skip-display", action="store_true")
-    parser.add_argument("--skip-glad-crop-filter", action="store_true")
     args = parser.parse_args()
     assert bool(args.iso_3166s) ^ bool(args.backfill), (
         "pass either one-or-more iso_3166s or --backfill"
@@ -208,6 +200,7 @@ def main() -> int:
 
     methodology = attribute.Methodology[str(args.methodology_name)]
     df = workflow(
+        concurrency=int(args.concurrency),
         crop_names=attribute.get_crop_names(methodology=methodology),
         iso_3166s=tuple(
             sorted(
@@ -217,9 +210,8 @@ def main() -> int:
             )
         ),
         methodology=methodology,
-        skip_glad_crop_filter=args.skip_glad_crop_filter,
     )
-    if not args.skip_display:
+    if args.display_results:
         print(df.to_string())
     return 0
 

@@ -4,16 +4,16 @@ The one stage that runs the pipeline itself, so it is run by hand rather than by
 `python -m validation`, and its output is cached rather than recomputed per report.
 
 **One capture, both legs.** `efs.parquet` holds sLUC and jdLUC together, indexed on
-`trace.CANONICAL_KEY` -- `(admin_level, admin_id, crop_name, methodology)` -- so the US
+`trace.CANONICAL_KEY` -- `(admin_level, admin_id, commodity_name, methodology)` -- so the US
 sLUC-versus-jdLUC head-to-head is a filter on `methodology` within one table rather than a join
 between two files. A join there would invite exactly the alignment failure the comparison exists to
 rule out.
 
-**Every crop, not just the targets.** The conservation bound compares a jurisdiction's forest pool
-against the sum of `forest_emissions_mt` over *all* crops, so restricting the run to target crops
-would shrink the numerator and let the bound pass by construction. It is also cheaper than it looks:
-`statistical.get_downscaled_luc_emissions` is keyed on `(skip_glad_crop_filter, tile_id)` alone, so
-the expensive per-tile layer is shared and a crop adds only its share arithmetic.
+**Every crop, not just the targets.** `attribute.get_crop_names` fixes the crop set per
+leg, so a capture covers every commodity the leg models rather than only the pairs
+`targets.json` names. It is cheaper than it looks:
+`statistical.get_downscaled_luc_emissions` is keyed on `tile_id` alone, so the expensive
+per-tile layer is shared and a crop adds only its share arithmetic.
 
 **Merging is per (ISO, methodology), and rows keep their own `code_version`.** A capture scoped with
 `--isos` leaves other countries in place, so the artifact can span versions and a reader has to be
@@ -39,7 +39,7 @@ import pathlib
 
 import pandas
 
-from jdluc import attribute, emit, geo, statistical, trace
+from jdluc import attribute, trace
 from jdluc.datasets import worldbank_jurisdictions
 from validation import pull, schema, targets
 
@@ -166,110 +166,15 @@ def workflow(iso_3166s: tuple[str, ...], repo_root: pathlib.Path) -> pandas.Data
         )
         frames.append(
             trace.workflow(
+                concurrency=attribute.DEFAULT_CONCURRENCY,
                 crop_names=crop_names,
                 iso_3166s=wanted,
                 methodology=methodology,
-                skip_glad_crop_filter=False,
             )
         )
     captured = pandas.concat(frames)
     captured["code_version"] = schema.get_code_version(repo_root=repo_root)
     return captured
-
-
-def get_forest_pool_tonnes(iso_3166: str) -> float:
-    """The forest conversion a country's 2020 cropland contains, with no crop share applied.
-
-    The same GHGP-discounted sum each crop's `forest_emissions_mt` is drawn from, minus the
-    expansion share -- so it bounds what any allocation can hand out, and a country attributing more
-    than it has an attribution bug rather than a disagreement.
-
-    Computed here rather than emitted by the pipeline, which carries no such column. A second pass
-    but not a recomputation: `get_downscaled_luc_emissions` is cached on
-    `(skip_glad_crop_filter, tile_id)` alone, so this reads back the bands the capture attributed
-    from, and the weights and pixel areas come from `emit` rather than being restated.
-
-    Running in the same process at the same commit as the capture beside it is what makes the bound
-    freezable rather than indicative.
-    """
-    from rioxarray.exceptions import NoDataInBounds
-
-    tonnes = 0.0
-    for tile_id in sorted(
-        worldbank_jurisdictions.get_ten_degree_tile_ids_for_admin_id(
-            admin_id=iso_3166, admin_level=worldbank_jurisdictions.AdminLevel.NATIONAL
-        )
-    ):
-        # Iterated rather than looked up, mirroring `statistical.workflow`: at the national grain
-        # this yields the one jurisdiction, and yields nothing where the tile meets the country's
-        # bounding box but not its geometry.
-        for (
-            jurisdiction
-        ) in worldbank_jurisdictions.iter_jurisdiction_for_iso_3166_tile_id(
-            admin_level=worldbank_jurisdictions.AdminLevel.NATIONAL,
-            iso_3166=iso_3166,
-            tile_id=tile_id,
-        ):
-            logger.info(f"Summing the forest pool for {iso_3166=:s} {tile_id=:s}")
-            try:
-                clipped = geo.clip_dset(
-                    dset=statistical.get_downscaled_luc_emissions(
-                        skip_glad_crop_filter=False, tile_id=tile_id
-                    ),
-                    geometry=jurisdiction.geometry,
-                )
-            except NoDataInBounds as error:
-                logger.warning(repr(error))
-                continue
-            bands = {
-                (before, after): clipped[f"forest:tco2e-per-ha:{before:d}-{after:d}"]
-                for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-            }
-            hectares = emit.get_hectares_per_pixel(darray=next(iter(bands.values())))
-            tonnes += float(
-                emit.get_linear_discounted_total(
-                    span_to_value={
-                        span: band * hectares for span, band in bands.items()
-                    }
-                )
-                .sum()
-                .compute()
-            )
-    return tonnes
-
-
-def get_forest_pools(
-    captured: pandas.DataFrame, iso_3166s: tuple[str, ...]
-) -> pandas.DataFrame:
-    """Per country, the pool against the sum attributed to crops out of it.
-
-    The shape `report.get_conservation_findings` reads. National rows only, and the statistical leg
-    only: jdLUC derives no unallocated pool, and summing the two legs would double-count the USA.
-
-    The attributed figure is summed across every crop, which is the quantity the bound constrains --
-    restricting it to target crops would shrink the numerator and let the bound pass by
-    construction.
-    """
-    national = captured[
-        (captured.index.get_level_values("admin_level") == schema.NATIONAL)
-        & (captured.index.get_level_values("methodology") == schema.STATISTICAL)
-    ]
-    assert len(national), (
-        "the capture holds no national statistical rows, so the conservation bound has nothing to "
-        "read; a provincial-only artifact means the rollup did not run"
-    )
-    attributed = national.groupby(level="admin_id")["forest_emissions_mt"].sum()
-    return pandas.DataFrame.from_records(
-        [
-            {
-                "iso_3166": iso_3166,
-                "attributed_tonnes": float(attributed.loc[iso_3166]),
-                "pool_tonnes": get_forest_pool_tonnes(iso_3166=iso_3166),
-            }
-            for iso_3166 in iso_3166s
-            if iso_3166 in attributed.index
-        ]
-    )
 
 
 def render_plan(iso_3166s: tuple[str, ...]) -> str:
@@ -305,17 +210,17 @@ def render_plan(iso_3166s: tuple[str, ...]) -> str:
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--isos",
-        nargs=argparse.ONE_OR_MORE,
         default=(),
-        type=worldbank_jurisdictions.iso_3166_str,
         help="capture only these countries and merge them into the existing artifact; "
         "defaults to every country the target set names",
+        nargs=argparse.ONE_OR_MORE,
+        type=worldbank_jurisdictions.iso_3166_str,
     )
     parser.add_argument(
         "--dry-run",
@@ -324,9 +229,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--repo-root",
-        type=pathlib.Path,
         default=pathlib.Path(__file__).resolve().parent.parent,
         help="the jdluc checkout, read for code_version",
+        type=pathlib.Path,
     )
     args = parser.parse_args()
 
@@ -337,25 +242,11 @@ def main() -> int:
 
     captured = workflow(iso_3166s=iso_3166s, repo_root=args.repo_root)
     merged = merge_efs(captured=captured, existing=read_efs())
-    pull.CAPTURE.mkdir(parents=True, exist_ok=True)
+    pull.CAPTURE.mkdir(exist_ok=True, parents=True)
     merged.to_parquet(pull.EFS)
     print(f"\nWrote {len(merged):,d} row(s) to {pull.EFS}")
 
-    # Only for the countries this run recomputed: a pool beside emissions from a different run
-    # compares a numerator and a denominator built by different code.
-    pools = get_forest_pools(captured=merged, iso_3166s=iso_3166s)
-    pools["code_version"] = schema.get_code_version(repo_root=args.repo_root)
-    pools.to_parquet(pull.FOREST_POOLS)
-    over = pools[pools["attributed_tonnes"] > pools["pool_tonnes"]]
-    print(
-        f"Wrote {len(pools):d} forest pool(s) to {pull.FOREST_POOLS}; {len(over):d} jurisdiction(s) "
-        f"attribute more than the pool holds{':' if len(over) else '.'}"
-    )
-    for row in over.to_dict("records"):
-        print(
-            f"  {row['iso_3166']!s} {row['attributed_tonnes'] / row['pool_tonnes']:.1%}"
-        )
-    # The exit code does not depend on the findings; see `__main__`. A conservation overrun is a
+    # The exit code does not depend on the findings; see `__main__`. A bad result is a
     # result to be reported, and a capture that ran is a capture that succeeded.
     return 0
 

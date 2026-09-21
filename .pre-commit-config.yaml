@@ -2,13 +2,13 @@ exclude: |
   (?x)^(analyses/)
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.13
+    rev: v0.16.5
     hooks:
       - id: ruff-check
         args: [--fix, "--select=B,C4,F,I,PIE,RUF,SIM,UP,W"]
       - id: ruff-format
   - repo: https://github.com/seddonym/import-linter
-    rev: v2.11
+    rev: v2.14
     hooks:
       - id: import-linter
         language: python
@@ -21,7 +21,7 @@ repos:
         entry: uv run mypy jdluc validation
         pass_filenames: false
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.26
+    rev: 0.12.7
     hooks:
       - id: uv-lock
   - repo: https://github.com/hukkin/mdformat

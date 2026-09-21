@@ -42,14 +42,13 @@ DATA = pathlib.Path(__file__).resolve().parent / "data"
 LOCK = DATA / "sources.lock.json"
 CACHE = DATA / ".cache"
 RAW = CACHE / "raw"
-# What `validation.capture` writes. Not committed: these are re-keyed extracts of the pipeline's own
-# parquet outputs, so a copy here would be a second one. Unlike everything else under CACHE they are
-# not re-fetchable either -- producing them takes hours of pipeline -- so a report carrying
-# capture-dependent numbers reproduces only alongside the run that made them. `prepare` reads both
-# back, so the report can render a capture's results without importing the module that produced them.
+# What `validation.capture` writes. Not committed: it is a re-keyed extract of the pipeline's
+# own parquet outputs, so a copy here would be a second one. Unlike everything else under CACHE
+# it is not re-fetchable either -- producing it takes hours of pipeline -- so a report carrying
+# capture-dependent numbers reproduces only alongside the run that made it. `prepare` reads it
+# back, so the report can render a capture's results without importing the module that made it.
 CAPTURE = CACHE / "capture"
 EFS = CAPTURE / "efs.parquet"
-FOREST_POOLS = CAPTURE / "forest_pools.parquet"
 
 # The commit these files were read at. Bumping it is a deliberate act: every anchor number moves.
 WRI_REVISION = "559fe23eb752e9df270a1bf93e7f290044026bab"
@@ -172,22 +171,22 @@ class Remote:
 def get_wri_factor_remote(crop_code: str, gas_scope: str, grain: Grain) -> Remote:
     name = f"EF_{grain.token:s}_{crop_code:s}_{gas_scope:s}.csv"
     return Remote(
-        revision=WRI_REVISION,
-        url=f"{WRI_ROOT:s}/{grain.directory:s}/individual_commodities_{gas_scope:s}/{name:s}",
         relative_path=pathlib.PurePosixPath(
             f"wri/{WRI_REVISION[:12]:s}/{grain.name:s}/{gas_scope:s}/{name:s}"
         ),
+        revision=WRI_REVISION,
+        url=f"{WRI_ROOT:s}/{grain.directory:s}/individual_commodities_{gas_scope:s}/{name:s}",
     )
 
 
 def get_wri_yield_remote(grain_name: str) -> Remote:
     suffix = dict(WRI_YIELD_FACTORS)[grain_name]
     return Remote(
-        revision=WRI_REVISION,
-        url=f"{WRI_ROOT:s}/yield_factors/yield_factor_{suffix:s}.csv",
         relative_path=pathlib.PurePosixPath(
             f"wri/{WRI_REVISION[:12]:s}/yield_factors/{grain_name:s}.csv"
         ),
+        revision=WRI_REVISION,
+        url=f"{WRI_ROOT:s}/yield_factors/yield_factor_{suffix:s}.csv",
     )
 
 
@@ -239,7 +238,7 @@ def get_sha256(path: pathlib.Path) -> str:
 
 
 def download(remote: Remote) -> None:
-    remote.path.parent.mkdir(parents=True, exist_ok=True)
+    remote.path.parent.mkdir(exist_ok=True, parents=True)
     logger.info(f"GET {remote.url:s}")
     # Streamed, not read whole: the FAOSTAT archive is 32 MiB and there is no reason to hold it.
     with (
@@ -254,7 +253,7 @@ def read_lock() -> dict[str, dict[str, dict[str, object]]]:
 
 
 def write_lock(lock: dict[str, dict[str, dict[str, object]]]) -> None:
-    LOCK.parent.mkdir(parents=True, exist_ok=True)
+    LOCK.parent.mkdir(exist_ok=True, parents=True)
     # Sorted and indented so a bump is a readable diff, and with no timestamp: the content is the
     # identity, and a clock would make two branches disagree about identical files.
     LOCK.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
@@ -295,7 +294,7 @@ def record_digest(
     assertion with nothing checking it.
     """
     lock = read_lock()
-    lock.setdefault(source, {})[key] = get_record(path=path, origin=origin)
+    lock.setdefault(source, {})[key] = get_record(origin=origin, path=path)
     write_lock(lock=lock)
 
 
@@ -325,7 +324,7 @@ def workflow(overwrite: tuple[str, ...], remotes: tuple[Remote, ...]) -> dict[st
         download(remote=remote)
         counts["downloaded"] += 1
         lock.setdefault(remote.source, {})[key] = get_record(
-            path=remote.path, origin=remote.url, revision=remote.revision
+            origin=remote.url, path=remote.path, revision=remote.revision
         )
     write_lock(lock=lock)
     return counts

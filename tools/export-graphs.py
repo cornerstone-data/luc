@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass
 class Record:
     admin_id: str
-    crop_name: str
+    commodity_name: str
     emissions_factor_kgco2e_per_kg: float
     emissions_mt: float
     methodology: str
@@ -31,7 +31,7 @@ class Record:
         ((_, srs),) = df.iterrows()
         return cls(
             admin_id=str(srs.admin_id),
-            crop_name=str(srs.crop_name),
+            commodity_name=str(srs.commodity_name),
             emissions_factor_kgco2e_per_kg=float(srs.emissions_factor_kgco2e_per_kg),
             emissions_mt=numpy.nan_to_num(srs.emissions_mt),
             methodology=str(srs.methodology),
@@ -40,7 +40,7 @@ class Record:
 
     @property
     def crop_description(self) -> str:
-        crop_name_2005 = statistical.Crop[self.crop_name].value
+        crop_name_2005 = statistical.Crop[self.commodity_name].value
         return ifpri_mapspam.Crop2005[crop_name_2005].value
 
     @property
@@ -103,9 +103,9 @@ METHODOLOGY_TO_ISO_3166_TO_CROP_NAMES = {
 def subset_to_crop_names(
     df: pandas.DataFrame, crop_names: tuple[str, ...]
 ) -> pandas.DataFrame:
-    ret = df[df.index.get_level_values("crop_name").isin(crop_names)]
+    ret = df[df.index.get_level_values("commodity_name").isin(crop_names)]
     missing = sorted(
-        set(crop_names) - set(map(str, ret.index.get_level_values("crop_name")))
+        set(crop_names) - set(map(str, ret.index.get_level_values("commodity_name")))
     )
     if missing:
         logger.warning(f"Workflow returned no rows for {missing=}")
@@ -124,20 +124,21 @@ def iter_dfs(
             f"{len(workflow_crop_names):d} crops, tabulating {len(crop_names):d}"
         )
         yield subset_to_crop_names(
+            crop_names=crop_names,
             df=trace.workflow(
                 crop_names=workflow_crop_names,
                 iso_3166s=(iso_3166,),
                 methodology=methodology,
-                skip_glad_crop_filter=False,
             ),
-            crop_names=crop_names,
         )
 
 
 def iter_path_record(
     df: pandas.DataFrame,
 ) -> collections.abc.Generator[tuple[tuple[str, ...], Record]]:
-    for crop_name, crop_df in df.reset_index(drop=False).groupby(by="crop_name"):
+    for commodity_name, crop_df in df.reset_index(drop=False).groupby(
+        by="commodity_name"
+    ):
         nationals = crop_df[
             crop_df.admin_level == worldbank_jurisdictions.AdminLevel.NATIONAL.name
         ]
@@ -156,7 +157,7 @@ def iter_path_record(
             ):
                 if provincial_name in PROVINCE_NAME_BLOCKLIST:
                     logger.warning(
-                        f"Skipping {crop_name=:s}/{provincial_name=:s} because it is blocklisted"
+                        f"Skipping {commodity_name=:s}/{provincial_name=:s} because it is blocklisted"
                     )
                     continue
                 else:
@@ -172,7 +173,7 @@ def write_data_to_graph(
 ) -> None:
     logger.info("Populating graph zipfile with records")
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buffer, compression=zipfile.ZIP_DEFLATED, mode="w") as zf:
         for df in dfs:
             for path_tokens, record in iter_path_record(df=df):
                 arcname = "/".join((*path_tokens, record.crop_description + ".csv"))
@@ -185,8 +186,8 @@ def write_data_to_graph(
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
 
     write_data_to_graph(

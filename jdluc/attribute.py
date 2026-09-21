@@ -5,10 +5,9 @@ Dispatches each ten-degree tile to a per-methodology workflow once per overlappi
   - STATISTICAL (default): downscales the per-pixel emissions to the MAPSPAM grid and
     attributes them across crops by MAPSPAM crop-expansion shares.
   - JURISDICTIONAL_DIRECT: masks the per-pixel emissions to each crop's CDL codes.
-Both clip to provincial (World Bank admin-1) polygons, restrict to GLAD 2020 cropland
-unless `--skip-glad-crop-filter` is set, and sum crop area, peatland crop area,
-peatland-occupation emissions, and total emissions. Returns a pandas.DataFrame indexed by
-(admin_level, admin_id, crop_name, methodology); the per-(country, tile) sub-workflows are
+Both clip to provincial (World Bank admin-1) polygons and sum commodity area, peatland
+commodity area, peatland-occupation emissions, and total emissions. Returns a pandas.DataFrame indexed by
+(admin_level, admin_id, commodity_name, methodology); the per-(country, tile) sub-workflows are
 cached and `--concurrency` bounds how many tiles are in flight at once.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
@@ -59,7 +58,6 @@ def workflow(
     crop_names: tuple[str, ...],
     iso_3166s: collections.abc.Iterable[str],
     methodology: Methodology,
-    skip_glad_crop_filter: bool,
 ) -> pandas.DataFrame:
     workflow_for_tile = (
         jurisdictional_direct.workflow
@@ -83,7 +81,6 @@ def workflow(
             workflow_for_tile(
                 crop_names=crop_names,
                 iso_3166=iso_3166,
-                skip_glad_crop_filter=skip_glad_crop_filter,
                 tile_id=tile_id,
             )
             for iso_3166 in tile_id_to_iso_3166s[tile_id]
@@ -102,7 +99,7 @@ def workflow(
             {
                 "admin_level": jurisdiction.level,
                 "admin_id": jurisdiction.id,
-                "crop_name": crop_name,
+                "commodity_name": commodity_name,
                 "jurisdiction_name": jurisdiction.name,
             }
             for tile_id, iso_3166s_for_tile in sorted(tile_id_to_iso_3166s.items())
@@ -112,9 +109,9 @@ def workflow(
                 iso_3166=iso_3166,
                 tile_id=tile_id,
             )
-            for crop_name in crop_names
+            for commodity_name in crop_names
         ]
-    ).set_index(keys=["admin_level", "admin_id", "crop_name"])
+    ).set_index(keys=["admin_level", "admin_id", "commodity_name"])
 
     ret = (
         merge_dfs(all_jurisdiction_crops, *dfs)
@@ -134,13 +131,13 @@ def get_crop_names(methodology: Methodology) -> tuple[str, ...]:
         return tuple(sorted(c.name for c in jurisdictional_direct.Crop))
 
 
-DEFAULT_CONCURRENCY = 6
+DEFAULT_CONCURRENCY = 4
 
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -154,18 +151,13 @@ def main() -> int:
         action="store_true",
         help="attribute every country in the World Bank admin-0 layer",
     )
-    parser.add_argument(
-        "--concurrency",
-        default=DEFAULT_CONCURRENCY,
-        type=int,
-    )
+    parser.add_argument("--concurrency", default=DEFAULT_CONCURRENCY, type=int)
+    parser.add_argument("--display-results", action="store_true")
     parser.add_argument(
         "--methodology-name",
         choices=sorted(e.name for e in Methodology),
         default=Methodology.STATISTICAL.name,
     )
-    parser.add_argument("--skip-display", action="store_true")
-    parser.add_argument("--skip-glad-crop-filter", action="store_true")
     args = parser.parse_args()
     assert bool(args.iso_3166s) ^ bool(args.backfill), (
         "pass either one-or-more iso_3166s or --backfill"
@@ -181,9 +173,8 @@ def main() -> int:
             else args.iso_3166s
         ),
         methodology=methodology,
-        skip_glad_crop_filter=args.skip_glad_crop_filter,
     )
-    if not args.skip_display:
+    if args.display_results:
         print(df.to_string())
     return 0
 

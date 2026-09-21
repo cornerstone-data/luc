@@ -1,13 +1,15 @@
-import collections
+import collections.abc
 import datetime
 import enum
 import functools
 import logging
 import threading
+import time
 import typing
 
 import git
 import requests
+import requests.adapters
 import xarray
 
 logger = logging.getLogger(__name__)
@@ -15,8 +17,19 @@ logger = logging.getLogger(__name__)
 
 @functools.cache
 def get_requests_session() -> requests.Session:
+    retry = requests.adapters.Retry(
+        allowed_methods=["GET"],
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        total=5,
+    )
     logger.info("Creating a fresh session for requests")
-    return requests.Session()
+    session = requests.Session()
+    session.mount(
+        "https://",
+        requests.adapters.HTTPAdapter(max_retries=retry, pool_maxsize=16),
+    )
+    return session
 
 
 def save_remote_url_to_local_path(
@@ -25,17 +38,38 @@ def save_remote_url_to_local_path(
     remote_url: str,
     # 4 MiB
     chunk_size: int = 1 << 22,
+    # Bounds the gap between chunks rather than the whole transfer: a publisher that stops sending
+    # is the failure mode, and without this the read blocks forever
+    read_timeout_seconds: int = 120,
+    body_retries: int = 3,
 ) -> None:
-    logger.info(f"GET'ing from {remote_url=:s} with {params=:}")
-    with get_requests_session().request(
-        method="GET", params=params, stream=True, url=remote_url
-    ) as response:
-        response.raise_for_status()
-        logger.info(f"Streaming data from {remote_url=:s} to {local_path=:s}")
-        with open(file=local_path, mode="wb") as fp:
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    fp.write(chunk)
+    for attempt in range(body_retries):
+        logger.info(f"GET'ing from {remote_url=:s} with {params=:}")
+        try:
+            with get_requests_session().request(
+                method="GET",
+                params=params,
+                stream=True,
+                timeout=read_timeout_seconds,
+                url=remote_url,
+            ) as response:
+                response.raise_for_status()
+                logger.info(f"Streaming data from {remote_url=:s} to {local_path=:s}")
+                # NB: reopened per attempt, so a truncated body is discarded rather than appended
+                with open(file=local_path, mode="wb") as fp:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            fp.write(chunk)
+        except requests.HTTPError, requests.exceptions.RetryError:
+            # A status RETRY does not list, or one it already spent all its attempts on
+            raise
+        except requests.RequestException as exc:
+            logger.warning(f"Retrying {remote_url=:s} after {attempt=:d}: {exc}")
+            if attempt + 1 == body_retries:
+                raise
+            time.sleep(2**attempt)
+        else:
+            return
 
 
 @functools.cache
@@ -91,3 +125,21 @@ def get_sum_totals[E: enum.Enum](
     for e, name in enum_name_to_darray:
         ret[e.name][name] = float(batched_sum[(e, name)])
     return ret
+
+
+def iter_sharded[T: str | int](
+    modulus: int,
+    residues: collections.abc.Collection[int] | None,
+    values: collections.abc.Iterable[T],
+) -> collections.abc.Iterator[T]:
+    """Shard values by modulus; helpful for avoiding collisions during chunked backfills"""
+    assert modulus >= 1, f"{modulus=:d} must be nonzero"
+    if residues is None:
+        yield from sorted(values)
+    else:
+        assert set(range(modulus)).issuperset(residues), (
+            f"{residues=:} exceed {modulus=:d}"
+        )
+        for idx, value in enumerate(sorted(values)):
+            if idx % modulus in residues:
+                yield value

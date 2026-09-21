@@ -2,14 +2,17 @@ import enum
 
 from jdluc.datasets import (
     base,
+    descals_oil_palm,
     faostat_production,
-    gfw_global_peatlands,
-    gfw_harris_agb,
-    gfw_tcl,
     glad_glcluc,
+    gnw_global_peatlands,
+    gnw_harris_agb,
+    gnw_tcl,
+    gpw_grassland,
     huang_bgb,
     ifpri_mapspam,
     ipcc_climate_zones,
+    liao_gaced30,
     soilgrids_ocs,
     usda_nass_cdl,
     usda_nass_quickstats,
@@ -25,11 +28,13 @@ class DatasetName(enum.StrEnum):
     ) -> str:
         return name
 
+    DESCALS_OIL_PALM = enum.auto()
     FAOSTAT_PRODUCTION = enum.auto()
-    GFW_GLOBAL_PEATLANDS = enum.auto()
-    GFW_HARRIS_AGB = enum.auto()
-    GFW_TREE_COVER_LOSS = enum.auto()
     GLAD_GLCLUC = enum.auto()
+    GNW_GLOBAL_PEATLANDS = enum.auto()
+    GNW_HARRIS_AGB = enum.auto()
+    GNW_TREE_COVER_LOSS = enum.auto()
+    GPW_GRASSLAND = enum.auto()
     HUANG_BGB = enum.auto()
     IFPRI_MAPSPAM_PHYSICAL_AREA_2000 = enum.auto()
     IFPRI_MAPSPAM_PHYSICAL_AREA_2005 = enum.auto()
@@ -40,6 +45,7 @@ class DatasetName(enum.StrEnum):
     IFPRI_MAPSPAM_PRODUCTION_2010 = enum.auto()
     IFPRI_MAPSPAM_PRODUCTION_2020 = enum.auto()
     IPCC_CLIMATE_ZONES = enum.auto()
+    LIAO_GACED30 = enum.auto()
     SOILGRIDS_OCS = enum.auto()
     USDA_NASS_CDL = enum.auto()
     USDA_NASS_QUICKSTATS = enum.auto()
@@ -51,11 +57,13 @@ class DatasetName(enum.StrEnum):
 NAME_TO_CLS: dict[
     DatasetName, base.RasterDataset | base.TabularDataset | base.VectorDataset
 ] = {
+    DatasetName.DESCALS_OIL_PALM: descals_oil_palm.DATASET,
     DatasetName.FAOSTAT_PRODUCTION: faostat_production.DATASET,
-    DatasetName.GFW_GLOBAL_PEATLANDS: gfw_global_peatlands.DATASET,
-    DatasetName.GFW_HARRIS_AGB: gfw_harris_agb.DATASET,
-    DatasetName.GFW_TREE_COVER_LOSS: gfw_tcl.DATASET,
     DatasetName.GLAD_GLCLUC: glad_glcluc.DATASET,
+    DatasetName.GNW_GLOBAL_PEATLANDS: gnw_global_peatlands.DATASET,
+    DatasetName.GNW_HARRIS_AGB: gnw_harris_agb.DATASET,
+    DatasetName.GNW_TREE_COVER_LOSS: gnw_tcl.DATASET,
+    DatasetName.GPW_GRASSLAND: gpw_grassland.DATASET,
     DatasetName.HUANG_BGB: huang_bgb.DATASET,
     DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2000: ifpri_mapspam.PHYSICAL_AREA_2000,
     DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2005: ifpri_mapspam.PHYSICAL_AREA_2005,
@@ -66,6 +74,7 @@ NAME_TO_CLS: dict[
     DatasetName.IFPRI_MAPSPAM_PRODUCTION_2010: ifpri_mapspam.PRODUCTION_2010,
     DatasetName.IFPRI_MAPSPAM_PRODUCTION_2020: ifpri_mapspam.PRODUCTION_2020,
     DatasetName.IPCC_CLIMATE_ZONES: ipcc_climate_zones.DATASET,
+    DatasetName.LIAO_GACED30: liao_gaced30.DATASET,
     DatasetName.SOILGRIDS_OCS: soilgrids_ocs.DATASET,
     DatasetName.USDA_NASS_CDL: usda_nass_cdl.DATASET,
     DatasetName.USDA_NASS_QUICKSTATS: usda_nass_quickstats.DATASET,

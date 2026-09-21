@@ -1,4 +1,4 @@
-"""Global Forest Watch | Aboveground Live Woody Biomass Density
+"""Global Nature Watch | Aboveground Live Woody Biomass Density
 
 license: CC BY 4.0
 
@@ -38,10 +38,11 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=["aboveground-biomass-mg-per-ha"],
     band_type=base.BandType.INTENSIVE,
+    dtype="uint16",
     no_data=(1 << 16) - 1,
     partitioning=tiling.Partitioning.TEN_DEGREE_TILE,
     product_name="harris-agb",
     save_tile_id_to_local_path=_save_tile_id_to_local_path,
-    source_name="gfw",
+    source_name="gnw",
     version="v0",
 )

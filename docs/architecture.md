@@ -78,7 +78,7 @@ The unifying theme is **chunked formats** — every store can be read and writte
 
 ### The common grid
 
-All rasters are harmonized onto the **GLAD GLCLUC native grid**: global `EPSG:4326` at 0.00025° (~30 m). We chose GLAD as the common grid because most of the source datasets are already provided in it, so warping *to* it minimizes resampling of the very layers that define land-cover transitions. It is also an intuitive grid and compatible with a tiled processing approach: the unit of work is a single 10° tile, and every grid is anchored on the absolute 10° graticule rather than on the extent of whatever was requested.
+All rasters are harmonized onto the **GLAD tile grid**: global `EPSG:4326` at 0.00025° (~30 m), tiled on the 10° graticule. We chose it because most of the source datasets are already published on it — tree-cover loss and the grassland class are native to it exactly — so warping *to* it leaves the layers that decide a conversion unresampled. It is also an intuitive grid and compatible with a tiled processing approach: the unit of work is a single 10° tile, and every grid is anchored on the absolute 10° graticule rather than on the extent of whatever was requested.
 
 A second, coarser grid (the ~10 km MapSPAM resolution) exists for the statistical attribution leg, which downsamples per-pixel emissions to match the resolution of the MapSPAM crop statistics rather than implying a precision the crop data does not have.
 
@@ -89,15 +89,17 @@ Harmonization is **one GDAL VRT per source band per tile**. Each VRT declares th
 There is no reprojection step and no mosaic step:
 
 - **No reprojection.** Every ingested COG is already `EPSG:4326` — `geo.validate_geotiff` asserts it at ingest — so the VRT only ever rescales and offsets within a single CRS. An earlier design added a second VRT pass (`rasterio.vrt.WarpedVRT`) to reproject; it was removed once the 4326-at-ingest invariant was enforced. (A `WarpedVRT` does survive in `geo.py`, where the statistical leg downsamples to the MapSPAM grid; it too is a same-CRS rescale.)
-- **No mosaic.** The unit of work is one tile, so there is never more than one source per band to combine. Two source layouts are handled: ten-degree-tiled datasets (GLAD, GFW peatlands, Harris AGB, Huang BGB, SoilGrids, CDL, TCL) map a whole source tile onto the whole destination tile, while whole-world datasets (IPCC climate zones, MapSPAM) use `SrcRect` to window the tile's footprint out of the global raster.
+- **No mosaic.** The unit of work is one tile, so there is never more than one source per band to combine. Two source layouts are handled: ten-degree-tiled datasets (GLAD, GNW peatlands, Harris AGB, Huang BGB, SoilGrids, CDL, TCL, GACED30, GPW grassland, Descals oil palm) map a whole source tile onto the whole destination tile, while whole-world datasets (IPCC climate zones, MapSPAM) use `SrcRect` to window the tile's footprint out of the global raster. A publisher whose own tiling does not match the 10° graticule is mosaicked onto it during ingest instead — GACED30 ships three-degree tiles, and its dataset module resamples the sixteen covering a tile onto that tile; Descals oil palm ships hundred-kilometre cells on a lattice that divides neither the graticule nor its own pixel grid evenly, and merges up to 66 of them per tile — so harmonization still sees exactly one source per band.
 
-A tile whose source was never published is tolerated when the caller opts in: the VRT is emitted with a band header and no source, which GDAL reads as all-nodata. A minority of tiles need this, and the emissions core coerces those nodatas to zero, so that "no data here" does not propagate as NaN.
+A tile whose source was never published is tolerated when the caller opts in: the VRT is emitted with a band header and no source, which GDAL reads as all-nodata. A minority of tiles need this for the core inputs, and the emissions core coerces those nodatas to zero, so that "no data here" does not propagate as NaN. For a dataset whose publisher maps one crop rather than the whole land surface it is the majority case — Descals oil palm covers 48 of the 280 tiles — and there the band header carries no `NoDataValue` at all, because 0 is a mapped class, so the sourceless band reads back as zero directly.
+
+The emissions core harmonizes **two dataset lists and merges the results**: the primary stack that every conversion depends on, and the per-crop masks that widen its destination evidence (`emit.CROP_SUPPLEMENT_DATASET_NAMES`). They are kept apart because `harmonize.workflow` hashes its `dataset_names` into the cache key, so a single list would re-materialize every primary band across every tile each time a mask is admitted; separated, admitting one costs only its own cache. Both are harmonized onto the same tile grid, so the merge is an exact join.
 
 Using VRTs rather than materializing intermediates is central to the design: the pipeline must be **fully chunked from end to end**, so that at no point is an entire raster dumped into RAM — doing so would cause massive slowdowns and out-of-memory failures. The VRTs are opened with rioxarray and assembled into one `xarray.Dataset`, one variable per fully-qualified source band (`{source}:{product}:{band}`).
 
 ### Per-dataset nodata, dtype, and resampling
 
-Resampling is a per-dataset property: nearest-neighbor/mode for categorical layers (GLAD land classes, CDL, peatland mask, and climate zones) and bilinear/average for intensive layers (SoilGrids, Huang BGB, and Harris AGB). Extensive layers would be summed when downsampling, but this functionality isn't currently implemented. The nodata, dtype, and resampling conventions vary across the external datasets and must be **manually specified and validated** per dataset — these details matter, and getting them wrong silently corrupts downstream results, which is another reason ingestion is isolated and independently inspectable.
+Resampling is a per-dataset property: nearest-neighbor/mode for categorical layers (GLAD land classes, CDL, peatland mask, climate zones, GACED30 cropland, GPW grassland class, and Descals oil palm planting year) and bilinear/average for intensive layers (SoilGrids, Huang BGB, and Harris AGB). Extensive layers would be summed when downsampling, but this functionality isn't currently implemented. The nodata, dtype, and resampling conventions vary across the external datasets and must be **manually specified and validated** per dataset — these details matter, and getting them wrong silently corrupts downstream results, which is another reason ingestion is isolated and independently inspectable.
 
 ## Caching, versioning, and provenance
 
@@ -120,7 +122,7 @@ The contrast is deliberate: **explicit provenance for slow-changing ingested sou
 
 ## Testing
 
-Tests live in `jdluc/__tests__/` for the pipeline and `validation/__tests__/` for the validation tooling, and CI runs both. Unit tests cover pure logic (land-class mapping, grid math, chunking, transition/span weighting) against data the test itself supplies — a direct payoff of the local, deterministic execution model that motivated the move off Earth Engine. The validation suite works the same way, on invented rows in the user-assigned `XA` ISO range, so the report's failure paths are exercised without waiting for a real run to regress. The aim is for coverage to be high for core logic where logic resides and can change; much of the imperative shell is not automatically tested.
+Tests live in `jdluc/__tests__/` for the pipeline and `validation/__tests__/` for the validation tooling, and CI runs both. Unit tests cover pure logic (conversion resolution, grid math, chunking, span weighting) against data the test itself supplies — a direct payoff of the local, deterministic execution model that motivated the move off Earth Engine. The validation suite works the same way, on invented rows in the user-assigned `XA` ISO range, so the report's failure paths are exercised without waiting for a real run to regress. The aim is for coverage to be high for core logic where logic resides and can change; much of the imperative shell is not automatically tested.
 
 ## Scale and scope
 
@@ -128,19 +130,22 @@ Tests live in `jdluc/__tests__/` for the pipeline and `validation/__tests__/` fo
 
 The pipeline runs on a single dask-capable host — no distributed cluster. We started on a single host because it is the simplest thing that works, and the tooling choices above mean the pipeline is not *stuck* there: much of the computation is parallelizable, and the same code is portable to a cloud VM or any of a number of data orchestrators (which would also bring their own versioning, metadata, caching, and monitoring). Staying local keeps that option open rather than closing it. Because the entire pipeline is chunkable end to end, there is no known ceiling: the working set is a single 10° tile no matter how many tiles are requested, so scaling up is a question of wall-clock time and where it is run — not of whether the host can hold the data.
 
-The benchmark below is an **M4 MacBook (48 GB RAM)** with the default configuration, covering the 51 tiles of North America. It was measured on an earlier code path that built one region-sized grid per stage — which is why the rows are regional totals rather than per-tile. The per-tile path processes the same pixels and writes a comparable volume, but has not yet been re-benchmarked end to end, and tiles are currently processed serially with a dask `LocalCluster` spun up per tile. Treat the wall-clock column as the historical measurement it is, not as a current one:
+The benchmark below is a global backfill, covering all 280 ten-degree tiles and the 220 countries the pipeline produces factors for. Harmonize and emit were measured on an **`n2-standard-16` in `us-central1`** at 16 dask workers; attribute and trace on an **M4 MacBook (48 GB RAM)**, which is faster per core:
 
-| Stage                                     | Wall-clock | Cached output                       | Output size |
-| ----------------------------------------- | ---------- | ----------------------------------- | ----------- |
-| Ingest                                    | ~1 h       | source tiles (COG)                  | 36.4 GiB    |
-| Harmonize                                 | ~1.5 h     | common-grid `xarray.Dataset` (zarr) | 4.1 TiB     |
-| Emit                                      | ~2 h       | per-pixel emissions (zarr)          | 8.1 TiB     |
-| Attribute (Statistical, downscale)        | ~3 h       | downscale (zarr)                    | 3.5 MiB     |
-| Attribute (Statistical, rollup)           | ~15 m      | rollup (parquet)                    | < 1 MiB     |
-| Attribute (Jurisdictional Direct, rollup) | ~15 m      | rollup (parquet)                    | < 1 MiB     |
-| Trace                                     | ~1 m       | EF table (parquet)                  | < 1 MiB     |
+| Stage                             | Wall-clock | Cached output                       | Output size |
+| --------------------------------- | ---------- | ----------------------------------- | ----------- |
+| Ingest                            | ~1 h       | source tiles (COG)                  | 305 GiB     |
+| Harmonize                         | ~53 h      | common-grid `xarray.Dataset` (zarr) | 1.2 TiB     |
+| Emit                              | ~21 h      | per-pixel emissions (zarr)          | 101 GiB     |
+| Attribute (Statistical)           | ~21 h      | downscale (zarr), rollup (parquet)  | 36 MiB      |
+| Attribute (Jurisdictional Direct) | ~40 m      | rollup (parquet)                    | < 1 MiB     |
+| Trace                             | ~3 m       | EF table (parquet)                  | < 1 MiB     |
 
-End-to-end ≈ **8 h** for North America. Harmonize, emit, and attribute are the cost centers; storage is dominated by the two zarr stores. Attribute is compute-heavy despite its kilobyte-scale output because it streams the full per-pixel zarr through the clip/mask/rollup.
+End-to-end ≈ **4 days** on a single host, or about a day and a half across three — harmonize and emit split into disjoint `--modulus` shards, attribute into disjoint country sets. Harmonize dominates.
+
+Storage is dominated by harmonize, whose common-grid `xarray.Dataset` is 92% of the cache: it carries 56 bands of a dense 40,000-square grid per tile regardless of what that tile contains. Emit's per-pixel grid is an order of magnitude smaller, and the downscaled layers three orders smaller again — those are masked to cropland, so most chunks are entirely fill and are never written at all. Every parquet the pipeline produces, across both legs and all 220 countries, comes to 80 MiB.
+
+The zarr figures are a stratified sample rather than a sweep: summing every chunk object means listing millions of them, so twelve stores per stage were sized across land-fraction bands and scaled by the number present, which leaves harmonize with an interval of roughly ±20%.
 
 ### Why the United States first
 

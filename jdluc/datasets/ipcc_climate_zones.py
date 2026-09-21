@@ -32,6 +32,7 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=["climate-zone"],
     band_type=base.BandType.CATEGORICAL,
+    dtype="uint8",
     no_data=(1 << 8) - 1,
     partitioning=tiling.Partitioning.WHOLE_WORLD,
     product_name="climate-zones",

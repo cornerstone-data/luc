@@ -134,14 +134,14 @@ def normalize(name: str) -> str:
 
 
 def download_world_bank(path: pathlib.Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(exist_ok=True, parents=True)
     worldbank_jurisdictions.ADMIN_1_DATASET.save_tile_id_to_local_path(
         str(path), tiling.WHOLE_WORLD_TILE_ID
     )
 
 
 def download_gadm_keys(path: pathlib.Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(exist_ok=True, parents=True)
     utils.save_remote_url_to_local_path(
         local_path=str(path), params={}, remote_url=GADM_KEY_URL
     )
@@ -323,21 +323,19 @@ def iter_checks(
         }
     )
     yield Check(
-        name="injective",
-        passed=not duplicated,
         detail=(
             f"{len(duplicated):d} World Bank id(s) claimed by more than one GADM unit: "
             f"{', '.join(duplicated[:5])}"
             if duplicated
             else f"{len(world_bank_ids):d} World Bank ids, each claimed exactly once"
         ),
+        name="injective",
+        passed=not duplicated,
     )
 
     unknown_gadm = sorted(set(matched) - set(gadm["gadm_id"]))
     unknown_world_bank = sorted(set(world_bank_ids) - set(world_bank["world_bank_id"]))
     yield Check(
-        name="ids-exist",
-        passed=not unknown_gadm and not unknown_world_bank,
         detail=(
             f"{len(unknown_gadm):d} GADM and {len(unknown_world_bank):d} World Bank id(s) in the "
             f"map are absent from their source: "
@@ -345,6 +343,8 @@ def iter_checks(
             if unknown_gadm or unknown_world_bank
             else "every id in the map exists in the source it came from"
         ),
+        name="ids-exist",
+        passed=not unknown_gadm and not unknown_world_bank,
     )
 
     dropped = sorted(
@@ -353,20 +353,18 @@ def iter_checks(
         if matched.get(gadm_id) != world_bank_id
     )
     yield Check(
-        name="overrides-applied",
-        passed=not dropped,
         detail=(
             f"{len(dropped):d} hand-written override(s) missing from the map or overwritten: "
             f"{', '.join(dropped)}"
             if dropped
             else f"all {len(overrides):d} overrides present with their intended value"
         ),
+        name="overrides-applied",
+        passed=not dropped,
     )
 
     share = len(matched) / len(gadm) if len(gadm) else 0.0
     yield Check(
-        name="coverage-floor",
-        passed=share >= MINIMUM_MATCHED_SHARE,
         detail=(
             f"{share:.1%} of GADM units matched against a {MINIMUM_MATCHED_SHARE:.0%} floor"
             + (
@@ -375,6 +373,8 @@ def iter_checks(
                 else ""
             )
         ),
+        name="coverage-floor",
+        passed=share >= MINIMUM_MATCHED_SHARE,
     )
 
 
@@ -399,34 +399,34 @@ def iter_orbae_checks(
     claimed = list(matched.values())
     duplicated = sorted({one for one in claimed if claimed.count(one) > 1})
     yield Check(
-        name="orbae-injective",
-        passed=not duplicated,
         detail=(
             f"{len(duplicated):d} World Bank id(s) claimed by more than one Orbae province: "
             f"{', '.join(duplicated[:5])}"
             if duplicated
             else f"{len(claimed):d} World Bank ids, each claimed exactly once"
         ),
+        name="orbae-injective",
+        passed=not duplicated,
     )
     unknown = sorted(set(claimed) - set(world_bank["world_bank_id"]))
     yield Check(
-        name="orbae-ids-exist",
-        passed=not unknown,
         detail=(
             f"{len(unknown):d} id(s) absent from the World Bank frame: {', '.join(unknown[:3])}"
             if unknown
             else "every id in the map exists in the World Bank frame"
         ),
+        name="orbae-ids-exist",
+        passed=not unknown,
     )
     total = sum(map(len, names.values()))
     share = len(matched) / total if total else 0.0
     yield Check(
-        name="orbae-coverage-floor",
-        passed=share >= MINIMUM_ORBAE_MATCHED_SHARE,
         detail=(
             f"{share:.1%} of {total:d} Orbae provinces matched against a "
             f"{MINIMUM_ORBAE_MATCHED_SHARE:.0%} floor"
         ),
+        name="orbae-coverage-floor",
+        passed=share >= MINIMUM_ORBAE_MATCHED_SHARE,
     )
 
 
@@ -475,13 +475,13 @@ def write_orbae_map(
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+    logging.basicConfig(format="%(levelname)s - %(message)s", level=logging.INFO)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--cache",
-        type=pathlib.Path,
         default=pull.CACHE,
         help="where the downloads land; not committed, and reused unless --overwrite",
+        type=pathlib.Path,
     )
     parser.add_argument(
         "--overwrite", action="store_true", help="re-download both inputs"
@@ -506,7 +506,7 @@ def main() -> int:
         claimed=set(matched.values()), frame=world_bank, id_column="world_bank_id"
     )
 
-    pull.DATA.mkdir(parents=True, exist_ok=True)
+    pull.DATA.mkdir(exist_ok=True, parents=True)
     # No timestamp: the inputs' revisions are the identity, and a clock would make two branches
     # disagree about an identical map.
     OUTPUT.write_text(

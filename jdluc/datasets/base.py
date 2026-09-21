@@ -6,6 +6,7 @@ import os
 import tempfile
 import typing
 
+import numpy
 import pandas
 
 from jdluc import geo, storage, tiling, utils
@@ -36,6 +37,7 @@ SaveTileIdToLocalPathType = collections.abc.Callable[[str, str], None]
 class RasterDataset:
     band_names: list[str]
     band_type: BandType
+    dtype: str
     no_data: float | int | None
     partitioning: tiling.Partitioning
     product_name: str
@@ -44,6 +46,10 @@ class RasterDataset:
     save_tile_id_to_local_path: SaveTileIdToLocalPathType = dataclasses.field(
         repr=False
     )
+
+    def __post_init__(self) -> None:
+        # Ensure the dtype is valid and canonical
+        assert numpy.dtype(self.dtype).name == self.dtype
 
     def get_prefix(self, tile_id: str) -> str:
         return os.path.join(
@@ -57,12 +63,12 @@ class RasterDataset:
 
     def ingest_a_tile(self, overwrite: bool, root: str, tile_id: str) -> str:
         # Stage a geotiff to a tmpdir, clean up and convert to COG, then write to a templated path
-        uri = storage.join_uri(root=root, prefix=self.get_prefix(tile_id=tile_id))
+        uri = storage.join_uri(prefix=self.get_prefix(tile_id=tile_id), root=root)
         if overwrite or not storage.path_exists(uri=uri):
             with tempfile.TemporaryDirectory() as tmpdir:
                 path_to_geotiff = os.path.join(tmpdir, "geotiff.tif")
                 self.save_tile_id_to_local_path(path_to_geotiff, tile_id)
-                geo.validate_geotiff(path_to_geotiff=path_to_geotiff)
+                geo.validate_geotiff(dtype=self.dtype, path_to_geotiff=path_to_geotiff)
                 geo.set_band_names_for_geotiff(
                     band_names=self.band_names, path_to_geotiff=path_to_geotiff
                 )
@@ -125,7 +131,7 @@ class VectorDataset:
 
     def ingest_a_tile(self, overwrite: bool, root: str, tile_id: str) -> str:
         # Stage a vector file to a tmpdir, clean up and convert to flatgeobuf, then write to a templated path
-        uri = storage.join_uri(root=root, prefix=self.get_prefix(tile_id=tile_id))
+        uri = storage.join_uri(prefix=self.get_prefix(tile_id=tile_id), root=root)
         if overwrite or not storage.path_exists(uri=uri):
             with tempfile.TemporaryDirectory() as tmpdir:
                 path_to_vector = os.path.join(tmpdir, "vector.dat")
@@ -171,7 +177,7 @@ class TabularDataset:
         )
 
     def ingest_a_tile(self, overwrite: bool, root: str, tile_id: str) -> str:
-        uri = storage.join_uri(root=root, prefix=self.get_prefix(tile_id=tile_id))
+        uri = storage.join_uri(prefix=self.get_prefix(tile_id=tile_id), root=root)
         if overwrite or not storage.path_exists(uri=uri):
             with tempfile.TemporaryDirectory() as tmpdir:
                 local_path = os.path.join(tmpdir, "data.parquet")

@@ -26,6 +26,15 @@ class TileResolution(XY, enum.Enum):
     GLAD = 40_000, 40_000
     MAPSPAM = 120, 120
 
+    @property
+    def pixels_per_degree(self) -> XY:
+        assert self.x % 10 == self.y % 10 == 0
+        return XY(x=self.x // 10, y=self.y // 10).validated()
+
+    @property
+    def degrees_per_pixel(self) -> tuple[float, float]:
+        return 10 / self.x, 10 / self.y
+
 
 class Partitioning(enum.StrEnum):
     @typing.override
@@ -97,7 +106,7 @@ def iter_ten_degree_tile_id_for_geometry(
                 yield get_tile_id_for_lat_lon(lat=lat + 10, lon=lon)
 
 
-GLOBAL_FOREST_WATCH_TILE_IDS: tuple[str, ...] = (
+GLOBAL_NATURE_WATCH_TILE_IDS: tuple[str, ...] = (
     "00N_000E",
     "00N_010E",
     "00N_020E",
@@ -379,7 +388,7 @@ GLOBAL_FOREST_WATCH_TILE_IDS: tuple[str, ...] = (
     "80N_170E",
     "80N_170W",
 )
-assert sorted(GLOBAL_FOREST_WATCH_TILE_IDS) == list(GLOBAL_FOREST_WATCH_TILE_IDS)
+assert sorted(GLOBAL_NATURE_WATCH_TILE_IDS) == list(GLOBAL_NATURE_WATCH_TILE_IDS)
 WHOLE_WORLD_TILE_ID = "world"
 
 

@@ -74,8 +74,8 @@ def write_dask_dataset_to_zarr(dset: xarray.Dataset, path_to_zarr: str) -> None:
             }
         ),
         distributed.LocalCluster(
-            processes=False,
             n_workers=1,
+            processes=False,
             threads_per_worker=num_workers,
         ) as cluster,
         distributed.Client(
@@ -107,7 +107,7 @@ def open_zarr_to_dask_dataset(path_to_zarr: str) -> xarray.Dataset:
 
     path_to_zarr = path_to_zarr.rstrip("/")
     logger.info(f"Loading {path_to_zarr=:s}")
-    dset = xarray.open_zarr(store=path_to_zarr, consolidated=False)
+    dset = xarray.open_zarr(consolidated=False, store=path_to_zarr)
     assert dset.chunks is not None
     assert isinstance(dset, xarray.Dataset)
     assert dset.encoding["source"] == path_to_zarr
@@ -135,7 +135,7 @@ class ParquetCacher:
 
     @property
     def uri(self) -> str:
-        return join_uri(root=self.root, prefix=self.hash_key + ".parquet")
+        return join_uri(prefix=self.hash_key + ".parquet", root=self.root)
 
     exists_uri = uri
 
@@ -155,7 +155,7 @@ class ZarrCacher:
 
     @property
     def uri(self) -> str:
-        return join_uri(root=self.root, prefix=self.hash_key + ".zarr")
+        return join_uri(prefix=self.hash_key + ".zarr", root=self.root)
 
     @property
     def exists_uri(self) -> str:

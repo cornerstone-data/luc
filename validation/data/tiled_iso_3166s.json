@@ -12,7 +12,7 @@
   "note": [
     "DERIVED -- do not hand-edit. Regenerate with",
     "`uv run --with geopandas python tools/build-tiled-countries.py`.",
-    "E1's second half: the countries intersecting at least one GFW tile,",
+    "E1's second half: the countries intersecting at least one GNW tile,",
     "less `carved_out_iso_3166s` -- countries that do intersect a tile but",
     "carry no crop production to attribute anything to. See",
     "worldbank_jurisdictions.UNPRODUCTIVE_ISO_3166S for why that is a list.",

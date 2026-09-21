@@ -1,4 +1,4 @@
-"""Global Forest Watch | Global Peatlands
+"""Global Nature Watch | Global Peatlands
 
 license: CC BY 4.0
 
@@ -36,10 +36,11 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=["is-peatland"],
     band_type=base.BandType.CATEGORICAL,
+    dtype="uint8",
     no_data=(1 << 8) - 1,
     partitioning=tiling.Partitioning.TEN_DEGREE_TILE,
     product_name="global-peatlands",
     save_tile_id_to_local_path=_save_tile_id_to_local_path,
-    source_name="gfw",
+    source_name="gnw",
     version="v0",
 )

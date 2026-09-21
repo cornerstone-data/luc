@@ -473,6 +473,7 @@ def get_raster_dataset(
             row_off = round((90 - src_transform.f) / res_y)
 
             profile.update(
+                BIGTIFF="IF_SAFER",
                 blockxsize=512,
                 blockysize=512,
                 compress="deflate",
@@ -484,7 +485,6 @@ def get_raster_dataset(
                 tiled=True,
                 transform=rasterio.Affine(res_x, 0, -180, 0, -res_y, 90),
                 width=full_width,
-                BIGTIFF="IF_SAFER",
             )
             with rasterio.open(fp=local_path, mode="w", **profile) as dataset:
                 for idx, filename in enumerate(sorted(filenames), start=1):
@@ -507,6 +507,7 @@ def get_raster_dataset(
             for crop in crop_cls
         ],
         band_type=base.BandType.EXTENSIVE,
+        dtype="float32",
         no_data=no_data,
         partitioning=tiling.Partitioning.WHOLE_WORLD,
         product_name=f"mapspam-{quantity.name.lower().replace('_', '-'):s}-{CROP_CLS_TO_YEAR[crop_cls]:d}",
@@ -551,16 +552,16 @@ PHYSICAL_AREA_2005 = get_raster_dataset(
 PRODUCTION_2010 = get_raster_dataset(
     crop_cls=Crop2010,
     dataset_id=3985009,
-    prefix="spam2010V2r0_global_P_",
     no_data=-1,
+    prefix="spam2010V2r0_global_P_",
     quantity=Quantity.PRODUCTION,
     suffix="_A",
 )
 PHYSICAL_AREA_2010 = get_raster_dataset(
     crop_cls=Crop2010,
     dataset_id=3985010,
-    prefix="spam2010V2r0_global_A_",
     no_data=-1,
+    prefix="spam2010V2r0_global_A_",
     quantity=Quantity.PHYSICAL_AREA,
     suffix="_A",
 )

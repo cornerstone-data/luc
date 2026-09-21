@@ -14,8 +14,7 @@ code or data change.
 What these controls do not cover: WRI shares this leg's MapSPAM expansion-share allocation, so an
 sLUC/WRI agreement does not independently confirm allocation. WRI remains independent on the forest
 pool and on carbon density, which is what these controls guard. Independent evidence about allocation
-comes from Orbae (per-H3, jdLUC-family), the US sLUC-versus-jdLUC comparison, and the forest
-conservation bound.
+comes from Orbae (per-H3, jdLUC-family) and the US sLUC-versus-jdLUC comparison.
 """
 
 import collections.abc
@@ -35,7 +34,7 @@ DEFAULT_TOLERANCE = 0.10
 # move of 0.044 where +0.886 tolerates 0.089, and a baseline near zero would fire on noise.
 DEFAULT_RANK_TOLERANCE = 0.10
 # `gap` marks a pair included *because* it is expected
-# to fail -- IDN oil palm is in the set to fail at 0.008 -- which `ranked` would misrepresent.
+# to fail -- IDN oil palm is in the set for the perennial gap -- which `ranked` would misrepresent.
 BASES = frozenset({"ranked", "control", "reserved", "gap"})
 # The two bases that carry an expectation. A pair outside them with a `controls` list, or inside them
 # without one, is a contradiction rather than an omission, so reading asserts both directions.
@@ -80,6 +79,14 @@ class Measure(enum.Enum):
         """
         ours = {schema.Source.SLUC, schema.Source.JDLUC}
         return not {self.numerator, self.denominator} <= ours
+
+
+@dataclasses.dataclass(frozen=True)
+class UncomparedTargets:
+    """Targets no comparison reached, split by whether the capture could have reached them."""
+
+    unanchored: tuple[Target, ...]
+    uncaptured: tuple[Target, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -230,9 +237,9 @@ def iter_targets() -> collections.abc.Iterator[Target]:
     """Every validated target, in file order, which is materiality order by construction."""
     for target in read_document()["targets"]:
         yield Target(
-            iso_3166=target["iso_3166"],
-            crop_name=target["crop_name"],
             basis=target["basis"],
+            crop_name=target["crop_name"],
+            iso_3166=target["iso_3166"],
             reason=target["reason"],
         )
 
@@ -247,27 +254,27 @@ def iter_controls() -> collections.abc.Iterator[Control]:
                 row.get("statistic", schema.Statistic.RATIO.name)
             ]
             yield Control(
-                target=Target(
-                    iso_3166=target["iso_3166"],
-                    crop_name=target["crop_name"],
-                    basis=target["basis"],
-                    reason=target["reason"],
-                ),
-                emission_pool=schema.EmissionPool[row["emission_pool"]],
-                measure=Measure[row["measure"]],
-                inherited=row["inherited"],
                 baseline=row["baseline"],
-                note=row["note"],
-                statistic=statistic,
-                tolerance=row.get(
-                    "tolerance", get_default_tolerance(statistic=statistic)
-                ),
                 baseline_source_version=(
                     schema.get_source_version_key(
                         versions=row["baseline_source_versions"]
                     )
                     if row.get("baseline_source_versions")
                     else None
+                ),
+                emission_pool=schema.EmissionPool[row["emission_pool"]],
+                inherited=row["inherited"],
+                measure=Measure[row["measure"]],
+                note=row["note"],
+                statistic=statistic,
+                target=Target(
+                    basis=target["basis"],
+                    crop_name=target["crop_name"],
+                    iso_3166=target["iso_3166"],
+                    reason=target["reason"],
+                ),
+                tolerance=row.get(
+                    "tolerance", get_default_tolerance(statistic=statistic)
                 ),
             )
 

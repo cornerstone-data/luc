@@ -87,7 +87,7 @@ def convert_vector_to_flatgeobuf(
         f"Opening {path_to_vector=:s} for {id_column_names=:} and {name_column_names=:}"
     )
     gdf: geopandas.GeoDataFrame = geopandas.read_file(
-        filename=path_to_vector, columns=id_column_names + name_column_names
+        columns=id_column_names + name_column_names, filename=path_to_vector
     )
     logger.info(
         f"Forming {id_column_names=:} and {name_column_names=:}, dissolving, and saving to {path_to_flatgeobuf=:s}"
@@ -106,20 +106,21 @@ def convert_vector_to_flatgeobuf(
             },
             geometry=gdf.geometry,
         )
-        .sort_values(by="square_meters", ascending=False)
+        .sort_values(ascending=False, by="square_meters")
         .dissolve(by="id")
         .drop(columns="square_meters")
         .reset_index(drop=False)
-        .to_file(path_to_flatgeobuf, driver="FlatGeobuf", SPATIAL_INDEX=True)
+        .to_file(path_to_flatgeobuf, SPATIAL_INDEX=True, driver="FlatGeobuf")
     )
 
 
-def validate_geotiff(path_to_geotiff: str) -> None:
+def validate_geotiff(dtype: str, path_to_geotiff: str) -> None:
     logger.info(f"Validating integrity of {path_to_geotiff=:s}")
     with rasterio.open(path_to_geotiff) as dataset:
         assert isinstance(dataset, rasterio.DatasetReader)
         assert dataset.crs is not None
         assert dataset.crs.to_epsg() == 4326
+        assert set(dataset.dtypes) == {dtype}
         assert dataset.height > 0
         assert dataset.width > 0
         assert dataset.transform.a > 0
@@ -203,6 +204,8 @@ def downscale_darray(
     with dask.diagnostics.ProgressBar():
         darray.rio.to_raster(
             path_to_unscaled,
+            BIGTIFF="IF_SAFER",
+            ZSTD_LEVEL=1,
             blockxsize=chunk_size,
             blockysize=chunk_size,
             compress="ZSTD",
@@ -210,8 +213,6 @@ def downscale_darray(
             lock=True,
             num_threads="all_cpus",
             tiled=True,
-            BIGTIFF="IF_SAFER",
-            ZSTD_LEVEL=1,
         )
     with (
         rasterio.open(path_to_unscaled) as unscaled_fp,

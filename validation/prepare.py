@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 #
 # It is also the WRI *reporting* year to read, and that is a match of windows rather than a
 # convention: a reporting year names where the LSRS 20-year window sits, so 2020 covers loss years
-# 2001-2020, which is the span our own GLAD epochs cover. See WRI_REPORTING_YEARS.
+# 2001-2020, which is the span our own lookback covers. See WRI_REPORTING_YEARS.
 REFERENCE_YEAR = 2020
 # Below this a median is one or two countries and says more about them than about the crop.
 MINIMUM_COUNTRIES = 5
@@ -87,7 +87,7 @@ FAOSTAT_CACHE = pull.CACHE / "faostat_production.parquet"
 # collide, short enough that a stale-baseline message is readable.
 SOURCE_VERSION_LENGTH = 12
 # The one part of eligibility that cannot be computed from the pinned anchors: which countries
-# intersect a GFW tile, which needs a spatial join against a 93 MiB GeoPackage. 228 ISO codes, so
+# intersect a GNW tile, which needs a spatial join against a 93 MiB GeoPackage. 228 ISO codes, so
 # `tools/build-tiled-countries.py` commits this and `get_eligible` derives the rest here.
 #
 # The shortlist itself is deliberately NOT committed. Every other column in it -- WRI's
@@ -102,14 +102,12 @@ MINIMUM_PRODUCTION_KG = 100 * 1_000 * 1_000
 # E3. Land area, a proxy for the cropland weighting that would need a capture -- and the capture needs
 # the target set, which needs E3, which is why the proxy stands.
 MINIMUM_AREA_COVERAGE = 0.5
-# GLAD GLCLUC's cropland class excludes perennial *woody* crops by construction -- it covers "annual
-# and perennial herbaceous crops", and "perennial woody crops, permanent pastures and shifting
-# cultivation are excluded" (Potapov et al. 2022, Nature Food 3, 19-28,
-# doi:10.1038/s43016-021-00429-z). Those appear as tree cover instead, which
-# `emit.get_land_class` maps to FOREST. Both legs then restrict the emissions numerator to 2020 GLAD
-# cropland while MapSPAM keeps the production in the denominator, so the pipeline attributes close to
-# zero to exactly these crops. They stay eligible on purpose: a pair we would rank highly and cannot
-# compute is the finding, not a filtering mistake.
+# The conversion matrix names cropland and pasture as destinations and nothing else, so forest
+# cleared for a woody perennial resolves to no destination: the clearance is identified and dated,
+# neither destination layer recognises a young plantation, and the carbon is reported in
+# `dropped-emissions` rather than charged. MapSPAM keeps the production in the denominator either
+# way, so the pipeline attributes close to zero to exactly these crops. They stay eligible on
+# purpose: a pair we would rank highly and cannot compute is the finding, not a filtering mistake.
 PERENNIAL_CROP_NAMES = frozenset(
     {
         statistical.Crop.ARABICA_COFFEE.value,
@@ -119,9 +117,9 @@ PERENNIAL_CROP_NAMES = frozenset(
     }
 )
 # Three herbaceous perennials are deliberately absent, and they are the test of whether this list
-# tracks the definition rather than the word "perennial". Sugarcane is ratooned; banana and plantain
-# are giant herbs with a pseudostem rather than wood. GLAD's definition admits all three, so the
-# pipeline should see them and they are not part of the detection gap.
+# tracks the canopy rather than the word "perennial". Sugarcane is ratooned; banana and plantain are
+# giant herbs with a pseudostem rather than wood. A cropland mask sees all three, so the pipeline
+# should resolve them and they are not part of the detection gap.
 for _herbaceous in (
     statistical.Crop.SUGARCANE,
     statistical.Crop.BANANA,
@@ -130,8 +128,7 @@ for _herbaceous in (
     assert _herbaceous.value not in PERENNIAL_CROP_NAMES
 # docs/further_research.md headings. The register measures that document's entries rather than
 # keeping a second list, so a slug here is a heading there, verbatim.
-PERENNIAL_RESEARCH_SLUG = "Woody perennial crops fall outside GLAD's cropland class"
-OIL_PALM_RESEARCH_SLUG = "The statistical leg under-allocates oil palm relative to WRI"
+PERENNIAL_RESEARCH_SLUG = "Woody perennial crops resolve to no destination"
 
 
 def read_wri_yields(grain_name: str) -> pandas.DataFrame:
@@ -230,7 +227,7 @@ def get_anchor_stability(emissions: pandas.DataFrame) -> pandas.DataFrame:
     usable = emissions[emissions["ef_kg_per_kg"] > 0]
     grouped = usable.groupby(["iso_3166", "crop_name"])["ef_kg_per_kg"]
     stability = grouped.agg(
-        reporting_years="size", lowest="min", highest="max", median="median"
+        highest="max", lowest="min", median="median", reporting_years="size"
     )
     stability = stability[stability["reporting_years"] == len(WRI_REPORTING_YEARS)]
     stability["spread"] = stability["highest"] / stability["lowest"]
@@ -246,8 +243,8 @@ def get_stability_findings(
         return []
     return [
         schema.Finding(
-            slug="wri-reporting-year-sensitivity",
-            severity=schema.Severity.ADVISORY,
+            affected_rows=len(beyond),
+            confidence=schema.Confidence.HIGH,
             message=(
                 f"{len(beyond):,d} of {len(stability):,d} (country, crop) pairs "
                 f"({len(beyond) / len(stability):.0%}) have a WRI factor that moves more than the "
@@ -258,8 +255,8 @@ def get_stability_findings(
                 "pipeline change from a change of reporting year: the year has to be pinned with the "
                 "baseline rather than left implicit"
             ),
-            confidence=schema.Confidence.HIGH,
-            affected_rows=len(beyond),
+            severity=schema.Severity.ADVISORY,
+            slug="wri-reporting-year-sensitivity",
         )
     ]
 
@@ -278,8 +275,9 @@ def get_deforestation_share_findings(
         return []
     return [
         schema.Finding(
-            slug="wri-deforestation-area-exceeds-harvested-area",
-            severity=schema.Severity.ADVISORY,
+            affected_iso_3166s=tuple(sorted(set(over["iso_3166"]))[:12]),
+            affected_rows=len(over),
+            confidence=schema.Confidence.MEDIUM,
             message=(
                 f"{len(over):,d} of {len(deforestation):,d} (country, crop) pairs "
                 f"({len(over) / len(deforestation):.1%}) give WRI more deforestation-linked area "
@@ -287,9 +285,8 @@ def get_deforestation_share_findings(
                 "A crop cannot be grown on more land than it is harvested from, so these pairs "
                 "cannot anchor a share comparison whichever side is wrong"
             ),
-            confidence=schema.Confidence.MEDIUM,
-            affected_rows=len(over),
-            affected_iso_3166s=tuple(sorted(set(over["iso_3166"]))[:12]),
+            severity=schema.Severity.ADVISORY,
+            slug="wri-deforestation-area-exceeds-harvested-area",
         )
     ]
 
@@ -377,17 +374,17 @@ def iter_candidates(
             if production_kg < MINIMUM_PRODUCTION_KG:  # E4
                 continue
             yield Candidate(
-                iso_3166=iso_3166,
+                area_coverage=area_coverage.get(iso_3166, 0.0),
                 crop_name=crop_name,
-                mapspam_code=mapspam_code,
                 deforestation_tonnes=float(row["deforestation_tonnes"]),
-                production_kg=production_kg,
-                is_perennial=mapspam_code in PERENNIAL_CROP_NAMES,
                 is_decomposed_group_crop=(
                     mapspam_code in ifpri_mapspam.CONSTITUENT_TO_GROUP_NAME
                 ),
+                is_perennial=mapspam_code in PERENNIAL_CROP_NAMES,
+                iso_3166=iso_3166,
+                mapspam_code=mapspam_code,
+                production_kg=production_kg,
                 provincial_units=units,
-                area_coverage=area_coverage.get(iso_3166, 0.0),
             )
 
 
@@ -438,8 +435,12 @@ def get_perennial_findings(eligible: pandas.DataFrame) -> list[schema.Finding]:
     """What it means that some of the largest eligible pairs are crops the pipeline cannot see.
 
     Sized from the anchors alone, so it needs no capture: these pairs carry WRI's own deforestation
-    attribution while both legs attribute close to nothing to them. This survived dropping the
-    scorer unchanged, which is the clearest evidence the ranking was never what produced it.
+    attribution while no destination layer resolves what replaced the forest. This survived dropping
+    the scorer unchanged, which is the clearest evidence the ranking was never what produced it.
+
+    Nothing here quotes how far the legs land from the anchor. That is a captured quantity and it
+    moves with the emissions model, so it belongs in the comparisons table rather than frozen into
+    a finding that runs without a capture.
 
     BLOCKING rather than advisory. For these pairs the pipeline is not disagreeing with an anchor, it
     is structurally unable to produce a comparable number at all.
@@ -451,35 +452,21 @@ def get_perennial_findings(eligible: pandas.DataFrame) -> list[schema.Finding]:
     largest = perennial.nlargest(1, "deforestation_tonnes").to_dict("records")[0]
     return [
         schema.Finding(
-            slug=PERENNIAL_RESEARCH_SLUG,
-            severity=schema.Severity.BLOCKING,
+            affected_iso_3166s=tuple(sorted(set(perennial["iso_3166"]))),
+            affected_rows=len(perennial),
+            confidence=schema.Confidence.HIGH,
+            magnitude_tonnes=at_stake,
             message=(
                 f"{len(perennial):d} eligible pairs are woody perennials, carrying "
                 f"{at_stake / schema.TONNES_PER_MEGATONNE:,.0f} Mt of WRI-attributed deforestation "
                 f"between them and led by {largest['iso_3166']!s} {largest['crop_name']!s} at "
                 f"{float(largest['deforestation_tonnes']) / schema.TONNES_PER_MEGATONNE:,.0f} Mt. "
-                "GLAD's cropland class excludes perennial woody crops, so these appear as tree cover and "
-                "both legs exclude them from the emissions numerator while MapSPAM keeps their "
-                "production in the denominator. The pipeline attributes close to zero where the "
-                "anchor does not"
+                "No destination layer resolves a young plantation, so their clearance is "
+                "reported as dropped rather than charged while MapSPAM keeps their "
+                "production in the denominator"
             ),
-            confidence=schema.Confidence.HIGH,
-            magnitude_tonnes=at_stake,
-            affected_rows=len(perennial),
-            affected_iso_3166s=tuple(sorted(set(perennial["iso_3166"]))),
-        ),
-        schema.Finding(
-            slug=OIL_PALM_RESEARCH_SLUG,
-            severity=schema.Severity.ADVISORY,
-            message=(
-                "Oil palm is the measured case of the entry above: the sLUC-to-WRI ratio for "
-                "Indonesian oil palm is 0.008, decomposing as a 0.020 detection term and a 0.38 "
-                "allocation term. The detection term belongs to the perennial entry"
-            ),
-            confidence=schema.Confidence.HIGH,
-            affected_rows=int(
-                (eligible["mapspam_code"] == statistical.Crop.OILPALM.value).sum()
-            ),
+            severity=schema.Severity.BLOCKING,
+            slug=PERENNIAL_RESEARCH_SLUG,
         ),
     ]
 
@@ -517,8 +504,9 @@ def get_target_anchor_consistency_findings(
             schema.Finding(
                 # The same slug as the release-wide count: one mechanism, so the register groups
                 # them rather than ranking the same thing twice.
-                slug="wri-deforestation-area-exceeds-harvested-area",
-                severity=schema.Severity.ADVISORY,
+                affected_iso_3166s=(target.iso_3166,),
+                affected_rows=1,
+                confidence=schema.Confidence.MEDIUM,
                 message=(
                     f"{target.slug:s} stands on a WRI row that contradicts itself, giving "
                     f"{float(share):.3f}x more deforestation-linked area than FAOSTAT reports "
@@ -531,9 +519,8 @@ def get_target_anchor_consistency_findings(
                     + ". A crop cannot be grown on more land than it is harvested from, so a "
                     "disagreement on this pair is the anchor's before it is ours"
                 ),
-                confidence=schema.Confidence.MEDIUM,
-                affected_rows=1,
-                affected_iso_3166s=(target.iso_3166,),
+                severity=schema.Severity.ADVISORY,
+                slug="wri-deforestation-area-exceeds-harvested-area",
             )
         )
     return findings
@@ -599,8 +586,8 @@ def get_anchor_disagreement_findings(
     )
     return [
         schema.Finding(
-            slug="external-anchors-disagree-on-shape",
-            severity=schema.Severity.ADVISORY,
+            affected_rows=int(weak["countries"].sum()),
+            confidence=schema.Confidence.MEDIUM,
             message=(
                 f"Orbae and WRI barely agree on which countries carry the highest factor for "
                 f"{len(weak):d} of {len(agreement):d} shared crops: {named:s}. WRI's own provincial "
@@ -610,8 +597,8 @@ def get_anchor_disagreement_findings(
                 "measures are rank controls rather than level ones, and `ORBAE_OVER_WRI` is where "
                 "this disagreement gets measured on every run"
             ),
-            confidence=schema.Confidence.MEDIUM,
-            affected_rows=int(weak["countries"].sum()),
+            severity=schema.Severity.ADVISORY,
+            slug="external-anchors-disagree-on-shape",
         )
     ]
 
@@ -762,11 +749,24 @@ def read_efs() -> pandas.DataFrame | None:
     """The captured emissions factors, or None before a capture has run.
 
     Read here rather than through `validation.capture` so the reporting path never imports the
-    module that runs the pipeline -- the same division `read_forest_pools` uses.
+    module that runs the pipeline.
     """
     if not pull.EFS.exists():
         return None
     return pandas.read_parquet(pull.EFS)
+
+
+def keep_crop_rows(frame: pandas.DataFrame) -> pandas.DataFrame:
+    """Only the crop rows, kept before anything indexes `statistical.Crop`.
+
+    Two rows are not crops. Pastureland is a commodity the statistical leg attributes expansion
+    to, and the dropped row carries the carbon no destination layer claimed. Neither has a
+    MapSPAM code to key a join on, and neither WRI nor Orbae publishes an anchor for either.
+    Every comparison below is therefore about crops, and this is the one place that is said --
+    stated as what is kept rather than what is removed, so a row added later is excluded by
+    default rather than by being remembered here.
+    """
+    return frame[frame["commodity_name"].isin({crop.name for crop in statistical.Crop})]
 
 
 def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]:
@@ -790,10 +790,18 @@ def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]
         efs.index.get_level_values("admin_level") == schema.NATIONAL
     ].reset_index()
     by_methodology = national.pivot_table(
-        index=["admin_id", "crop_name"],
         columns="methodology",
+        index=["admin_id", "commodity_name"],
         values="emissions_factor_kgco2e_per_kg",
     )
+    # NB: the jurisdictional-direct leg is US-only, so a capture scoped to countries it does not
+    # cover has no column for it at all. A head-to-head needs both legs, and holding only one is
+    # not a disagreement about anything -- there is simply nothing here to compare.
+    if not {schema.STATISTICAL, schema.JURISDICTIONAL_DIRECT}.issubset(
+        by_methodology.columns
+    ):
+        return
+    # Pastureland needs no filtering here: jdLUC emits no such row, so requiring both legs drops it
     both = by_methodology.dropna(
         subset=[schema.STATISTICAL, schema.JURISDICTIONAL_DIRECT]
     ).reset_index()
@@ -808,7 +816,7 @@ def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]
         yield {
             "iso_3166": str(row["admin_id"]),
             # The MapSPAM code, because `get_comparisons` renames back to the canonical name once.
-            "crop_name": statistical.Crop[str(row["crop_name"])].value,
+            "crop_name": statistical.Crop[str(row["commodity_name"])].value,
             "emission_pool": schema.EmissionPool.TOTAL,
             "measure": targets.Measure.SLUC_OVER_JDLUC,
             "statistic": schema.Statistic.RATIO,
@@ -863,12 +871,14 @@ def iter_sluc_wri_comparisons() -> collections.abc.Iterator[dict[str, object]]:
         if row["year"] == REFERENCE_YEAR and row["deforestation_tonnes"] > 0
     }
     levels = efs.index.get_level_values
-    national = efs[
-        (levels("admin_level") == schema.NATIONAL)
-        & (levels("methodology") == schema.STATISTICAL)
-    ].reset_index()
+    national = keep_crop_rows(
+        frame=efs[
+            (levels("admin_level") == schema.NATIONAL)
+            & (levels("methodology") == schema.STATISTICAL)
+        ].reset_index()
+    ).copy()
     national["crop_code"] = [
-        statistical.Crop[name].value for name in national["crop_name"]
+        statistical.Crop[name].value for name in national["commodity_name"]
     ]
     for row in sorted(
         national.to_dict("records"),
@@ -938,9 +948,11 @@ def iter_orbae_capture_comparisons() -> collections.abc.Iterator[dict[str, objec
     orbae = orbae.dropna(subset=["admin_id"])
 
     levels = efs.index.get_level_values
-    provincial = efs[levels("admin_level") == schema.PROVINCIAL].reset_index()
+    provincial = keep_crop_rows(
+        frame=efs[levels("admin_level") == schema.PROVINCIAL].reset_index()
+    ).copy()
     provincial["crop_code"] = [
-        statistical.Crop[name].value for name in provincial["crop_name"]
+        statistical.Crop[name].value for name in provincial["commodity_name"]
     ]
     # `admin_id` leads with the ISO, which is the only place the country appears on our rows.
     provincial["iso_3166"] = provincial["admin_id"].str[:3]
@@ -992,21 +1004,6 @@ def iter_orbae_capture_comparisons() -> collections.abc.Iterator[dict[str, objec
                 "confidence": schema.Confidence.MEDIUM,
                 "worst_tier": schema.SourceTier.SUPPLIED,
             }
-
-
-def read_forest_pools() -> pandas.DataFrame | None:
-    """The conservation bound's inputs from the last capture, or None before one has run.
-
-    None rather than an empty frame, because `report.render` distinguishes them: a missing frame
-    renders as "not run", where an empty one would render as a table with no country over its bound
-    and read as a pass. This is the check that outranks every anchor, so its silence must not.
-
-    Read here rather than through `validation.capture` so the reporting path never imports the
-    module that runs the pipeline.
-    """
-    if not pull.FOREST_POOLS.exists():
-        return None
-    return pandas.read_parquet(pull.FOREST_POOLS)
 
 
 def get_comparisons(
@@ -1079,19 +1076,32 @@ def get_comparisons(
     return frame
 
 
-def get_unanchored_targets(
+def get_uncompared_targets(
     comparisons: pandas.DataFrame,
-) -> tuple[targets.Target, ...]:
-    """Targets no comparison reached, so their silence is not read as agreement.
+) -> targets.UncomparedTargets:
+    """Targets no comparison reached, split by whether the capture could have reached them.
 
-    Today that is most of them: only Orbae-against-WRI can be computed before a capture, and Orbae
-    covers 12 of the 30 targets.
+    Two silences that read alike and mean opposite things. A target whose country the capture
+    covers, and which still has no comparison, has no anchor -- a fact about WRI and Orbae that
+    running more of our own pipeline cannot change. A target whose country the capture skipped
+    says nothing about anchors at all, and is answered by capturing it. Reporting the second as
+    the first is how a capture scoped with `--isos` comes to look like an absent yardstick.
     """
     compared = set(zip(comparisons["iso_3166"], comparisons["crop_name"], strict=True))
-    return tuple(
+    efs = read_efs()
+    captured = (
+        set()
+        if efs is None
+        else {str(admin_id)[:3] for admin_id in efs.index.get_level_values("admin_id")}
+    )
+    uncompared = [
         target
         for target in targets.iter_targets()
         if (target.iso_3166, target.crop_name) not in compared
+    ]
+    return targets.UncomparedTargets(
+        unanchored=tuple(t for t in uncompared if t.iso_3166 in captured),
+        uncaptured=tuple(t for t in uncompared if t.iso_3166 not in captured),
     )
 
 
@@ -1312,51 +1322,51 @@ def iter_orbae_rows(path_to_zip: pathlib.Path) -> collections.abc.Iterator[Orbae
             # kg of input commodity per kg of published product, so dividing returns a per-kg factor
             # on the commodity basis. 1 for thirteen commodities, 3.9405 for palm, 8.9108 for cane.
             conversion = (
-                get_float(row=row, column=ORBAE_CONVERSION_FACTOR_COLUMN) or 1.0
+                get_float(column=ORBAE_CONVERSION_FACTOR_COLUMN, row=row) or 1.0
             )
             yield OrbaeRow(
-                iso_3166=country.alpha3,
                 admin_level=admin_level,
                 country_name=row["Administrative level 0"],
-                jurisdiction_name=row["Administrative level 1"]
-                or row["Administrative level 0"],
                 crop_name=crop_name,
-                schema_version=row["Version"],
-                ef_kg_per_kg=get_float(row=row, column=ORBAE_LUC_FACTOR_COLUMN)
+                ef_kg_per_kg=get_float(column=ORBAE_LUC_FACTOR_COLUMN, row=row)
                 / conversion,
-                intensity_tonnes_per_ha=(
-                    get_float(row=row, column=ORBAE_LUC_INTENSITY_COLUMN)
-                    / schema.KG_PER_TONNE
-                ),
                 forest_kg_per_kg=(
                     get_float(
-                        row=row, column=ORBAE_POOL_TO_COLUMN[schema.EmissionPool.FOREST]
+                        column=ORBAE_POOL_TO_COLUMN[schema.EmissionPool.FOREST], row=row
                     )
                     / conversion
                 ),
                 grassland_kg_per_kg=sum(
-                    get_float(row=row, column=column)
+                    get_float(column=column, row=row)
                     for column in ORBAE_GRASSLAND_COLUMNS
                 )
                 / conversion,
+                intensity_tonnes_per_ha=(
+                    get_float(column=ORBAE_LUC_INTENSITY_COLUMN, row=row)
+                    / schema.KG_PER_TONNE
+                ),
+                iso_3166=country.alpha3,
+                jurisdiction_name=row["Administrative level 1"]
+                or row["Administrative level 0"],
                 peatland_conversion_kg_per_kg=(
                     get_float(
-                        row=row,
                         column=ORBAE_POOL_TO_COLUMN[
                             schema.EmissionPool.PEATLAND_CONVERSION
                         ],
+                        row=row,
                     )
                     / conversion
                 ),
                 peatland_occupation_kg_per_kg=(
                     get_float(
-                        row=row,
                         column=ORBAE_POOL_TO_COLUMN[
                             schema.EmissionPool.PEATLAND_OCCUPATION
                         ],
+                        row=row,
                     )
                     / conversion
                 ),
+                schema_version=row["Version"],
             )
 
 
@@ -1368,7 +1378,7 @@ def pin_orbae_export(path_to_zip: pathlib.Path = ORBAE_EXPORT) -> None:
     against. Swap the export and the Orbae/WRI baselines silently describe a different release.
     """
     # No `origin`: a supplied file was never retrieved from anywhere, and its absence says so.
-    pull.record_digest(key=path_to_zip.name, source="orbae", path=path_to_zip)
+    pull.record_digest(key=path_to_zip.name, path=path_to_zip, source="orbae")
 
 
 def read_orbae(path_to_zip: pathlib.Path = ORBAE_EXPORT) -> pandas.DataFrame:
@@ -1406,8 +1416,9 @@ def get_orbae_findings(frame: pandas.DataFrame) -> list[schema.Finding]:
     versions = sorted(set(frame["schema_version"]))
     return [
         schema.Finding(
-            slug="orbae-vintage-offset",
-            severity=schema.Severity.BLOCKING,
+            affected_iso_3166s=tuple(sorted(set(frame["iso_3166"]))),
+            affected_rows=len(frame),
+            confidence=schema.Confidence.HIGH,
             message=(
                 f"Every row is assessment year {ORBAE_ASSESSMENT_YEAR:d} against our "
                 f"{REFERENCE_YEAR:d} comparison year, and no {REFERENCE_YEAR:d} export is coming, "
@@ -1417,21 +1428,20 @@ def get_orbae_findings(frame: pandas.DataFrame) -> list[schema.Finding]:
                 "+0.961, so rank survives it and ratio does not. Every sLUC/Orbae and Orbae/WRI "
                 "control therefore holds a rank expectation, with a tolerance in correlation units"
             ),
-            confidence=schema.Confidence.HIGH,
-            affected_rows=len(frame),
-            affected_iso_3166s=tuple(sorted(set(frame["iso_3166"]))),
+            severity=schema.Severity.BLOCKING,
+            slug="orbae-vintage-offset",
         ),
         schema.Finding(
-            slug="orbae-mixed-schema-version",
-            severity=schema.Severity.ADVISORY,
+            affected_rows=len(frame),
+            confidence=schema.Confidence.MEDIUM,
             message=(
                 f"The export mixes {len(versions):d} schema versions "
                 f"({', '.join(versions)}) in one file, so a cross-country comparison drawn from it "
                 "spans anchor versions. This is the defect a `code_version` column exists to catch "
                 "in our own artifact, here on the anchor side"
             ),
-            confidence=schema.Confidence.MEDIUM,
-            affected_rows=len(frame),
+            severity=schema.Severity.ADVISORY,
+            slug="orbae-mixed-schema-version",
         ),
     ]
 
@@ -1488,18 +1498,18 @@ def read_faostat_production() -> pandas.DataFrame:
     """
     if not FAOSTAT_CACHE.exists():
         logger.info(f"Fetching the ingested FAOSTAT parquet to {FAOSTAT_CACHE}")
-        FAOSTAT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        FAOSTAT_CACHE.parent.mkdir(exist_ok=True, parents=True)
         faostat_production.load().to_parquet(FAOSTAT_CACHE)
         pull.record_digest(
             key="faostat_production.parquet",
-            source="faostat",
-            path=FAOSTAT_CACHE,
             origin=faostat_production.DATASET.get_prefix(tile_id="world"),
+            path=FAOSTAT_CACHE,
+            source="faostat",
         )
     frame = pandas.read_parquet(FAOSTAT_CACHE)
     if frame.index.names != [None]:
         frame = frame.reset_index()
-    return frame.rename(columns={"admin_id": "iso_3166"})
+    return frame.rename(columns={"admin_id": "iso_3166", "commodity_name": "crop_name"})
 
 
 def get_faostat_yields() -> pandas.DataFrame:
@@ -1560,11 +1570,11 @@ def iter_yield_agreements(
         if len(ratios) < MINIMUM_COUNTRIES:
             continue
         yield schema.YieldAgreement(
-            crop_name=str(crop_name),
             countries=len(ratios),
-            median_ratio=statistics.median(ratios),
-            lowest_ratio=ratios[0],
+            crop_name=str(crop_name),
             highest_ratio=ratios[-1],
+            lowest_ratio=ratios[0],
+            median_ratio=statistics.median(ratios),
         )
 
 
@@ -1623,8 +1633,8 @@ def get_yield_findings(
         if agreement.is_product_form_mismatch:
             findings.append(
                 schema.Finding(
-                    slug=f"yield-product-form-{agreement.crop_name.lower():s}",
-                    severity=schema.Severity.BLOCKING,
+                    affected_rows=agreement.countries,
+                    confidence=schema.Confidence.HIGH,
                     message=(
                         f"{agreement.crop_name:s}: WRI's yield is {agreement.median_ratio:.2f}x "
                         f"FAOSTAT's across {agreement.countries:d} countries in {year:d}. That is "
@@ -1632,15 +1642,15 @@ def get_yield_findings(
                         "yield -- so every emissions factor built on this yield is off by the same "
                         "factor and cannot be compared until the form is settled"
                     ),
-                    confidence=schema.Confidence.HIGH,
-                    affected_rows=agreement.countries,
+                    severity=schema.Severity.BLOCKING,
+                    slug=f"yield-product-form-{agreement.crop_name.lower():s}",
                 )
             )
         elif agreement.is_beyond_tolerance:
             findings.append(
                 schema.Finding(
-                    slug=f"yield-disagreement-{agreement.crop_name.lower():s}",
-                    severity=schema.Severity.ADVISORY,
+                    affected_rows=agreement.countries,
+                    confidence=schema.Confidence.MEDIUM,
                     message=(
                         f"{agreement.crop_name:s}: WRI's yield is {agreement.median_ratio:.3f}x "
                         f"FAOSTAT's across {agreement.countries:d} countries in {year:d}, beyond "
@@ -1648,8 +1658,8 @@ def get_yield_findings(
                         "product form, so this is a denominator difference and it moves every "
                         "factor for this crop proportionally"
                     ),
-                    confidence=schema.Confidence.MEDIUM,
-                    affected_rows=agreement.countries,
+                    severity=schema.Severity.ADVISORY,
+                    slug=f"yield-disagreement-{agreement.crop_name.lower():s}",
                 )
             )
     return findings

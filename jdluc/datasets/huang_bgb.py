@@ -76,6 +76,7 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=["belowground-biomass-mg-per-ha"],
     band_type=base.BandType.INTENSIVE,
+    dtype="float32",
     no_data=None,
     partitioning=tiling.Partitioning.TEN_DEGREE_TILE,
     product_name="bgb",

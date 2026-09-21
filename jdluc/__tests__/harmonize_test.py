@@ -4,8 +4,9 @@ import functools
 import pytest
 
 from jdluc import tiling
-from jdluc.datasets.base import BandType
-from jdluc.harmonize import Grid
+from jdluc.datasets import NAME_TO_CLS
+from jdluc.datasets.base import BandType, RasterDataset
+from jdluc.harmonize import RIO_TO_GDAL_DTYPE, Grid
 
 
 @pytest.mark.parametrize(
@@ -105,8 +106,8 @@ def test_grid_get_resampling_for_band_type(
     assert (
         grid.get_resampling_for_band_type(
             band_type=band_type,
-            src_resolution=resolution,
             dest_resolution=grid.resolution,
+            src_resolution=resolution,
         ).name
         == expected
     )
@@ -126,8 +127,8 @@ def test_grid_get_resampling_for_band_type_raises(
     with pytest.raises(NotImplementedError, match=match):
         assert grid.get_resampling_for_band_type(
             band_type=BandType.EXTENSIVE,
-            src_resolution=src_resolution,
             dest_resolution=grid.resolution,
+            src_resolution=src_resolution,
         )
 
 
@@ -148,8 +149,17 @@ def test_grid_get_resampling_for_band_type_upsamples_clipped_world() -> None:
     assert (
         grid.get_resampling_for_band_type(
             band_type=BandType.INTENSIVE,
-            src_resolution=src_resolution,
             dest_resolution=grid.resolution,
+            src_resolution=src_resolution,
         ).name
         == "bilinear"
     )
+
+
+def test_every_raster_dataset_declares_a_dtype_the_vrt_can_name() -> None:
+    undeclarable = {
+        name: dataset.dtype
+        for name, dataset in NAME_TO_CLS.items()
+        if isinstance(dataset, RasterDataset) and dataset.dtype not in RIO_TO_GDAL_DTYPE
+    }
+    assert not undeclarable

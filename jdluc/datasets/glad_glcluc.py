@@ -63,6 +63,7 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=BAND_NAMES,
     band_type=base.BandType.CATEGORICAL,
+    dtype="uint8",
     no_data=(1 << 8) - 1,
     partitioning=tiling.Partitioning.TEN_DEGREE_TILE,
     product_name="glcluc",
@@ -103,4 +104,7 @@ assert all(
     for left, right in itertools.combinations(
         (values for _, values in LAND_CLASS_TO_VALUES.items()), r=2
     )
+)
+assert DATASET.no_data not in set(
+    itertools.chain.from_iterable(LAND_CLASS_TO_VALUES.values())
 )

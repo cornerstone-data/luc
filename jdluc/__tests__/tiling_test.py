@@ -2,7 +2,7 @@ import pytest
 import shapely
 
 from jdluc.tiling import (
-    GLOBAL_FOREST_WATCH_TILE_IDS,
+    GLOBAL_NATURE_WATCH_TILE_IDS,
     PARTITIONING_TO_IS_VALID_TILE_ID,
     Partitioning,
     get_box_for_tile_id,
@@ -67,7 +67,7 @@ def test_get_box_for_tile_id_uses_the_northern_lat() -> None:
     assert get_box_for_tile_id(tile_id="50N_080W").equals(BOX_40N_080W)
 
 
-@pytest.mark.parametrize("tile_id", GLOBAL_FOREST_WATCH_TILE_IDS)
+@pytest.mark.parametrize("tile_id", GLOBAL_NATURE_WATCH_TILE_IDS)
 def test_get_box_for_tile_id_round_trips(tile_id: str) -> None:
     # These two functions must agree on the northern-lat convention, because
     # worldbank_jurisdictions.iter_jurisdiction_for_iso_3166_tile_id skips a province whose

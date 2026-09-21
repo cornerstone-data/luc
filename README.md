@@ -6,9 +6,9 @@ As a proof of concept, the jurisdictional-direct leg covers eleven crops grown i
 
 > **Assessing LSRS conformance?** The [executive summary](docs/executive_summary.md) gives a concise account of how this methodology maps to the GHGP Land Sector and Removals Standard — which requirements it meets, the key modeling choices behind them, and where it deviates or remains a work in progress.
 
-![Land conversion and soy expansion drive LUC emissions in Matopiba, Brazil](docs/figures/soy-brazil-matopiba-methodology.png)
+![Forest cleared for cropland in a few concentrated blocks of Matopiba, Brazil, when it happened, and the emissions it released beneath today's soybean](docs/figures/soy-brazil-matopiba-methodology.png)
 
-*A worked example of the methodology on real data: soy-driven land conversion and the resulting land-use-change emissions in Matopiba, Brazil. For clarity the maps show only the 2000 and 2020 endpoints, but the pipeline uses all five GLAD epochs (2000, 2005, 2010, 2015, 2020). See [`docs/methodology.md`](docs/methodology.md) for the full walkthrough.*
+*Matopiba, Brazil. **Top left:** the five-year span each converted pixel was charged to, darkest most recent — clearance falls in a few blocks rather than advancing as a front, and most of it between 2006 and 2015. **Top right:** which of the five conversions fired — forest → cropland in those blocks, rangeland → cropland as the thin scatter across the western half, and a band of pasture → cropland down the southern frontier where soybean is now densest. **Bottom:** MapSPAM soybean area in 2000 and 2020, settling on the same blocks the top row shows converting. **Right:** the 20-year linearly-discounted per-hectare emissions those conversions released, before any crop is named — bright on the forest blocks and not on the rangeland scatter, because forest carries far more carbon per hectare. The statistical leg then divides these emissions among the crops and pastureland that expanded locally, in proportion to each one's share of that expansion.*
 
 ## Why are we publishing this?
 
@@ -86,7 +86,7 @@ Every stage is scoped by one or more **ISO 3166 alpha-3 country codes**, or by `
 ```bash
 # 1. Ingest each source dataset for the countries (positional: dataset, then ISO codes).
 #    Repeat per DATASET in the inventory (see docs/methodology.md).
-uv run python -m jdluc.ingest GLAD_GLCLUC HND
+uv run python -m jdluc.ingest GNW_TREE_COVER_LOSS HND
 
 # 2. Harmonize the countries' tiles onto the common grid (--grid-name defaults to GLAD ~30 m).
 uv run python jdluc/harmonize.py HND

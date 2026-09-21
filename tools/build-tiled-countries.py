@@ -5,7 +5,7 @@ one of its filters read anchors `sources.lock.json` already pins by sha256. `pre
 derives those on every report run, in about a tenth of a second, rather than any of them being
 committed a second time.
 
-This is the exception. Deciding which countries intersect at least one of the 280 ten-degree GFW
+This is the exception. Deciding which countries intersect at least one of the 280 ten-degree GNW
 tiles needs a spatial join against a 93 MiB GeoPackage and geopandas, neither of which belongs on the
 reporting path. So the join happens here and its result is committed -- a few kilobytes, and it moves
 only when the tile set or the World Bank layer does, not when the WRI pin does.
@@ -57,20 +57,20 @@ class Check:
 
 
 def get_tiled_iso_3166s(path_to_geopackage: pathlib.Path) -> tuple[set[str], int]:
-    """Countries intersecting at least one ten-degree GFW tile, and how many the layer holds.
+    """Countries intersecting at least one ten-degree GNW tile, and how many the layer holds.
 
-    The GFW tile set covers 280 ten-degree cells rather than all of them, so this filter genuinely
+    The GNW tile set covers 280 ten-degree cells rather than all of them, so this filter genuinely
     bites: a country entirely outside it has no tree-cover-loss data and cannot be computed. Read
     from the GeoPackage `build-national-mappings` downloads, so this needs no ingest -- run that
     tool first on a cold cache, or this one fails on a missing file.
     """
     world_bank = geopandas.read_file(path_to_geopackage)
     tiles = geopandas.GeoDataFrame(
+        crs=world_bank.crs,
         geometry=[
             tiling.get_box_for_tile_id(tile_id=tile_id)
-            for tile_id in sorted(tiling.GLOBAL_FOREST_WATCH_TILE_IDS)
+            for tile_id in sorted(tiling.GLOBAL_NATURE_WATCH_TILE_IDS)
         ],
-        crs=world_bank.crs,
     )
     joined = geopandas.sjoin(world_bank, tiles, how="inner", predicate="intersects")
     return set(joined["ISO_A3"].dropna()), int(world_bank["ISO_A3"].dropna().nunique())
@@ -88,8 +88,6 @@ def iter_checks(
     """
     share = len(tiled) / countries if countries else 0.0
     yield Check(
-        name="coverage-floor",
-        passed=share >= MINIMUM_TILED_SHARE,
         detail=(
             f"{len(tiled):d} of {countries:d} countries ({share:.1%}) intersect a tile, against a "
             f"{MINIMUM_TILED_SHARE:.0%} floor"
@@ -99,6 +97,8 @@ def iter_checks(
                 else ""
             )
         ),
+        name="coverage-floor",
+        passed=share >= MINIMUM_TILED_SHARE,
     )
 
     malformed = sorted(
@@ -107,13 +107,13 @@ def iter_checks(
         if len(iso_3166) != 3 or not iso_3166.isupper() or not iso_3166.isalpha()
     )
     yield Check(
-        name="well-formed-codes",
-        passed=not malformed,
         detail=(
             f"{len(malformed):d} entry(ies) are not ISO 3166 alpha-3: {', '.join(malformed[:6])}"
             if malformed
             else f"all {len(tiled):d} entries are ISO 3166 alpha-3"
         ),
+        name="well-formed-codes",
+        passed=not malformed,
     )
 
     # A carved-out country the join no longer returns means the list is claiming credit for a
@@ -121,8 +121,6 @@ def iter_checks(
     # to find out what the carve-out costs.
     stale = sorted(worldbank_jurisdictions.UNPRODUCTIVE_ISO_3166S - joined)
     yield Check(
-        name="carve-out-current",
-        passed=not stale,
         detail=(
             f"{len(stale):d} carved-out country(ies) no longer intersect a tile, so "
             f"UNPRODUCTIVE_ISO_3166S is stale: {', '.join(stale)}"
@@ -133,6 +131,8 @@ def iter_checks(
                 f"tile, so each is removed by the carve-out rather than by the join"
             )
         ),
+        name="carve-out-current",
+        passed=not stale,
     )
 
     # A chosen target that fails E1 cannot be computed at all, so the set silently dropping one
@@ -145,25 +145,25 @@ def iter_checks(
         }
     )
     yield Check(
-        name="targets-tiled",
-        passed=not missing,
         detail=(
             f"{len(missing):d} country(ies) named by {targets.TARGETS.name:s} intersect no tile: "
             f"{', '.join(missing)}"
             if missing
             else f"every country in {targets.TARGETS.name:s} intersects a tile"
         ),
+        name="targets-tiled",
+        passed=not missing,
     )
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+    logging.basicConfig(format="%(levelname)s - %(message)s", level=logging.INFO)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--geopackage",
-        type=pathlib.Path,
         default=pull.CACHE / "world_bank_admin_1.gpkg",
         help="the World Bank admin-1 GeoPackage build-national-mappings downloads",
+        type=pathlib.Path,
     )
     args = parser.parse_args()
     assert args.geopackage.exists(), (
@@ -173,7 +173,7 @@ def main() -> int:
 
     joined, countries = get_tiled_iso_3166s(path_to_geopackage=args.geopackage)
     tiled = joined - worldbank_jurisdictions.UNPRODUCTIVE_ISO_3166S
-    pull.DATA.mkdir(parents=True, exist_ok=True)
+    pull.DATA.mkdir(exist_ok=True, parents=True)
     # No timestamp: the inputs' versions are the identity, and a clock would make two branches
     # disagree about an identical set.
     prepare.TILED_ISO_3166S.write_text(
@@ -182,7 +182,7 @@ def main() -> int:
                 "note": [
                     "DERIVED -- do not hand-edit. Regenerate with",
                     "`uv run --with geopandas python tools/build-tiled-countries.py`.",
-                    "E1's second half: the countries intersecting at least one GFW tile,",
+                    "E1's second half: the countries intersecting at least one GNW tile,",
                     "less `carved_out_iso_3166s` -- countries that do intersect a tile but",
                     "carry no crop production to attribute anything to. See",
                     "worldbank_jurisdictions.UNPRODUCTIVE_ISO_3166S for why that is a list.",
@@ -194,7 +194,7 @@ def main() -> int:
                     "dataset": worldbank_jurisdictions.ADMIN_1_DATASET.product_name,
                     "version": worldbank_jurisdictions.ADMIN_1_DATASET.version,
                 },
-                "tile_ids": len(tiling.GLOBAL_FOREST_WATCH_TILE_IDS),
+                "tile_ids": len(tiling.GLOBAL_NATURE_WATCH_TILE_IDS),
                 "carved_out_iso_3166s": sorted(
                     worldbank_jurisdictions.UNPRODUCTIVE_ISO_3166S
                 ),

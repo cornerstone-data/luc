@@ -26,7 +26,7 @@ JURISDICTIONAL_EMISSIONS = pandas.DataFrame.from_records(
             120.0,
             30.0,
         ),
-        # zero production (crop_hectares == 0)
+        # zero production (commodity_hectares == 0)
         (
             "PROVINCIAL",
             "SOYBEAN",
@@ -57,18 +57,18 @@ JURISDICTIONAL_EMISSIONS = pandas.DataFrame.from_records(
     ],
     columns=[
         "admin_level",
-        "crop_name",
+        "commodity_name",
         "jurisdiction_name",
         "methodology",
         "admin_id",
-        "crop_hectares",
-        "peatland_crop_hectares",
+        "commodity_hectares",
+        "peatland_commodity_hectares",
         "peatland_occupation_emissions_mt",
         "emissions_mt",
         "forest_emissions_mt",
         "peatland_conversion_emissions_mt",
     ],
-).set_index(["admin_level", "admin_id", "crop_name", "methodology"])
+).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
 RAW_YIELDS = pandas.DataFrame.from_records(
     [
         # MAIZE: 2016 must be excluded; mean(8, 10, 12, 10) over 2017-2020 == 10
@@ -93,11 +93,11 @@ RAW_YIELDS = pandas.DataFrame.from_records(
         "admin_level",
         "admin_id",
         "jurisdiction_name",
-        "crop_name",
+        "commodity_name",
         "year",
         "yield_kg_per_ha",
     ],
-).set_index(["admin_level", "admin_id", "jurisdiction_name", "crop_name", "year"])
+).set_index(["admin_level", "admin_id", "jurisdiction_name", "commodity_name", "year"])
 
 
 def test_merge_jurisdictional_emissions_and_yields() -> None:
@@ -114,34 +114,32 @@ def test_merge_jurisdictional_emissions_and_yields() -> None:
     assert corn["yield_kg_per_ha"] == 10.0  # 4-year mean, 2016 excluded
     assert corn["production_kg"] == 1000.0  # 100 ha x 10
     assert corn["emissions_factor_kgco2e_per_kg"] == 200.0  # 200 t x 1000 / 1000 kg
-    assert corn["peatland_occupation_fraction"] == 0.25  # 50 / 200
 
-    # zero production -> EF guarded to NaN (not inf); fraction still defined (0/80)
+    # zero production -> EF guarded to NaN rather than inf
     key, soy = next(iter_result)
     assert key == ("PROVINCIAL", "USA008", "SOYBEAN", "JURISDICTIONAL_DIRECT")
     assert soy["production_kg"] == 0.0
     assert numpy.isnan(soy["emissions_factor_kgco2e_per_kg"])
-    assert soy["peatland_occupation_fraction"] == 0.0
 
-    # unmatched yield -> NaN yield/production/EF; zero emissions_mt -> NaN fraction
+    # unmatched yield -> NaN yield, production and EF
     key, wheat = next(iter_result)
     assert key == ("PROVINCIAL", "USA016", "WHEAT", "JURISDICTIONAL_DIRECT")
     assert numpy.isnan(wheat["yield_kg_per_ha"])
     assert numpy.isnan(wheat["production_kg"])
     assert numpy.isnan(wheat["emissions_factor_kgco2e_per_kg"])
-    assert numpy.isnan(wheat["peatland_occupation_fraction"])
 
 
 def test_iter_national_from_provincials_single_province() -> None:
     provincials = pandas.DataFrame.from_records(
         [
             {
-                "crop_hectares": 1,
-                "crop_name": "CROP_1",
+                "commodity_hectares": 1,
+                "commodity_name": "CROP_1",
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
+                "grassland_emissions_mt": 1,
                 "peatland_conversion_emissions_mt": 1,
-                "peatland_crop_hectares": 1,
+                "peatland_commodity_hectares": 1,
                 "peatland_occupation_emissions_mt": 1,
                 "production_kg": 1,
             },
@@ -156,17 +154,17 @@ def test_iter_national_from_provincials_single_province() -> None:
     assert result == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
-        "crop_hectares": 1,
-        "crop_name": "CROP_1",
+        "commodity_hectares": 1,
+        "commodity_name": "CROP_1",
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 1,
         "forest_emissions_mt": 1,
+        "grassland_emissions_mt": 1,
         "jurisdiction_name": "NAME",
         "methodology": "STATISTICAL",
         "peatland_conversion_emissions_mt": 1,
-        "peatland_crop_hectares": 1,
+        "peatland_commodity_hectares": 1,
         "peatland_occupation_emissions_mt": 1,
-        "peatland_occupation_fraction": 1,
         "production_kg": 1,
         "yield_kg_per_ha": 1,
     }
@@ -177,34 +175,37 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
         [
             {
                 "admin_id": "ADM_0",
-                "crop_hectares": 1,
-                "crop_name": "CROP_0",
+                "commodity_hectares": 1,
+                "commodity_name": "CROP_0",
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
+                "grassland_emissions_mt": 1,
                 "peatland_conversion_emissions_mt": 1,
-                "peatland_crop_hectares": 1,
+                "peatland_commodity_hectares": 1,
                 "peatland_occupation_emissions_mt": 1,
                 "production_kg": 1,
             },
             {
                 "admin_id": "ADM_0",
-                "crop_hectares": 1,
-                "crop_name": "CROP_1",
+                "commodity_hectares": 1,
+                "commodity_name": "CROP_1",
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
+                "grassland_emissions_mt": 1,
                 "peatland_conversion_emissions_mt": 1,
-                "peatland_crop_hectares": 1,
+                "peatland_commodity_hectares": 1,
                 "peatland_occupation_emissions_mt": 1,
                 "production_kg": 1,
             },
             {
                 "admin_id": "ADM_1",
-                "crop_hectares": 1,
-                "crop_name": "CROP_0",
+                "commodity_hectares": 1,
+                "commodity_name": "CROP_0",
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
+                "grassland_emissions_mt": 1,
                 "peatland_conversion_emissions_mt": 1,
-                "peatland_crop_hectares": 1,
+                "peatland_commodity_hectares": 1,
                 "peatland_occupation_emissions_mt": 1,
                 "production_kg": 1,
             },
@@ -219,34 +220,34 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
     assert crop_0 == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
-        "crop_hectares": 2,
-        "crop_name": "CROP_0",
+        "commodity_hectares": 2,
+        "commodity_name": "CROP_0",
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 2,
         "forest_emissions_mt": 2,
+        "grassland_emissions_mt": 2,
         "jurisdiction_name": "NAME",
         "methodology": "STATISTICAL",
         "peatland_conversion_emissions_mt": 2,
-        "peatland_crop_hectares": 2,
+        "peatland_commodity_hectares": 2,
         "peatland_occupation_emissions_mt": 2,
-        "peatland_occupation_fraction": 1,
         "production_kg": 2,
         "yield_kg_per_ha": 1,
     }
     assert crop_1 == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
-        "crop_hectares": 1,
-        "crop_name": "CROP_1",
+        "commodity_hectares": 1,
+        "commodity_name": "CROP_1",
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 1,
         "forest_emissions_mt": 1,
+        "grassland_emissions_mt": 1,
         "methodology": "STATISTICAL",
         "jurisdiction_name": "NAME",
         "peatland_conversion_emissions_mt": 1,
-        "peatland_crop_hectares": 1,
+        "peatland_commodity_hectares": 1,
         "peatland_occupation_emissions_mt": 1,
-        "peatland_occupation_fraction": 1,
         "production_kg": 1,
         "yield_kg_per_ha": 1,
     }
@@ -271,19 +272,19 @@ STATISTICAL_EMISSIONS = pandas.DataFrame.from_records(
     ],
     columns=[
         "admin_level",
-        "crop_name",
+        "commodity_name",
         "jurisdiction_name",
         "methodology",
         "admin_id",
-        "crop_hectares",
-        "peatland_crop_hectares",
+        "commodity_hectares",
+        "peatland_commodity_hectares",
         "peatland_occupation_emissions_mt",
         "emissions_mt",
         "production_mt",
         "forest_emissions_mt",
         "peatland_conversion_emissions_mt",
     ],
-).set_index(["admin_level", "admin_id", "crop_name", "methodology"])
+).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
 
 
 def test_derive_statistical_production_kg_stays_indexed() -> None:
@@ -292,7 +293,7 @@ def test_derive_statistical_production_kg_stays_indexed() -> None:
     assert result.index.names == [
         "admin_level",
         "admin_id",
-        "crop_name",
+        "commodity_name",
         "methodology",
     ]
     assert "production_mt" not in result.columns

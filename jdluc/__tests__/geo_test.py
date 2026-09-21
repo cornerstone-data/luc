@@ -1,7 +1,10 @@
+import contextlib
 import pathlib
 
 import numpy
 import pytest
+import rasterio
+import rasterio.transform
 import shapely
 import xarray
 
@@ -10,7 +13,39 @@ from jdluc.geo import (
     convert_vector_to_flatgeobuf,
     get_chunk_size,
     get_overview_level,
+    validate_geotiff,
 )
+
+
+@pytest.mark.parametrize(
+    ("written", "declared", "fails"),
+    (
+        ("uint8", "uint8", False),
+        ("uint8", "uint16", True),
+        ("float32", "float32", False),
+        ("int16", "uint16", True),
+    ),
+)
+def test_validate_geotiff_holds_a_dataset_to_its_declared_dtype(
+    tmp_path: pathlib.Path, written: str, declared: str, fails: bool
+) -> None:
+    path_to_geotiff = str(tmp_path / "geotiff.tif")
+    with rasterio.open(
+        path_to_geotiff,
+        "w",
+        count=2,
+        crs=rasterio.CRS.from_epsg(4326),
+        driver="GTiff",
+        dtype=written,
+        height=4,
+        transform=rasterio.transform.from_origin(0, 10, 0.1, 0.1),
+        width=4,
+    ) as dataset:
+        for band_idx in (1, 2):
+            dataset.write(numpy.zeros((4, 4), dtype=written), band_idx)
+
+    with pytest.raises(AssertionError) if fails else contextlib.nullcontext():
+        validate_geotiff(dtype=declared, path_to_geotiff=path_to_geotiff)
 
 
 @pytest.mark.parametrize(
@@ -26,7 +61,7 @@ def test_get_overview_level(
     height: int, width: int, minimum_pixels: int, expected: int
 ) -> None:
     assert (
-        get_overview_level(height=height, width=width, minimum_pixels=minimum_pixels)
+        get_overview_level(height=height, minimum_pixels=minimum_pixels, width=width)
         == expected
     )
 
@@ -64,8 +99,8 @@ def test_get_chunk_size(
     assert (
         get_chunk_size(
             dtypes=dtypes,
-            number_of_dimensions=number_of_dimensions,
             max_bytes_per_chunk=1 << 32,
+            number_of_dimensions=number_of_dimensions,
         )
         == chunk_size
     )
@@ -87,7 +122,7 @@ def test_clip_dset(geometry: shapely.Polygon, expected: int) -> None:
     dset = (
         xarray.DataArray(
             coords={"y": [-1, 0, +1], "x": [-1, 0, +1]},
-            data=numpy.ones(shape=(3, 3), dtype=int),
+            data=numpy.ones(dtype=int, shape=(3, 3)),
             dims=("y", "x"),
         )
         .rio.write_crs(4326)

@@ -45,6 +45,7 @@ import dataclasses
 import datetime
 import enum
 import hashlib
+import inspect
 import itertools
 import json
 import logging
@@ -68,8 +69,8 @@ TOOL_NAME = pathlib.Path(__file__).name
 # a tropical forest frontier, and tropical peat. Every added country multiplies capture cost, so
 # widen this deliberately -- and use --iso to work on a subset meanwhile. HND and NIC are the
 # cheap exception: both fall entirely inside the one ten-degree tile 20N_090W, and the expensive
-# layer -- statistical.get_downscaled_luc_emissions -- is keyed on (skip_glad_crop_filter,
-# tile_id) alone, so whichever of the two runs second pays for little beyond its province clips.
+# layer -- statistical.get_downscaled_luc_emissions -- is keyed on tile_id alone, so whichever
+# of the two runs second pays for little beyond its province clips.
 #
 # Central America earns five slots because it carries every 2000 crop group ifpri_mapspam still
 # decomposes, and the weight sits in different groups either side of a border: 44% of Honduran
@@ -99,21 +100,25 @@ PROVINCIAL = "PROVINCIAL"
 KG_PER_TONNE = 1000
 # Two sides can be written with different index levels, so both are re-keyed onto this. admin_id
 # rather than jurisdiction_name: a machine identifier, where a display string could be renamed.
-CANONICAL_KEY = ("admin_level", "admin_id", "crop_name", "methodology")
+CANONICAL_KEY = ("admin_level", "admin_id", "commodity_name", "methodology")
+# Columns this repo has renamed, old name to current. A baseline older than a rename writes the
+# old name, and this tool grades both sides with one vocabulary -- without which the two columns
+# would fail the "in both frames" guard and drop out of every check below unremarked.
+RENAMED_COLUMNS = {
+    "crop_hectares": "commodity_hectares",
+    "crop_name": "commodity_name",
+    "peatland_crop_hectares": "peatland_commodity_hectares",
+}
 # float32 eps is 1.19e-07, so movement at that scale is summation order rather than a real change.
 DEFAULT_RTOL = 1.19e-07
 # Reported as counts, because one max|rel| cannot distinguish 3 rows moving 50% from 128 of them.
 DRIFT_THRESHOLDS = (1e-07, 1e-03, 1e-01)
-# Exactly the columns iter_national_from_provincials sums; everything else is a ratio derived from
-# them, and summing a ratio is meaningless.
-ADDITIVE_COLUMNS = (
-    "crop_hectares",
-    "forest_emissions_mt",
-    "peatland_crop_hectares",
-    "peatland_conversion_emissions_mt",
-    "peatland_occupation_emissions_mt",
-    "emissions_mt",
-    "production_kg",
+# The components emissions_mt is the checksum on, which is every additive emissions column but
+# emissions_mt itself
+COMPONENT_COLUMNS = tuple(
+    column
+    for column in trace.ADDITIVE_COLUMNS
+    if column.endswith("_emissions_mt") and column != "emissions_mt"
 )
 # Invariants are re-derivations within one side, so they hold to float64 epsilon. Anything above
 # this is a wiring break rather than arithmetic noise.
@@ -150,7 +155,7 @@ class Invariant(enum.Enum):
     ROLLUP = "national totals equal the sum of their provincials"
     EMISSIONS_FACTOR = "emissions factor equals emissions x 1000 / production"
     YIELD = "yield equals production / hectares"
-    PEAT_FRACTION = "peatland occupation fraction lies in [0, 1]"
+    COMPONENTS = "emissions equal the sum of their component columns"
     NON_NEGATIVE = "additive columns are non-negative"
 
 
@@ -233,7 +238,7 @@ def iter_targets(
     for methodology, methodology_iso_3166s in sorted(METHODOLOGY_TO_ISO_3166S.items()):
         for iso_3166 in sorted(methodology_iso_3166s):
             if iso_3166s is None or iso_3166 in iso_3166s:
-                yield Target(methodology=methodology, iso_3166=iso_3166)
+                yield Target(iso_3166=iso_3166, methodology=methodology)
 
 
 @dataclasses.dataclass
@@ -310,7 +315,7 @@ def load_capture(
     """
     raw = pandas.read_parquet(directory / f"{slug:s}.parquet")
     written = tuple(str(name) for name in raw.index.names if name is not None)
-    df = raw.reset_index()
+    df = raw.reset_index().rename(columns=RENAMED_COLUMNS)
     missing = [name for name in CANONICAL_KEY if name not in df.columns]
     assert not missing, (
         f"{slug:s} in {directory} lacks {missing}; is it the schema you think it is?"
@@ -338,12 +343,12 @@ def check_alignment(
         # level is a schema difference that load_capture failed to reconcile, not a numeric one.
         findings.append(
             Finding(
-                severity=Severity.BLOCKING,
                 message=(
                     f"{slug:s} has no shared rows, so NOTHING was compared -- the keys do not "
                     f"line up. Written as {' + '.join(written[0])} against "
                     f"{' + '.join(written[1])}, re-keyed onto {' + '.join(CANONICAL_KEY)}"
                 ),
+                severity=Severity.BLOCKING,
             )
         )
     for label, df in (("baseline", baseline), ("head", head)):
@@ -352,34 +357,34 @@ def check_alignment(
         if duplicated := int(df.index.duplicated().sum()):
             findings.append(
                 Finding(
-                    severity=Severity.BLOCKING,
                     message=(
                         f"{slug:s} has {duplicated:d} duplicate key(s) on the {label:s} side, so "
                         "no row-to-row comparison is well defined"
                     ),
+                    severity=Severity.BLOCKING,
                 )
             )
         # A target that silently stopped existing would otherwise be reported as nothing at all
         if absent := sorted(
-            set(crop_names) - set(df.index.get_level_values("crop_name"))
+            set(crop_names) - set(df.index.get_level_values("commodity_name"))
         ):
             findings.append(
                 Finding(
-                    severity=Severity.BLOCKING,
                     message=(
                         f"{slug:s} is missing {absent} from the {label:s} capture, so a "
                         "hardcoded target is going unmeasured"
                     ),
+                    severity=Severity.BLOCKING,
                 )
             )
         if len(only := df.index.difference(shared)):
             findings.append(
                 Finding(
-                    severity=Severity.ADVISORY,
                     message=(
                         f"{slug:s} has {len(only):d} row(s) only on the {label:s} side, "
                         f"e.g. {list(only)[:3]}"
                     ),
+                    severity=Severity.ADVISORY,
                 )
             )
     return findings
@@ -413,9 +418,9 @@ def print_worst_rows(
     for value, column, row, before_value, after_value in sorted(records, reverse=True)[
         :limit
     ]:
-        admin_id, crop_name = row[1], row[2]
+        admin_id, commodity_name = row[1], row[2]
         print(
-            f"      {crop_name!s:<16}{admin_id!s:<9}{column:<34}"
+            f"      {commodity_name!s:<16}{admin_id!s:<9}{column:<34}"
             f"{before_value:>13.5g}{after_value:>13.5g}{value:>11.3e}"
         )
 
@@ -430,10 +435,16 @@ def check_excluded_crops(
     factor is a ratio: it sits still whenever its numerator and denominator move together, so a
     column that has not moved says nothing about the emissions and hectares underneath it.
     """
-    outside = ~baseline.index.get_level_values("crop_name").isin(crops)
-    left, right = baseline[outside], head[outside]
+
+    def get_outside(df: pandas.DataFrame) -> pandas.DataFrame:
+        # Per frame, because the two sides need not hold the same rows: a change that adds a row
+        # -- pastureland becoming a commodity of its own -- makes one side longer than the other,
+        # and a mask built on the baseline cannot index the head
+        return df[~df.index.get_level_values("commodity_name").isin(crops)]
+
+    left, right = get_outside(baseline), get_outside(head)
     shared = left.index.intersection(right.index)
-    excluded = sorted(set(left.index.get_level_values("crop_name")))
+    excluded = sorted(set(left.index.get_level_values("commodity_name")))
     if not len(shared) or not excluded:
         return []
     worst, where, flips, blind = 0.0, "", 0, 0
@@ -468,14 +479,33 @@ def check_excluded_crops(
         return []
     return [
         Finding(
-            severity=Severity.ADVISORY,
             message=(
                 f"{len(excluded):d} crop(s) outside the checked set moved where nothing "
                 f"checked them: {measured:s}, plus {flips:d} NaN flip(s). Target.crop_names "
                 "should cover every crop the capture holds, so this means they diverged"
             ),
+            severity=Severity.ADVISORY,
         )
     ]
+
+
+def check_schema(baseline: pandas.DataFrame, head: pandas.DataFrame, slug: str) -> None:
+    """Say which columns only one side carries.
+
+    Every comparison below intersects the two column sets, so a column the sides disagree about is
+    dropped from all of them -- silently, which reads as "nothing moved" rather than "nothing was
+    looked at". A rename is the usual cause and `RENAMED_COLUMNS` is where to fix it; a genuinely
+    new column is worth seeing in its own right.
+    """
+    only_baseline = sorted(set(baseline.columns) - set(head.columns))
+    only_head = sorted(set(head.columns) - set(baseline.columns))
+    if not only_baseline and not only_head:
+        return
+    print(f"\n=== {slug:s}: schema ===\n")
+    for label, columns in (("baseline only", only_baseline), ("head only", only_head)):
+        if columns:
+            print(f"  {label:<16}{', '.join(columns):s}")
+    print("  absent from every check below; add to RENAMED_COLUMNS if this is a rename")
 
 
 def check_value_drift(
@@ -487,8 +517,8 @@ def check_value_drift(
     whole table.
     """
     crops = list(target.crop_names)
-    left_all = baseline[baseline.index.get_level_values("crop_name").isin(crops)]
-    right_all = head[head.index.get_level_values("crop_name").isin(crops)]
+    left_all = baseline[baseline.index.get_level_values("commodity_name").isin(crops)]
+    right_all = head[head.index.get_level_values("commodity_name").isin(crops)]
     shared = left_all.index.intersection(right_all.index)
     columns = sorted(
         set(left_all.select_dtypes("number").columns)
@@ -517,18 +547,18 @@ def check_value_drift(
         relative = absolute.div(before.abs().where(before.abs() > 0))
         down, up = int((after < before).sum()), int((after > before).sum())
         drift = Drift(
-            slug=target.slug,
             column=column,
-            rows=len(shared),
-            max_absolute=float(absolute.max()) if absolute.notna().any() else 0.0,
-            max_relative=float(relative.max()) if relative.notna().any() else 0.0,
             counts_over=tuple(
                 int((relative > threshold).sum()) for threshold in DRIFT_THRESHOLDS
             ),
-            nan_flips=int((before.isna() != after.isna()).sum()),
+            max_absolute=float(absolute.max()) if absolute.notna().any() else 0.0,
+            max_relative=float(relative.max()) if relative.notna().any() else 0.0,
             moved_down=down,
             moved_up=up,
+            nan_flips=int((before.isna() != after.isna()).sum()),
+            rows=len(shared),
             sign_p_value=two_sided_sign_p_value(down=down, up=up),
+            slug=target.slug,
         )
         drifts.append(drift)
         counts = "".join(f"{count:>9d}" for count in drift.counts_over)
@@ -540,24 +570,24 @@ def check_value_drift(
         if drift.nan_flips:
             findings.append(
                 Finding(
-                    severity=Severity.ADVISORY,
                     message=(
                         f"{target.slug:s} {column:s} changed NaN-ness on {drift.nan_flips:d} "
                         "row(s) -- a value appearing or disappearing, not merely moving; usually "
                         "rows gaining or losing production entirely"
                     ),
+                    severity=Severity.ADVISORY,
                 )
             )
         if drift.sign_p_value < SIGN_ALPHA:
             findings.append(
                 Finding(
-                    severity=Severity.ADVISORY,
                     message=(
                         f"{target.slug:s} {column:s} moved in one direction more than chance "
                         f"allows: {up:d} up against {down:d} down (p={drift.sign_p_value:.3f}). "
                         "Summation noise is symmetric, so this is a systematic shift even where "
                         "the magnitudes are small"
                     ),
+                    severity=Severity.ADVISORY,
                 )
             )
     print_worst_rows(baseline=left, columns=columns, head=right, limit=5)
@@ -580,7 +610,7 @@ def check_sum_drift(
     def nationals(df: pandas.DataFrame) -> pandas.DataFrame:
         return df[
             (df.index.get_level_values("admin_level") == NATIONAL)
-            & df.index.get_level_values("crop_name").isin(list(target.crop_names))
+            & df.index.get_level_values("commodity_name").isin(list(target.crop_names))
         ]
 
     left, right = nationals(baseline), nationals(head)
@@ -591,12 +621,12 @@ def check_sum_drift(
     print(f"    {'column':<34}{'baseline':>15}{'head':>15}{'delta':>14}{'rel':>11}")
     totals = [
         SumDrift(
-            slug=target.slug,
-            column=column,
-            before=float(left[column].sum()),
             after=float(right[column].sum()),
+            before=float(left[column].sum()),
+            column=column,
+            slug=target.slug,
         )
-        for column in ADDITIVE_COLUMNS
+        for column in trace.ADDITIVE_COLUMNS
         if column in left.columns and column in right.columns
     ]
     # The aggregate factor these crops carry, which no single row's factor gives
@@ -605,18 +635,18 @@ def check_sum_drift(
         emissions, production = by_column["emissions_mt"], by_column["production_kg"]
         totals.append(
             SumDrift(
-                slug=target.slug,
-                column="implied_emissions_factor",
-                before=(
-                    emissions.before * KG_PER_TONNE / production.before
-                    if production.before
-                    else float("nan")
-                ),
                 after=(
                     emissions.after * KG_PER_TONNE / production.after
                     if production.after
                     else float("nan")
                 ),
+                before=(
+                    emissions.before * KG_PER_TONNE / production.before
+                    if production.before
+                    else float("nan")
+                ),
+                column="implied_emissions_factor",
+                slug=target.slug,
             )
         )
     for total in totals:
@@ -655,9 +685,9 @@ def check_invariants(df: pandas.DataFrame) -> dict[Invariant, str]:
 
     broken: dict[Invariant, str] = {}
     levels = df.index.get_level_values("admin_level")
-    national = df[levels == NATIONAL].reset_index().set_index("crop_name")
-    provincial = df[levels == PROVINCIAL].reset_index().groupby("crop_name")
-    columns = [column for column in ADDITIVE_COLUMNS if column in df.columns]
+    national = df[levels == NATIONAL].reset_index().set_index("commodity_name")
+    provincial = df[levels == PROVINCIAL].reset_index().groupby("commodity_name")
+    columns = [column for column in trace.ADDITIVE_COLUMNS if column in df.columns]
 
     rollup = {
         column: worst_relative(national[column], provincial[column].sum())
@@ -682,18 +712,21 @@ def check_invariants(df: pandas.DataFrame) -> dict[Invariant, str]:
 
     per_hectare = worst_relative(
         df["yield_kg_per_ha"],
-        df["production_kg"].div(df["crop_hectares"]).where(df["crop_hectares"] > 0),
+        df["production_kg"]
+        .div(df["commodity_hectares"])
+        .where(df["commodity_hectares"] > 0),
     )
     if per_hectare > INVARIANT_RTOL:
         broken[Invariant.YIELD] = f"worst {per_hectare:.3e}"
 
-    fraction = df["peatland_occupation_fraction"].dropna()
-    outside = int(((fraction < 0) | (fraction > 1)).sum())
-    if outside:
-        broken[Invariant.PEAT_FRACTION] = (
-            f"{outside:d} row(s) outside [0, 1], range "
-            f"[{fraction.min():.4f}, {fraction.max():.4f}]"
-        )
+    # emissions_mt is computed from the span totals rather than by summing these, so it checks
+    # them: a pool dropped, double-counted, or gated on the wrong class shows up here
+    components = worst_relative(
+        df["emissions_mt"],
+        sum(df[column] for column in COMPONENT_COLUMNS if column in df.columns),
+    )
+    if components > INVARIANT_RTOL:
+        broken[Invariant.COMPONENTS] = f"worst {components:.3e}"
 
     negative = {column: int((df[column] < 0).sum()) for column in columns}
     if any(negative.values()):
@@ -717,7 +750,6 @@ def compare_invariants(
         broke_here = invariant in head and invariant not in baseline
         findings.append(
             Finding(
-                severity=Severity.DEFECT if broke_here else Severity.ADVISORY,
                 message=(
                     f"{slug:s} breaks '{invariant.value:s}' -- baseline "
                     f"{baseline.get(invariant, 'holds'):s}, head "
@@ -729,6 +761,7 @@ def compare_invariants(
                         else " Not introduced by this change"
                     )
                 ),
+                severity=Severity.DEFECT if broke_here else Severity.ADVISORY,
             )
         )
     return findings
@@ -738,7 +771,7 @@ def compare_invariants(
 class LegAgreement:
     """How far apart the two attribution legs price one crop, at one commit."""
 
-    crop_name: str
+    commodity_name: str
     statistical: float
     jurisdictional_direct: float
 
@@ -762,17 +795,17 @@ def check_leg_agreement(
         national = df[df.index.get_level_values("admin_level") == NATIONAL]
         priced = national[national["production_kg"] > 0]
         factor = priced["emissions_mt"] * KG_PER_TONNE / priced["production_kg"]
-        return factor.groupby(level="crop_name").first()
+        return factor.groupby(level="commodity_name").first()
 
     left, right = factors(statistical), factors(jurisdictional_direct)
     return [
         LegAgreement(
-            crop_name=str(crop_name),
-            statistical=float(left[crop_name]),
-            jurisdictional_direct=float(right[crop_name]),
+            commodity_name=str(commodity_name),
+            jurisdictional_direct=float(right[commodity_name]),
+            statistical=float(left[commodity_name]),
         )
-        for crop_name in sorted(set(left.index) & set(right.index))
-        if right[crop_name]
+        for commodity_name in sorted(set(left.index) & set(right.index))
+        if right[commodity_name]
     ]
 
 
@@ -790,15 +823,15 @@ def compare_leg_agreement(
     if not head:
         print("  no crop is priced by both legs, so there is nothing to compare")
         return []
-    before = {agreement.crop_name: agreement for agreement in baseline}
+    before = {agreement.commodity_name: agreement for agreement in baseline}
     print(
         f"  {'crop':<16}{'jurisdictional':>16}{'statistical':>14}{'ratio':>8}"
         f"{'was':>14}{'ratio':>8}"
     )
     for agreement in head:
-        was = before.get(agreement.crop_name)
+        was = before.get(agreement.commodity_name)
         print(
-            f"  {agreement.crop_name:<16}{agreement.jurisdictional_direct:>16.4f}"
+            f"  {agreement.commodity_name:<16}{agreement.jurisdictional_direct:>16.4f}"
             f"{agreement.statistical:>14.4f}{agreement.ratio:>8.2f}"
             + (
                 f"{was.statistical:>14.4f}{was.ratio:>8.2f}"
@@ -819,7 +852,6 @@ def compare_leg_agreement(
         return []
     return [
         Finding(
-            severity=Severity.ADVISORY,
             message=(
                 f"{iso_3166:s} the legs agree less than they did: worst ratio "
                 f"{math.exp(worst_before):.2f}x to {math.exp(worst_after):.2f}x. Only the "
@@ -827,6 +859,7 @@ def compare_leg_agreement(
                 "corroborates it. Per-column drift cannot show this: every column can move a "
                 "defensible amount while the two methods diverge"
             ),
+            severity=Severity.ADVISORY,
         )
     ]
 
@@ -854,7 +887,7 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
     Writes a manifest rather than returning one, so the driver only ever trusts what is on disk --
     all it can trust when the capture ran in a clone, in another process.
     """
-    directory.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(exist_ok=True, parents=True)
     cwd = get_repo_root()
     row_counts: dict[str, int] = {}
     parquet_sha256: dict[str, str] = {}
@@ -865,11 +898,14 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
             f"[{label!s}] tracing {target.slug:s} with {len(crop_names):d} crops "
             f"({index:d}/{len(targets):d})"
         )
+
+        retired = {"skip_glad_crop_filter": False}
+        parameters = inspect.signature(trace.workflow).parameters
         df = trace.workflow(
             crop_names=crop_names,
             iso_3166s=(target.iso_3166,),
             methodology=target.methodology,
-            skip_glad_crop_filter=False,
+            **{name: value for name, value in retired.items() if name in parameters},
         )
         path = directory / f"{target.slug:s}.parquet"
         df.to_parquet(path)
@@ -878,12 +914,12 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
         logger.info(f"Wrote {path} ({len(df):d} rows)")
 
     Manifest(
-        sha=resolve_commit("HEAD", cwd=cwd),
-        dirty_paths=get_dirty_paths(cwd=cwd),
         captured_at=datetime.datetime.now(tz=datetime.UTC).isoformat(),
-        scratch_root=config.Config.from_dot_env().scratch_root,
-        row_counts=row_counts,
+        dirty_paths=get_dirty_paths(cwd=cwd),
         parquet_sha256=parquet_sha256,
+        row_counts=row_counts,
+        scratch_root=config.Config.from_dot_env().scratch_root,
+        sha=resolve_commit("HEAD", cwd=cwd),
     ).write(directory=directory)
 
 
@@ -987,16 +1023,16 @@ def capture_side(
         if patch is not None:
             token += "-" + hashlib.sha256(patch.encode()).hexdigest()[:8]
         scratch_root = storage.join_uri(
-            root=config.Config.from_dot_env().scratch_root,
             prefix=f"measure-drift/{token:s}",
+            root=config.Config.from_dot_env().scratch_root,
         )
 
     clone = materialize_commit(
-        repo_root=repo_root,
-        sha=sha,
         directory=out / "clones" / sha[:12],
-        scratch_root=scratch_root,
         patch=patch,
+        repo_root=repo_root,
+        scratch_root=scratch_root,
+        sha=sha,
     )
     command = [
         "uv",
@@ -1036,6 +1072,8 @@ def compare_target(
         slug=target.slug,
         written=(pair[Side.BASELINE][1], pair[Side.HEAD][1]),
     )
+
+    check_schema(baseline=left, head=right, slug=target.slug)
 
     print(f"\n=== {target.slug:s}: per-value drift ===")
     drifts, drift_findings = check_value_drift(
@@ -1078,8 +1116,8 @@ def get_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--out",
-        type=pathlib.Path,
         help="where to write captures; default under $TMPDIR",
+        type=pathlib.Path,
     )
     parser.add_argument(
         "--isolated",
@@ -1099,15 +1137,15 @@ def get_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,  # set when this tool re-invokes itself inside a clone
     )
     parser.add_argument(
-        "--capture-label", choices=tuple(Side), type=Side, help=argparse.SUPPRESS
+        "--capture-label", choices=tuple(Side), help=argparse.SUPPRESS, type=Side
     )
     return parser
 
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
     args = get_parser().parse_args()
 
@@ -1143,13 +1181,13 @@ def main() -> int:
             Manifest.read(directory=out / str(label))
             if args.compare_only
             else capture_side(
-                label=label,
-                sha=sha,
-                repo_root=repo_root,
-                out=out,
-                targets=targets,
                 iso_3166s=iso_3166s,
                 isolated=args.isolated,
+                label=label,
+                out=out,
+                repo_root=repo_root,
+                sha=sha,
+                targets=targets,
             )
         )
         for label, sha in ((Side.BASELINE, baseline_sha), (Side.HEAD, head_sha))
@@ -1199,7 +1237,7 @@ def main() -> int:
             side: {
                 methodology: load_capture(
                     directory=out / str(side),
-                    slug=Target(methodology=methodology, iso_3166=iso_3166).slug,
+                    slug=Target(iso_3166=iso_3166, methodology=methodology).slug,
                 )[0]
                 for methodology in methodologies
             }
@@ -1207,16 +1245,16 @@ def main() -> int:
         }
         findings += compare_leg_agreement(
             baseline=check_leg_agreement(
-                statistical=pair[Side.BASELINE][attribute.Methodology.STATISTICAL],
                 jurisdictional_direct=pair[Side.BASELINE][
                     attribute.Methodology.JURISDICTIONAL_DIRECT
                 ],
+                statistical=pair[Side.BASELINE][attribute.Methodology.STATISTICAL],
             ),
             head=check_leg_agreement(
-                statistical=pair[Side.HEAD][attribute.Methodology.STATISTICAL],
                 jurisdictional_direct=pair[Side.HEAD][
                     attribute.Methodology.JURISDICTIONAL_DIRECT
                 ],
+                statistical=pair[Side.HEAD][attribute.Methodology.STATISTICAL],
             ),
             iso_3166=iso_3166,
         )

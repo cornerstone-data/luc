@@ -61,16 +61,19 @@ def select_variable_names(variable_names: list[str]) -> list[str]:
     return curses.wrapper(_run)
 
 
-def write_variable_to_cog(darray: xarray.DataArray, path_to_cog: str) -> None:
+def write_variable_to_cog(
+    darray: xarray.DataArray, overview_resampling: str, path_to_cog: str
+) -> None:
     import rioxarray  # noqa
 
     with tempfile.NamedTemporaryFile(
-        suffix=".tif", dir=os.path.dirname(p=path_to_cog)
+        dir=os.path.dirname(p=path_to_cog), suffix=".tif"
     ) as tif:
         with dask.diagnostics.ProgressBar(dt=5, minimum=1):
             logger.info("Writing to GeoTIFF")
             darray.rio.to_raster(
                 tif.name,
+                BIGTIFF="IF_SAFER",
                 blockxsize=512,
                 blockysize=512,
                 compress="ZSTD",
@@ -79,7 +82,6 @@ def write_variable_to_cog(darray: xarray.DataArray, path_to_cog: str) -> None:
                 lock=True,
                 num_threads="all_cpus",
                 tiled=True,
-                BIGTIFF="IF_SAFER",
             )
         logger.info("Converting to COG")
         rio_cogeo.cogeo.cog_translate(
@@ -92,7 +94,7 @@ def write_variable_to_cog(darray: xarray.DataArray, path_to_cog: str) -> None:
             | {"BIGTIFF": "IF_SAFER", "predictor": 3},
             dst_path=path_to_cog,
             in_memory=False,
-            overview_resampling="average",
+            overview_resampling=overview_resampling,
             quiet=False,
             source=tif.name,
             use_cog_driver=True,
@@ -102,23 +104,30 @@ def write_variable_to_cog(darray: xarray.DataArray, path_to_cog: str) -> None:
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
 
     parser = argparse.ArgumentParser()
     parser.add_argument("path_to_zarr", type=os.path.expanduser)
     parser.add_argument("output_dir", type=os.path.expanduser)
     parser.add_argument("--dump-all-bands", action="store_true")
+    parser.add_argument(
+        "--overview-resampling",
+        choices=("average", "mode", "nearest"),
+        default="average",
+        help="how overviews reduce; use mode or nearest for class codes",
+    )
     args = parser.parse_args()
 
-    os.makedirs(name=str(args.output_dir), exist_ok=True)
+    os.makedirs(exist_ok=True, name=str(args.output_dir))
     dset = storage.open_zarr_to_dask_dataset(path_to_zarr=str(args.path_to_zarr))
 
     for variable_name in select_variable_names(sorted(map(str, dset))):
         logger.info(f"Dumping {variable_name=:s}")
         write_variable_to_cog(
             darray=dset[variable_name],
+            overview_resampling=str(args.overview_resampling),
             path_to_cog=os.path.join(str(args.output_dir), f"{variable_name:s}.tif"),
         )
 

@@ -10,8 +10,7 @@ from rioxarray.exceptions import NoDataInBounds
 from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
     DatasetName,
-    gfw_global_peatlands,
-    glad_glcluc,
+    gnw_global_peatlands,
     usda_nass_cdl,
     worldbank_jurisdictions,
 )
@@ -41,90 +40,61 @@ class Crop(enum.Enum):
 DATASET_NAMES = (DatasetName.USDA_NASS_CDL,)
 
 
-GLAD_AND_CROP_VARIABLE_NAMES = [
+EMISSIONS_AND_CROP_VARIABLE_NAMES = [
     # Harmonized
-    gfw_global_peatlands.DATASET.fully_qualified_band_name,
+    gnw_global_peatlands.DATASET.fully_qualified_band_name,
     # Emissions
+    "cropland-peatland-occupation:tco2e-per-ha",
+    "dropped-emissions:tco2e-per-ha",
     "emissions-per-hectare:tco2e-per-ha",
-    "forest-emissions:tco2e-per-ha",
     "hectares-per-pixel:ha",
-    f"land-class:{max(glad_glcluc.YEARS):d}",
-    "peatland-conversion-emissions:tco2e-per-ha",
-    "peatland-occupation:tco2e-per-ha",
+    "pastureland-peatland-occupation:tco2e-per-ha",
+    *(f"{component!s}-emissions:tco2e-per-ha" for component in emit.EmissionComponent),
     # Crop
     usda_nass_cdl.DATASET.fully_qualified_band_name,
 ]
 
 
-def get_forest_and_peatland_conversion_per_hectare(
-    dset: xarray.Dataset,
-) -> dict[str, xarray.DataArray]:
-    forest_class = glad_glcluc.LandClass.FOREST.value
-    is_peat = dset[gfw_global_peatlands.DATASET.fully_qualified_band_name]
-    span_to_forest: dict[emit.SpanType, xarray.DataArray] = {}
-    span_to_peatland_conversion: dict[emit.SpanType, xarray.DataArray] = {}
-    for before, after in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT:
-        before_class = dset[f"land-class:{before:d}"]
-        vegetation = dset[f"vegetation-emissions:tco2e-per-ha:{before:d}-{after:d}"]
-        soil = dset[f"soil-emissions:tco2e-per-ha:{before:d}-{after:d}"]
-        span_to_forest[(before, after)] = vegetation.where(
-            before_class == forest_class, other=0
-        ) + soil.where((before_class == forest_class) & (is_peat != 1), other=0)
-        span_to_peatland_conversion[(before, after)] = soil.where(is_peat == 1, other=0)
-    return {
-        "forest-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
-            span_to_value=span_to_forest
-        ),
-        "peatland-conversion-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
-            span_to_value=span_to_peatland_conversion
-        ),
-    }
-
-
-def get_crop_name_to_totals(
+def get_commodity_name_to_totals(
+    component_to_per_hectare: dict[emit.EmissionComponent, xarray.DataArray],
     crop_class: xarray.DataArray,
     crops: tuple[Crop, ...],
+    dropped_per_hectare: xarray.DataArray,
     emissions_per_hectare: xarray.DataArray,
-    forest_emissions_per_hectare: xarray.DataArray,
-    glad_class: xarray.DataArray,
     hectares_per_pixel: xarray.DataArray,
     is_peatland: xarray.DataArray,
-    peatland_conversion_per_hectare: xarray.DataArray,
     peatland_occupation_per_hectare: xarray.DataArray,
-    skip_glad_crop_filter: bool,
 ) -> dict[str, dict[str, float]]:
-    glad_crop_mask = (
-        xarray.ones_like(glad_class)
-        if skip_glad_crop_filter
-        else (glad_class == glad_glcluc.LandClass.CROPLAND.value)
-    )
-    crop_class = crop_class.where(glad_crop_mask)
 
     peatland_occupation_emissions = peatland_occupation_per_hectare * hectares_per_pixel
     emissions_mt = emissions_per_hectare * hectares_per_pixel
-    forest_emissions = forest_emissions_per_hectare * hectares_per_pixel
-    peatland_conversion_emissions = peatland_conversion_per_hectare * hectares_per_pixel
+    component_to_emissions = {
+        component: per_hectare * hectares_per_pixel
+        for component, per_hectare in component_to_per_hectare.items()
+    }
 
-    crop_to_totals: dict[Crop, dict[str, xarray.DataArray]] = collections.defaultdict(
-        dict
+    crop_to_totals: dict[Crop | emit.NonCommodity, dict[str, xarray.DataArray]] = (
+        collections.defaultdict(dict)
     )
 
     for crop in crops:
         crop_mask = crop_class.isin([value.value for value in crop.value])
-        crop_to_totals[crop]["crop_hectares"] = crop_hectares = (
+        crop_to_totals[crop]["commodity_hectares"] = commodity_hectares = (
             hectares_per_pixel.where(crop_mask)
         )
-        crop_to_totals[crop]["peatland_crop_hectares"] = crop_hectares.where(
-            is_peatland == 1
+        crop_to_totals[crop]["peatland_commodity_hectares"] = commodity_hectares.where(
+            is_peatland
         )
         crop_to_totals[crop]["peatland_occupation_emissions_mt"] = (
             peatland_occupation_emissions.where(crop_mask)
         )
         crop_to_totals[crop]["emissions_mt"] = emissions_mt.where(crop_mask)
-        crop_to_totals[crop]["forest_emissions_mt"] = forest_emissions.where(crop_mask)
-        crop_to_totals[crop]["peatland_conversion_emissions_mt"] = (
-            peatland_conversion_emissions.where(crop_mask)
-        )
+        for component, emissions in component_to_emissions.items():
+            crop_to_totals[crop][component.column] = emissions.where(crop_mask)
+
+    crop_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
+        dropped_per_hectare * hectares_per_pixel
+    )
 
     return utils.get_sum_totals(enum_to_name_to_darray=crop_to_totals)
 
@@ -132,13 +102,14 @@ def get_crop_name_to_totals(
 SCHEMA = {
     "admin_id": str,
     "admin_level": str,
-    "crop_hectares": float,
-    "crop_name": str,
+    "commodity_hectares": float,
+    "commodity_name": str,
     "emissions_mt": float,
     "forest_emissions_mt": float,
+    "grassland_emissions_mt": float,
     "jurisdiction_name": str,
+    "peatland_commodity_hectares": float,
     "peatland_conversion_emissions_mt": float,
-    "peatland_crop_hectares": float,
     "peatland_occupation_emissions_mt": float,
 }
 
@@ -147,16 +118,15 @@ SCHEMA = {
 def workflow(
     crop_names: tuple[str, ...],
     iso_3166: str,
-    skip_glad_crop_filter: bool,
     tile_id: str,
 ) -> pandas.DataFrame:
-    crops = tuple(Crop[crop_name] for crop_name in crop_names)
+    crops = tuple(Crop[commodity_name] for commodity_name in crop_names)
     assert iso_3166 == "USA", "JD only supports USA today"
 
     logger.info(f"Computing emissions for {crops=:} and {tile_id=:s}")
     merged = geo.exact_merge(
         harmonize.workflow(
-            dataset_names=harmonize.LUC_AND_EMISSIONS_DATASET_NAMES,
+            dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
@@ -174,7 +144,19 @@ def workflow(
             tile_resolution=tiling.TileResolution.GLAD,
         ),
     )
-    merged = merged.assign(get_forest_and_peatland_conversion_per_hectare(dset=merged))
+    merged = merged.assign(
+        {
+            f"{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
+                span_to_value={
+                    span: component_to_emissions[component]
+                    for span, component_to_emissions in emit.get_span_to_component_to_emissions(
+                        dset=merged
+                    ).items()
+                }
+            )
+            for component in emit.EmissionComponent
+        }
+    )
 
     def it() -> collections.abc.Iterator[dict[str, float | str]]:
         for (
@@ -187,7 +169,7 @@ def workflow(
             logger.info(f"Clipping to provincial geometry for {jurisdiction.id=:s}")
             try:
                 clipped = geo.clip_dset(
-                    dset=merged[GLAD_AND_CROP_VARIABLE_NAMES],
+                    dset=merged[EMISSIONS_AND_CROP_VARIABLE_NAMES],
                     geometry=jurisdiction.geometry,
                 )
             except NoDataInBounds as exc:
@@ -196,31 +178,33 @@ def workflow(
                 logger.info(
                     f"Populating emissions for {jurisdiction.id=!s}/{len(crops)=:d} crops"
                 )
-                crop_name_to_totals = get_crop_name_to_totals(
+                commodity_name_to_totals = get_commodity_name_to_totals(
+                    component_to_per_hectare={
+                        component: clipped[f"{component!s}-emissions:tco2e-per-ha"]
+                        for component in emit.EmissionComponent
+                    },
                     crop_class=clipped[usda_nass_cdl.DATASET.fully_qualified_band_name],
                     crops=crops,
-                    emissions_per_hectare=clipped["emissions-per-hectare:tco2e-per-ha"],
-                    forest_emissions_per_hectare=clipped[
-                        "forest-emissions:tco2e-per-ha"
-                    ],
-                    glad_class=clipped[f"land-class:{max(glad_glcluc.YEARS):d}"],
+                    dropped_per_hectare=clipped["dropped-emissions:tco2e-per-ha"],
+                    # NB: this leg allocates to CDL crops alone, so peat drained under
+                    # pasture has no row to land on, and leaves the total along with it
+                    emissions_per_hectare=clipped["emissions-per-hectare:tco2e-per-ha"]
+                    - clipped["pastureland-peatland-occupation:tco2e-per-ha"],
                     hectares_per_pixel=clipped["hectares-per-pixel:ha"],
+                    # NB: no data has to read as not peat rather than truth-testing to peat
                     is_peatland=clipped[
-                        gfw_global_peatlands.DATASET.fully_qualified_band_name
-                    ],
-                    peatland_conversion_per_hectare=clipped[
-                        "peatland-conversion-emissions:tco2e-per-ha"
-                    ],
+                        gnw_global_peatlands.DATASET.fully_qualified_band_name
+                    ]
+                    == 1,
                     peatland_occupation_per_hectare=clipped[
-                        "peatland-occupation:tco2e-per-ha"
+                        "cropland-peatland-occupation:tco2e-per-ha"
                     ],
-                    skip_glad_crop_filter=skip_glad_crop_filter,
                 )
-                for crop_name, totals in crop_name_to_totals.items():
+                for commodity_name, totals in commodity_name_to_totals.items():
                     yield totals | {
                         "admin_id": jurisdiction.id,
                         "admin_level": jurisdiction.level,
-                        "crop_name": crop_name,
+                        "commodity_name": commodity_name,
                         "jurisdiction_name": jurisdiction.name,
                     }
 
@@ -229,5 +213,5 @@ def workflow(
     return (
         pandas.DataFrame.from_records(columns=list(SCHEMA), data=data)
         .astype(SCHEMA)
-        .set_index(["admin_level", "admin_id", "crop_name"])
+        .set_index(["admin_level", "admin_id", "commodity_name"])
     )

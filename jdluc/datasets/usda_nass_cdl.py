@@ -78,16 +78,12 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
     max_lat, min_lon = tiling.get_lat_lon_for_tile_id(tile_id=tile_id)
     tiled = darray.rio.reproject(
         dst_crs=4326,
-        # At the edges, the source data doesn't cover a full 10° tile
-        transform=rasterio.transform.from_origin(
-            min_lon,
-            max_lat,
-            10 / tiling.TileResolution.GLAD.x,
-            10 / tiling.TileResolution.GLAD.x,
-        ),
-        shape=(tiling.TileResolution.GLAD.x, tiling.TileResolution.GLAD.y),
-        resampling=rasterio.enums.Resampling.nearest,
         nodata=DATASET.no_data,
+        resampling=rasterio.enums.Resampling.nearest,
+        shape=(tiling.TileResolution.GLAD.x, tiling.TileResolution.GLAD.y),
+        transform=rasterio.transform.from_origin(
+            min_lon, max_lat, *tiling.TileResolution.GLAD.degrees_per_pixel
+        ),
     )
     logger.info(f"Saving xarray to {local_path=:s} for {tile_id=:s}")
     tiled.rio.to_raster(local_path, driver="GTiff", recalc_transform=False)
@@ -96,12 +92,12 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=["crop-class"],
     band_type=base.BandType.CATEGORICAL,
+    dtype="uint8",
     no_data=0,
     partitioning=tiling.Partitioning.TEN_DEGREE_TILE,
     product_name="cdl",
     save_tile_id_to_local_path=_save_tile_id_to_local_path,
     source_name="usda-nass",
-    # v1: reproject data so that when it doesn't cover a full tile it doesn't get stretched
     version="v1",
 )
 

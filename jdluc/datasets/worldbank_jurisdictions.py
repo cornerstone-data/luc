@@ -89,12 +89,12 @@ ADMIN_LEVEL_TO_DATASET = {
 assert set(AdminLevel) == set(ADMIN_LEVEL_TO_DATASET)
 
 
-@functools.cache
+@utils.threadsafe_cache
 def get_jurisdiction_for_admin_level(admin_level: AdminLevel) -> geopandas.GeoDataFrame:
     dataset = ADMIN_LEVEL_TO_DATASET[admin_level]
     path_to_fgb = storage.join_uri(
-        root=config.Config.from_dot_env().ingest_root,
         prefix=dataset.get_prefix(tile_id="world"),
+        root=config.Config.from_dot_env().ingest_root,
     )
     logger.info(f"Loading {admin_level=:} geometrys from {path_to_fgb=:s}")
     return geopandas.read_file(filename=path_to_fgb).set_index(keys="id")
@@ -109,7 +109,7 @@ def get_ten_degree_tile_ids_for_admin_id(
     assert isinstance(geometry, shapely.Polygon | shapely.MultiPolygon)
     return frozenset(
         tiling.iter_ten_degree_tile_id_for_geometry(geometry=geometry)
-    ).intersection(tiling.GLOBAL_FOREST_WATCH_TILE_IDS)
+    ).intersection(tiling.GLOBAL_NATURE_WATCH_TILE_IDS)
 
 
 def get_ten_degree_tile_ids_for_iso_3166s(
@@ -174,8 +174,8 @@ def iter_jurisdiction_for_iso_3166_tile_id(
     for admin_id, row in the_iso_3166.iterrows():
         if row["geometry"].intersects(other=tile):
             yield Jurisdiction(
-                level=admin_level.name,
-                id=str(admin_id),
-                name=row["name"],
                 geometry=row["geometry"],
+                id=str(admin_id),
+                level=admin_level.name,
+                name=row["name"],
             )

@@ -8,13 +8,17 @@ will ask for. Whole-world datasets are ingested over the "world" tile based on t
 partitioning, so the tile set only bounds tiled datasets.
 
 The tile set comes from the positional ISO 3166 alpha-3 codes -- or, with `--backfill`,
-from `tiling.GLOBAL_FOREST_WATCH_TILE_IDS`.
+from `tiling.GLOBAL_NATURE_WATCH_TILE_IDS`. Tiles are ingested one at a time unless
+`--concurrency` raises the bound.
 
 Example invocations:
   uv run python -m jdluc.ingest IPCC_CLIMATE_ZONES USA
   uv run python -m jdluc.ingest USDA_NASS_CDL USA MEX --concurrency=8
   uv run python -m jdluc.ingest GLAD_GLCLUC BRA --overwrite
   uv run python -m jdluc.ingest GLAD_GLCLUC --backfill
+  uv run python -m jdluc.ingest LIAO_GACED30 IDN
+  uv run python -m jdluc.ingest GPW_GRASSLAND BRA
+  uv run python -m jdluc.ingest DESCALS_OIL_PALM IDN MYS
 """
 
 import argparse
@@ -68,8 +72,8 @@ def workflow(
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -82,8 +86,8 @@ def main() -> int:
         nargs=argparse.ZERO_OR_MORE,
         type=worldbank_jurisdictions.iso_3166_str,
     )
-    parser.add_argument("--backfill", action="store_true", help="cover all GFW tiles")
-    parser.add_argument("--concurrency", default=4, type=int)
+    parser.add_argument("--backfill", action="store_true", help="cover all GNW tiles")
+    parser.add_argument("--concurrency", default=1, type=int)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     assert bool(args.iso_3166s) ^ bool(args.backfill), (
@@ -97,7 +101,7 @@ def main() -> int:
         overwrite=args.overwrite,
         root=config.Config.from_dot_env().ingest_root,
         tile_ids=(
-            tiling.GLOBAL_FOREST_WATCH_TILE_IDS
+            tiling.GLOBAL_NATURE_WATCH_TILE_IDS
             if args.backfill
             else worldbank_jurisdictions.get_ten_degree_tile_ids_for_iso_3166s(
                 iso_3166s=args.iso_3166s

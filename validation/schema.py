@@ -34,7 +34,7 @@ RESULT_BEARING_PATHS = ("jdluc", "pyproject.toml", "uv.lock")
 # efs.parquet's own index, and what any other capture is re-keyed onto. admin_id rather than
 # jurisdiction_name: a machine identifier, where a display string could be renamed. `methodology`
 # is a key level because both legs share one artifact, so it separates sLUC from jdLUC.
-CANONICAL_KEY = ("admin_level", "admin_id", "crop_name", "methodology")
+CANONICAL_KEY = ("admin_level", "admin_id", "commodity_name", "methodology")
 NATIONAL = "NATIONAL"
 PROVINCIAL = "PROVINCIAL"
 # The two legs, as `methodology` records them in efs.parquet.
@@ -61,7 +61,7 @@ class Source(enum.StrEnum):
     ORBAE = enum.auto()
     EPA = enum.auto()
     FAOSTAT = enum.auto()
-    GFW_TCL = enum.auto()
+    GNW_TCL = enum.auto()
     SPAWN = enum.auto()
 
 

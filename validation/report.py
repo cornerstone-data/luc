@@ -4,12 +4,7 @@ Every filter, rescale, factorization and rollup has already happened in `prepare
 is a pivot plus a caption. Nothing in this module reads a file or computes a quantity; if a renderer
 needs a number that is not in its arguments, the number belongs in `prepare`.
 
-Three ordering choices matter more than they look.
-
-The conservation bound goes first, ahead of every anchor. A country whose per-crop forest emissions
-exceed the pool available to allocate has an attribution bug, and every anchor comparison for it is
-moot until that is fixed -- so it is not a caveat on the tables below, it is the reason not to read
-them yet.
+Two ordering choices matter more than they look.
 
 Findings come before tables, sorted by severity then magnitude, because a table invites the reader
 to draw a conclusion the findings may have already disqualified.
@@ -70,43 +65,6 @@ def format_markdown_table(headers: tuple[str, ...], rows: list[list[str]]) -> st
     )
 
 
-def get_conservation_findings(forest_pools: pandas.DataFrame) -> list[schema.Finding]:
-    """A finding per jurisdiction attributing more forest emissions than its pool holds.
-
-    The pool is forest conversion over all 2020 cropland with no crop share applied, so it bounds
-    what
-    any allocation can distribute. Exceeding it is an attribution error rather than a disagreement,
-    which is why these are BLOCKING and are reported before any comparison.
-
-    The pool and the attributed total must come from the same run: mixing a pool from one code
-    version
-    with a capture from another compares a numerator and denominator computed by different code.
-    """
-    findings = []
-    for row in forest_pools.to_dict("records"):
-        attributed, pool = float(row["attributed_tonnes"]), float(row["pool_tonnes"])
-        share = attributed / pool
-        if share <= 1.0:
-            continue
-        findings.append(
-            schema.Finding(
-                slug="forest-pool-conservation",
-                severity=schema.Severity.BLOCKING,
-                message=(
-                    f"{row['iso_3166']!s} attributes {share:.1%} of its forest pool "
-                    f"({attributed:,.0f} t against {pool:,.0f} t). No "
-                    "allocation can distribute more than the pool holds, so this is an error and "
-                    "every comparison for this jurisdiction is moot until it is fixed"
-                ),
-                confidence=schema.Confidence.HIGH,
-                magnitude_tonnes=attributed - pool,
-                affected_rows=1,
-                affected_iso_3166s=(str(row["iso_3166"]),),
-            )
-        )
-    return findings
-
-
 def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
     """A finding per control that has moved beyond tolerance from its frozen baseline.
 
@@ -142,12 +100,9 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
             # the movement would book an anchor revision as a change in our pipeline.
             findings.append(
                 schema.Finding(
-                    slug=(
-                        f"stale-baseline-{str(row['iso_3166']).lower():s}"
-                        f"-{str(row['crop_name']).lower():s}"
-                        f"-{row['measure'].name.lower():s}"
-                    ),
-                    severity=schema.Severity.ADVISORY,
+                    affected_iso_3166s=(str(row["iso_3166"]),),
+                    affected_rows=1,
+                    confidence=schema.Confidence(row["confidence"]),
                     message=(
                         f"{row['iso_3166']!s} {row['crop_name']!s} {row['measure'].name:s} is "
                         f"frozen against {frozen_against:s} but this run read {ran_against:s}, so "
@@ -155,9 +110,12 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
                         f"movement to {value:.3f} cannot be attributed. Re-freeze it against the "
                         "current anchors rather than reading it"
                     ),
-                    confidence=schema.Confidence(row["confidence"]),
-                    affected_rows=1,
-                    affected_iso_3166s=(str(row["iso_3166"]),),
+                    severity=schema.Severity.ADVISORY,
+                    slug=(
+                        f"stale-baseline-{str(row['iso_3166']).lower():s}"
+                        f"-{str(row['crop_name']).lower():s}"
+                        f"-{row['measure'].name.lower():s}"
+                    ),
                 )
             )
             continue
@@ -184,24 +142,73 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
             continue
         findings.append(
             schema.Finding(
-                slug=(
-                    f"control-{str(row['iso_3166']).lower():s}-{str(row['crop_name']).lower():s}"
-                    f"-{row['measure'].name.lower():s}"
-                ),
-                severity=schema.Severity.DEFECT,
+                affected_iso_3166s=(str(row["iso_3166"]),),
+                affected_rows=1,
+                confidence=schema.Confidence(row["confidence"]),
                 message=(
                     f"{row['iso_3166']!s} {row['crop_name']!s} {row['measure'].name:s} is "
                     f"{value:.3f} against a baseline of {baseline:.3f}, {moved:s}. A control "
                     "moved, so something changed that was not supposed to" + addendum
                 ),
-                # pandas stores an IntEnum column as int64, so the enum identity does not survive
-                # a round trip through the frame and has to be restored here
-                confidence=schema.Confidence(row["confidence"]),
-                affected_rows=1,
-                affected_iso_3166s=(str(row["iso_3166"]),),
+                severity=schema.Severity.DEFECT,
+                slug=(
+                    f"control-{str(row['iso_3166']).lower():s}-{str(row['crop_name']).lower():s}"
+                    f"-{row['measure'].name.lower():s}"
+                ),
             )
         )
     return findings
+
+
+def get_unevaluated_control_findings(
+    comparisons: pandas.DataFrame,
+) -> list[schema.Finding]:
+    """Armed controls no comparison reached, so an unfired guard is not read as one that held.
+
+    `get_control_findings` reads the expectation attached to a row, so a control whose row was never
+    built is not read at all. `prepare.get_uncompared_targets` does not cover it either: that is
+    keyed on the target, and a target keeps its place in the tables on whichever of its measures
+    needs no capture -- USA MAIZE reports an ORBAE_OVER_WRI sitting on its baseline while the three
+    controls that need a capture say nothing at all.
+
+    ADVISORY, and one finding for all of them. Why a control did not fire is a question the coverage
+    section already answers -- its country was outside the capture, or no anchor reached the pair --
+    and neither is evidence that anything is wrong. That is the same reason a control whose anchors
+    moved is ADVISORY rather than a DEFECT.
+    """
+    evaluated = {
+        (row["iso_3166"], row["crop_name"], row["measure"])
+        for row in comparisons.to_dict("records")
+    }
+    unevaluated = [
+        control
+        for control in targets.iter_controls()
+        if control.is_frozen
+        and (control.target.iso_3166, control.target.crop_name, control.measure)
+        not in evaluated
+    ]
+    if not unevaluated:
+        return []
+    return [
+        schema.Finding(
+            affected_iso_3166s=tuple(
+                sorted({control.target.iso_3166 for control in unevaluated})
+            ),
+            affected_rows=len(unevaluated),
+            confidence=schema.Confidence.HIGH,
+            message=(
+                f"{len(unevaluated):d} armed control(s) guarded nothing this run, no comparison "
+                "having reached them: "
+                + ", ".join(
+                    f"{control.target.slug:s} {control.measure.name:s}"
+                    for control in unevaluated
+                )
+                + ". Their silence is not agreement"
+            ),
+            severity=schema.Severity.ADVISORY,
+            slug="unexercised-controls",
+        )
+    ]
 
 
 def get_provenance_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
@@ -216,31 +223,31 @@ def get_provenance_findings(comparisons: pandas.DataFrame) -> list[schema.Findin
     if len(versions) > 1:
         findings.append(
             schema.Finding(
-                slug="mixed-code-version",
-                severity=schema.Severity.DEFECT,
+                affected_rows=len(comparisons),
+                confidence=schema.Confidence.HIGH,
                 message=(
                     f"These rows span {len(versions):d} code versions "
                     f"({', '.join(versions)}). Rows carried forward by a per-ISO merge keep "
                     "their own version, so a cross-country comparison here would mix "
                     "pipeline versions"
                 ),
-                confidence=schema.Confidence.HIGH,
-                affected_rows=len(comparisons),
+                severity=schema.Severity.DEFECT,
+                slug="mixed-code-version",
             )
         )
     borrowed = comparisons[comparisons["worst_tier"] == schema.SourceTier.BORROWED]
     if len(borrowed):
         findings.append(
             schema.Finding(
-                slug="borrowed-evidence",
-                severity=schema.Severity.ADVISORY,
+                affected_iso_3166s=tuple(sorted(set(borrowed["iso_3166"]))),
+                affected_rows=len(borrowed),
+                confidence=schema.Confidence.LOW,
                 message=(
                     f"{len(borrowed):d} comparison(s) rest on borrowed inputs with no "
                     "provenance. Usable for ranking a magnitude, never for a claim"
                 ),
-                confidence=schema.Confidence.LOW,
-                affected_rows=len(borrowed),
-                affected_iso_3166s=tuple(sorted(set(borrowed["iso_3166"]))),
+                severity=schema.Severity.ADVISORY,
+                slug="borrowed-evidence",
             )
         )
     return findings
@@ -269,35 +276,6 @@ def render_findings(findings: list[schema.Finding]) -> str:
             f"(confidence {finding.confidence.name.lower():s}) — {finding.message:s}"
         )
     return "### Findings\n\n" + "\n".join(lines)
-
-
-def render_conservation(forest_pools: pandas.DataFrame) -> str:
-    rows = [
-        [
-            str(row["iso_3166"]),
-            format_number(
-                float(row["attributed_tonnes"]) / schema.TONNES_PER_MEGATONNE, 2
-            ),
-            format_number(float(row["pool_tonnes"]) / schema.TONNES_PER_MEGATONNE, 2),
-            f"{float(row['attributed_tonnes']) / float(row['pool_tonnes']):.1%}",
-            "over"
-            if float(row["attributed_tonnes"]) > float(row["pool_tonnes"])
-            else "ok",
-        ]
-        for row in forest_pools.sort_values(
-            "attributed_tonnes", ascending=False
-        ).to_dict("records")
-    ]
-    return (
-        "### Forest-pool conservation\n\n"
-        + format_markdown_table(
-            headers=("Country", "attributed (Mt)", "pool (Mt)", "share", ""), rows=rows
-        )
-        + "\n\n_The pool is forest conversion over all 2020 cropland with no crop share "
-        "applied, so it bounds what any allocation can hand out. Needs no anchor and no "
-        "baseline, which is why it is reported first: a country over 100% has an attribution "
-        "bug, and its anchor comparisons below are not yet worth reading._"
-    )
 
 
 def render_comparisons(comparisons: pandas.DataFrame) -> str:
@@ -394,7 +372,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
 
 
 def render_coverage(
-    comparisons: pandas.DataFrame, unanchored: tuple[targets.Target, ...]
+    comparisons: pandas.DataFrame, uncompared: targets.UncomparedTargets
 ) -> str:
     """What was not checked, which an empty cell cannot say for itself."""
     lines = [
@@ -402,11 +380,18 @@ def render_coverage(
         f"{comparisons['iso_3166'].nunique():d} countries.",
         f"- {int(comparisons['is_target'].sum()):d} of them are targets.",
     ]
-    if unanchored:
+    if uncompared.unanchored:
         lines.append(
-            f"- **{len(unanchored):d} target(s) had no anchor at all**: "
-            + ", ".join(target.slug for target in unanchored)
-            + ". Their silence is not agreement."
+            f"- **{len(uncompared.unanchored):d} target(s) had no anchor at all**: "
+            + ", ".join(target.slug for target in uncompared.unanchored)
+            + ". Their country was captured, so the silence is the anchors' and not ours, and it "
+            "is not agreement."
+        )
+    if uncompared.uncaptured:
+        lines.append(
+            f"- **{len(uncompared.uncaptured):d} target(s) were not captured**: "
+            + ", ".join(target.slug for target in uncompared.uncaptured)
+            + ". Whether an anchor covers them is unknown until their country is captured."
         )
     pattern_only = int(
         (comparisons["comparability"] == schema.Comparability.PATTERN_ONLY).sum()
@@ -514,7 +499,7 @@ def render_eligible(
                 rows=rows,
             ),
             render_findings(findings=findings),
-            "_`P` a woody perennial, which GLAD\u2019s cropland class excludes by construction; "
+            "_`P` a woody perennial, which no destination layer resolves; "
             "`D` a crop "
             "MapSPAM decomposes rather than observes. This is a shortlist to choose from, not a "
             "selected set \u2014 see `data/targets.json` for what was chosen and why._",
@@ -530,9 +515,9 @@ def render_yield_agreement(
 ) -> str:
     """WRI's yields against FAOSTAT's, per crop.
 
-    A denominator section rather than an emissions one, and it belongs ahead of the comparisons for
-    the same reason conservation does: a crop whose two yields are on different product forms has no
-    comparable emissions factor, so its rows below are not worth reading.
+    A denominator section rather than an emissions one, and it belongs ahead of the comparisons: a
+    crop whose two yields are on different product forms has no comparable emissions factor, so its
+    rows below are not worth reading.
     """
     rows = [
         [
@@ -578,23 +563,13 @@ def render_yield_agreement(
 
 def render(
     comparisons: pandas.DataFrame,
-    forest_pools: pandas.DataFrame | None,
-    unanchored: tuple[targets.Target, ...],
+    uncompared: targets.UncomparedTargets,
     extra_findings: list[schema.Finding] | None = None,
 ) -> str:
-    """The whole document, or as much of it as the available data supports.
-
-    `forest_pools` is None until a capture exists, because the pool needs a raster pass over cached
-    layers. The conservation section then says it has not run rather than being omitted: a missing
-    section reads as a passing one, and this is the check that outranks every anchor.
-    """
+    """The whole document, or as much of it as the available data supports."""
     findings = (
-        (
-            get_conservation_findings(forest_pools=forest_pools)
-            if forest_pools is not None
-            else []
-        )
-        + get_control_findings(comparisons=comparisons)
+        get_control_findings(comparisons=comparisons)
+        + get_unevaluated_control_findings(comparisons=comparisons)
         + get_provenance_findings(comparisons=comparisons)
         + (extra_findings or [])
     )
@@ -602,17 +577,8 @@ def render(
         [
             "## LUC validation",
             render_findings(findings=findings),
-            render_conservation(forest_pools=forest_pools)
-            if forest_pools is not None
-            else (
-                "### Forest-pool conservation\n\n_Not run: the pool needs a raster pass over "
-                "cached layers, so it arrives with the first capture. **This is the check that "
-                "outranks every anchor**, so nothing below has been qualified by it — a country "
-                "attributing more forest emissions than its pool holds would make its comparisons "
-                "moot, and that has not yet been tested._"
-            ),
             render_comparisons(comparisons=comparisons),
-            render_coverage(comparisons=comparisons, unanchored=unanchored),
+            render_coverage(comparisons=comparisons, uncompared=uncompared),
         ]
     )
     return document

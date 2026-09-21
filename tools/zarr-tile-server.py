@@ -97,7 +97,7 @@ def render_tile(
     if data.size == 0 or np.all(np.isnan(data)):
         return _transparent_tile(tile_size)
 
-    normed = Normalize(vmin=vmin, vmax=vmax, clip=True)(data)
+    normed = Normalize(clip=True, vmax=vmax, vmin=vmin)(data)
 
     lat_vals = subset[lat_dim].values
     if len(lat_vals) > 1 and lat_vals[0] < lat_vals[1]:  # ascending → flip
@@ -109,7 +109,7 @@ def render_tile(
 
     img = Image.fromarray(rgba, "RGBA").resize((tile_size, tile_size), resampling)
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=False, compress_level=1)
+    img.save(buf, compress_level=1, format="PNG", optimize=False)
     return buf.getvalue()
 
 
@@ -121,16 +121,16 @@ def _get_tile(z: int, x: int, y: int) -> bytes:
     log.debug("Cache miss — rendering %d/%d/%d", z, x, y)
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
     return render_tile(
+        colormap=COLORMAP,
         da=_da,
-        west=bounds.west,
-        south=bounds.south,
         east=bounds.east,
         north=bounds.north,
-        tile_size=TILE_SIZE,
-        vmin=_vmin,
-        vmax=_vmax,
-        colormap=COLORMAP,
         resampling=_resampling,
+        south=bounds.south,
+        tile_size=TILE_SIZE,
+        vmax=_vmax,
+        vmin=_vmin,
+        west=bounds.west,
     )
 
 
@@ -145,12 +145,12 @@ async def tile(z: int, x: int, y: int):
         png = _get_tile(z, x, y)
     except Exception as exc:
         log.exception("Tile render failed z=%d x=%d y=%d", z, x, y)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(detail=str(exc), status_code=500) from exc
 
     return Response(
         content=png,
-        media_type="image/png",
         headers={"Cache-Control": "public, max-age=3600"},
+        media_type="image/png",
     )
 
 

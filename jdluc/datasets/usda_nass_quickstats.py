@@ -44,7 +44,7 @@ HA_PER_ACRE = 0.40468564
 KG_PER_LB = 0.45359237
 
 
-@dataclasses.dataclass(frozen=True, eq=False)
+@dataclasses.dataclass(eq=False, frozen=True)
 class Series:
     """The one NASS series that measures a crop's yield, and what a unit of it weighs.
 
@@ -82,39 +82,39 @@ class CropSeries(enum.Enum):
     `BEANS` is `BEAN`, `CORN` is `MAIZE`, `POTATOES` is `POTATO`.
     """
 
-    BARLEY = Series(unit_desc="BU / ACRE", lb_per_unit=48)
+    BARLEY = Series(lb_per_unit=48, unit_desc="BU / ACRE")
     # NASS renamed the rolled-up dry-bean class in 2019 and publishes no ALL CLASSES to fall back
     # on, so spanning a multi-year window takes both names. They are not the same quantity: the
     # earlier one includes chickpeas, which the CDL scores separately as CHICK_PEAS.
     BEAN = Series(
-        commodity_desc="BEANS",
-        unit_desc="LB / ACRE",
-        lb_per_unit=1,
         class_descs=("DRY EDIBLE, INCL CHICKPEAS", "DRY EDIBLE, (EXCL CHICKPEAS)"),
+        commodity_desc="BEANS",
+        lb_per_unit=1,
+        unit_desc="LB / ACRE",
     )
     # NASS reports ginned lint, where MapSPAM, FAOSTAT and WRI all carry seed cotton -- see the
     # ItemCode docstring in `faostat_production`. 0.36 is what FAOSTAT's US seed cotton implies
     # against this series over 2011-2020 (mean 0.361), and agrees with the ~35% gin turnout.
     # FAOSTAT implies ~0.40 before 2011, so revisit this if the trace window moves earlier.
-    COTTON = Series(unit_desc="LB / ACRE", lb_per_unit=1, reported_fraction=0.36)
+    COTTON = Series(lb_per_unit=1, reported_fraction=0.36, unit_desc="LB / ACRE")
     MAIZE = Series(
         commodity_desc="CORN",
-        unit_desc="BU / ACRE",
         lb_per_unit=56,
+        unit_desc="BU / ACRE",
         util_practice_desc="GRAIN",
     )
-    POTATO = Series(commodity_desc="POTATOES", unit_desc="CWT / ACRE", lb_per_unit=100)
-    RICE = Series(unit_desc="LB / ACRE", lb_per_unit=1)
-    SORGHUM = Series(unit_desc="BU / ACRE", lb_per_unit=56, util_practice_desc="GRAIN")
-    SOYBEAN = Series(commodity_desc="SOYBEANS", unit_desc="BU / ACRE", lb_per_unit=60)
+    POTATO = Series(commodity_desc="POTATOES", lb_per_unit=100, unit_desc="CWT / ACRE")
+    RICE = Series(lb_per_unit=1, unit_desc="LB / ACRE")
+    SORGHUM = Series(lb_per_unit=56, unit_desc="BU / ACRE", util_practice_desc="GRAIN")
+    SOYBEAN = Series(commodity_desc="SOYBEANS", lb_per_unit=60, unit_desc="BU / ACRE")
     SUGARBEET = Series(
-        commodity_desc="SUGARBEETS", unit_desc="TONS / ACRE", lb_per_unit=2000
+        commodity_desc="SUGARBEETS", lb_per_unit=2000, unit_desc="TONS / ACRE"
     )
     # Sugarcane publishes no ALL UTILIZATION PRACTICES row at all; SUGAR & SEED is its total.
     SUGARCANE = Series(
-        unit_desc="TONS / ACRE", lb_per_unit=2000, util_practice_desc="SUGAR & SEED"
+        lb_per_unit=2000, unit_desc="TONS / ACRE", util_practice_desc="SUGAR & SEED"
     )
-    WHEAT = Series(unit_desc="BU / ACRE", lb_per_unit=60)
+    WHEAT = Series(lb_per_unit=60, unit_desc="BU / ACRE")
 
     @property
     def commodity_desc(self) -> str:
@@ -181,7 +181,7 @@ STATE_FIPS_TO_ADMIN_ID = {
 class Yield:
     admin_id: str
     admin_level: str
-    crop_name: str
+    commodity_name: str
     jurisdiction_name: str
     year: int
     yield_kg_per_ha: float
@@ -195,7 +195,7 @@ class Yield:
         return cls(
             admin_id=STATE_FIPS_TO_ADMIN_ID[int(d["state_fips_code"])],
             admin_level=worldbank_jurisdictions.AdminLevel.PROVINCIAL.name,
-            crop_name=crop_series.name,
+            commodity_name=crop_series.name,
             jurisdiction_name=str(d["state_name"]),
             year=int(d["year"]),
             yield_kg_per_ha=(
@@ -262,20 +262,21 @@ DATASET = base.TabularDataset(
         "admin_level",
         "admin_id",
         "jurisdiction_name",
-        "crop_name",
+        "commodity_name",
         "year",
     ],
     product_name="quickstats",
     source_name="usda-nass",
     # 2025b: expand from three to eleven crops
-    version="2025b",
+    # 2025c: crop_name -> commodity_name
+    version="2025c",
 )
 
 
 def load() -> pandas.DataFrame:
     uri = storage.join_uri(
-        root=config.Config.from_dot_env().ingest_root,
         prefix=DATASET.get_prefix(tile_id="world"),
+        root=config.Config.from_dot_env().ingest_root,
     )
     logger.info(f"Loading yields from {uri=:s}")
     return pandas.read_parquet(path=uri)

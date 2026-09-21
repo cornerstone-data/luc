@@ -1,5 +1,7 @@
 # GLAD GLC vs CDL row crop comparison
 
+**Historical.** The restriction this document measures no longer exists: the jurisdictional-direct leg is no longer masked to GLAD-identified cropland, and the emissions core no longer reads the GLAD land-cover series at all. The confusion matrix below is kept as a record of what that cropland class did and did not see, which is the same question the current cropland layer has to answer.
+
 A supplement to [`methodology.md`](methodology.md), assessing whether restricting the jurisdictional-direct leg to GLAD-identified cropland biases the resulting emissions factors.
 
 The methodology calculates emissions for pixels identified by GLAD GLC as cropland, using CDL to allocate among crops. This means that any CDL pixels not identified as cropland by GLAD GLC 2020 are excluded from both emissions and production.

@@ -1,4 +1,4 @@
-"""Global Forest Watch | Hansen Global Forest Change — tree-cover loss year
+"""Global Nature Watch | Hansen Global Forest Change — tree-cover loss year
 
 license: CC BY 4.0
 
@@ -31,11 +31,11 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=["lossyear"],
     band_type=base.BandType.CATEGORICAL,
-    no_data=None,  # 0 = "no loss" is meaningful, not absent; there is no fill value
+    dtype="uint8",
+    no_data=None,
     partitioning=tiling.Partitioning.TEN_DEGREE_TILE,
     product_name="tree-cover-loss",
     save_tile_id_to_local_path=_save_tile_id_to_local_path,
-    source_name="gfw",
-    # v1: include 2025
+    source_name="gnw",
     version="v1",
 )

@@ -6,7 +6,7 @@ user-assigned `XA` range, and every ratio is a value no real comparison would la
 
 It covers what the report has to survive: a control inside tolerance and one outside it, a rank
 control inside its absolute band whose movement would exceed a relative one and a rank control
-outside it either way, a conservation overrun, a grassland row that exists only as a remainder, a
+outside it either way, a grassland row that exists only as a remainder, a
 `PATTERN_ONLY` row that must not be read as a level, a `ROLLED_UP` row with partial coverage, a
 `BORROWED` row whose confidence is degraded, a control frozen against anchors this run did not read,
 a pair whose own anchor contradicts itself across two of its rows, and a target with no anchor at all
@@ -218,31 +218,28 @@ def get_comparisons() -> pandas.DataFrame:
     return frame
 
 
-def get_forest_pools() -> pandas.DataFrame:
-    """Per-country forest-conversion pool against the sum of per-crop forest emissions.
+def get_uncompared_targets() -> targets.UncomparedTargets:
+    """Targets in scope that no comparison reached, so the coverage section has something to say.
 
-    XAD is over the bound, which is physically impossible and therefore outranks every anchor
-    disagreement: no allocation can hand out more than the pool holds.
+    Silence is not agreement, and a report that omits these reads as though it checked them. One
+    of each kind, because the two are reported separately and a fixture carrying only the first
+    would let the second's branch go unexercised.
     """
-    return pandas.DataFrame.from_records(
-        data=[
-            {"iso_3166": "XAA", "attributed_tonnes": 4.0e6, "pool_tonnes": 1.0e7},
-            {"iso_3166": "XAB", "attributed_tonnes": 9.0e6, "pool_tonnes": 1.0e7},
-            {"iso_3166": "XAD", "attributed_tonnes": 2.5e7, "pool_tonnes": 1.0e7},
-        ]
-    )
-
-
-def get_unanchored_targets() -> tuple[targets.Target, ...]:
-    """Targets in scope that no anchor covers, so the coverage section has something to say.
-
-    Silence is not agreement, and a report that omits these reads as though it checked them.
-    """
-    return (
-        targets.Target(
-            iso_3166="XAE",
-            crop_name="WHEAT",
-            basis="ranked",
-            reason="Invented, to exercise the coverage section's unanchored branch",
+    return targets.UncomparedTargets(
+        unanchored=(
+            targets.Target(
+                basis="ranked",
+                crop_name="WHEAT",
+                iso_3166="XAE",
+                reason="Invented, to exercise the coverage section's unanchored branch",
+            ),
+        ),
+        uncaptured=(
+            targets.Target(
+                basis="ranked",
+                crop_name="BARLEY",
+                iso_3166="XAF",
+                reason="Invented, to exercise the coverage section's uncaptured branch",
+            ),
         ),
     )

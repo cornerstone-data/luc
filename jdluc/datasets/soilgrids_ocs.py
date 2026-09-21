@@ -45,6 +45,7 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
 DATASET = base.RasterDataset(
     band_names=["organic-soil-carbon-mg-per-ha"],
     band_type=base.BandType.INTENSIVE,
+    dtype="int16",
     no_data=(1 << 15) - 1,
     partitioning=tiling.Partitioning.TEN_DEGREE_TILE,
     product_name="organic-carbon-stocks",

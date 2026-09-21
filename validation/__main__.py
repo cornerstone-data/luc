@@ -15,7 +15,7 @@ only on unreadable input or a missing join key. `tools/` is the deliberate excep
 emits a broken committed artifact exits nonzero.
 
 `capture` is not a stage here. It runs our own pipeline, so it is `validation.capture`, run
-by hand; until it has been run, the conservation bound and every measure with a term of ours is
+by hand; until it has been run, every measure with a term of ours is
 reported as not-yet-run rather than omitted -- a missing section reads as a passing one.
 """
 
@@ -48,7 +48,7 @@ class Section(enum.StrEnum):
     drawn from, and because it carries the one BLOCKING finding measurable without a capture: the
     pairs the pipeline cannot produce a comparable number for at all outrank any disagreement about
     a number it can. Denominators come next, because a product-form mismatch makes every factor
-    built on that denominator incomparable. `COMPARISONS` carries the conservation bound and the
+    built on that denominator incomparable. `COMPARISONS` carries the
     findings, which outrank the anchor tables inside it.
     """
 
@@ -80,9 +80,10 @@ def get_document(
         year=year,
     )
     comparisons = prepare.get_comparisons(
-        repo_root=repo_root, deforestation=deforestation
+        deforestation=deforestation, repo_root=repo_root
     )
 
+    uncompared = prepare.get_uncompared_targets(comparisons=comparisons)
     eligible = prepare.get_eligible()
     rendered = {
         Section.ELIGIBLE: report.render_eligible(
@@ -115,15 +116,10 @@ def get_document(
         ),
         Section.COMPARISONS: report.render(
             comparisons=comparisons,
-            # None until a capture has run: the pool needs a raster pass over cached layers, so
-            # `validation.capture` derives it and writes it beside the emissions it bounds.
-            forest_pools=prepare.read_forest_pools(),
-            unanchored=prepare.get_unanchored_targets(comparisons=comparisons),
-            # Target-keyed rather than comparison-keyed, so a pair no anchor reaches still says its
-            # anchor contradicts itself; see `get_target_anchor_consistency_findings`.
             extra_findings=prepare.get_target_anchor_consistency_findings(
                 deforestation=deforestation
             ),
+            uncompared=uncompared,
         ),
     }
     assert set(rendered) == set(Section), "a Section has no rendered text"
@@ -136,49 +132,47 @@ def get_document(
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+    logging.basicConfig(format="%(levelname)s - %(message)s", level=logging.INFO)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stage",
-        type=Stage,
         choices=tuple(Stage),
         default=Stage.REPORT,
         help="which stage to run",
+        type=Stage,
     )
     parser.add_argument(
         "--section",
         action="append",
-        type=Section,
         choices=tuple(Section),
         default=[],
         help="render only this section; repeatable, defaults to all of them",
+        type=Section,
     )
     parser.add_argument(
         "--overwrite",
         action="append",
-        default=[],
         choices=("wri",),
+        default=[],
         help="pull stage only: re-retrieve this source even where the digest matches",
     )
     parser.add_argument(
         "--repo-root",
-        type=pathlib.Path,
-        # `validation/` sits at the repo root once landed, so its parent is the checkout. While it
-        # lives in a scratch tree outside the repo, pass --repo-root explicitly.
         default=pathlib.Path(__file__).resolve().parent.parent,
         help="the jdluc checkout, read for code_version",
+        type=pathlib.Path,
     )
     parser.add_argument(
         "--show",
-        type=int,
         default=DEFAULT_ELIGIBLE_ROWS,
         help="how many of the eligible pairs to tabulate; the findings cover all of them",
+        type=int,
     )
     parser.add_argument(
         "--year",
-        type=int,
         default=prepare.REFERENCE_YEAR,
         help="the FAOSTAT year to compare WRI's undated yield against",
+        type=int,
     )
     args = parser.parse_args()
 
