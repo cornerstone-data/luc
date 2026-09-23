@@ -4,9 +4,9 @@ license: CC BY 4.0
 
 year: 2000, 2005, 2010, 2020
 
-Global Pasture Watch (2025). Annual livestock headcount layers for cattle, goats, sheep, horses, and buffaloes at 1-km 2000-2022 (FAOSTAT-adjusted) (Part-1). Zenodo. https://doi.org/10.5281/zenodo.17491242 -- cattle, goats, sheep and horses
-Global Pasture Watch (2025). Annual livestock headcount layers for cattle, goats, sheep, horses, and buffaloes at 1-km 2000-2022 (FAOSTAT-adjusted) (Part-2). Zenodo. https://doi.org/10.5281/zenodo.17494177 -- buffaloes
-Global distribution of cattle, horses, goats, sheep and buffaloes at 1 km resolution for 2000-2022 based on subnational census data and spatiotemporal machine learning (2026). PeerJ. https://doi.org/10.7717/peerj.21494
+Parente, L., Ehrmann, S., Hengl, T., Fritz, S., Bonannella, C., Malek, Ž., Gonzalez Fischer, C., Perez, K., Stanimirova, R., Meyer, C., Wisser, D., Cinardi, G., and Sloat, L. (2026). Global distribution of cattle, horses, goats, sheep and buffaloes at 1 km resolution for 2000-2022 based on subnational census data and spatiotemporal machine learning. PeerJ 14, e21494. https://doi.org/10.7717/peerj.21494
+Parente, L. et al. (2025). Global Pasture Watch - Annual livestock headcount layers for cattle, goats, sheep, horses, and buffaloes at 1-km 2000-2022 (FAOSTAT-adjusted) (Part-1), v1-rc [Data set]. Zenodo. https://doi.org/10.5281/zenodo.17491242 -- cattle, goats, horses and sheep
+Parente, L. et al. (2025). Global Pasture Watch - Annual livestock headcount layers for cattle, goats, sheep, horses, and buffaloes at 1-km 2000-2022 (FAOSTAT-adjusted) (Part-2), v1-rc [Data set]. Zenodo. https://doi.org/10.5281/zenodo.17494177 -- buffaloes
 
 https://github.com/wri/global-pasture-watch
 
