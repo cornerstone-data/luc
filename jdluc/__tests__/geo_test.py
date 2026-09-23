@@ -34,7 +34,7 @@ def test_validate_geotiff_holds_a_dataset_to_its_declared_dtype(
         path_to_geotiff,
         "w",
         count=2,
-        crs=rasterio.CRS.from_epsg(4326),
+        crs=4326,
         driver="GTiff",
         dtype=written,
         height=4,
@@ -143,7 +143,7 @@ def get_dissolved_names(
         str(tmp_path / "out.fgb"),
     )
     geopandas.GeoDataFrame(
-        crs="EPSG:4326",
+        crs=4326,
         data={
             "ISO_A3": [iso for iso, _, _ in records],
             "NAM_0": [name for _, name, _ in records],

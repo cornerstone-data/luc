@@ -52,7 +52,7 @@ def _get_dataarray() -> xarray.DataArray:
         ds: xarray.Dataset = xarray.open_dataset(path_to_nc)
         return (
             ds.rio.set_spatial_dims(x_dim="LON", y_dim="LAT")
-            .rio.write_crs("EPSG:4326")["AROOT"]
+            .rio.write_crs(4326)["AROOT"]
             .fillna(0)
             .rio.write_nodata(numpy.nan)
             .load()
