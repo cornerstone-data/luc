@@ -9,6 +9,7 @@ from jdluc.datasets import (
     gnw_harris_agb,
     gnw_tcl,
     gpw_grassland,
+    gpw_livestock,
     huang_bgb,
     ifpri_mapspam,
     ipcc_climate_zones,
@@ -35,6 +36,7 @@ class DatasetName(enum.StrEnum):
     GNW_HARRIS_AGB = enum.auto()
     GNW_TREE_COVER_LOSS = enum.auto()
     GPW_GRASSLAND = enum.auto()
+    GPW_LIVESTOCK = enum.auto()
     HUANG_BGB = enum.auto()
     IFPRI_MAPSPAM_PHYSICAL_AREA_2000 = enum.auto()
     IFPRI_MAPSPAM_PHYSICAL_AREA_2005 = enum.auto()
@@ -64,6 +66,7 @@ NAME_TO_CLS: dict[
     DatasetName.GNW_HARRIS_AGB: gnw_harris_agb.DATASET,
     DatasetName.GNW_TREE_COVER_LOSS: gnw_tcl.DATASET,
     DatasetName.GPW_GRASSLAND: gpw_grassland.DATASET,
+    DatasetName.GPW_LIVESTOCK: gpw_livestock.DATASET,
     DatasetName.HUANG_BGB: huang_bgb.DATASET,
     DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2000: ifpri_mapspam.PHYSICAL_AREA_2000,
     DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2005: ifpri_mapspam.PHYSICAL_AREA_2005,
