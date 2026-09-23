@@ -2,7 +2,7 @@
 
 This document is the reference for the artifacts the pipeline produces: how to get them, grids, and full schemas. For *what* the numbers mean see `methodology.md`; for *how* they are produced see `architecture.md`; to reproduce them yourself see the ["Running the pipeline"](../README.md#running-the-pipeline) section of the README.
 
-The data is licensed [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/); please follow the attribution guidance in `ATTRIBUTION.md`.
+The data is licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); please follow the attribution guidance in `ATTRIBUTION.md`.
 
 ## Access
 
