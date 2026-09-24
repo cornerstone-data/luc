@@ -93,8 +93,8 @@ class CropSeries(enum.Enum):
         unit_desc="LB / ACRE",
     )
     # NASS reports ginned lint, where MapSPAM, FAOSTAT and WRI all carry seed cotton -- see the
-    # ItemCode docstring in `faostat_production`. 0.36 is what FAOSTAT's US seed cotton implies
-    # against this series over 2011-2020 (mean 0.361), and agrees with the ~35% gin turnout.
+    # `CROP_TO_ITEM_CODE` comment in `faostat_production`. 0.36 is what FAOSTAT's US seed cotton
+    # implies against this series over 2011-2020 (mean 0.361), and agrees with the ~35% gin turnout.
     # FAOSTAT implies ~0.40 before 2011, so revisit this if the trace window moves earlier.
     COTTON = Series(lb_per_unit=1, reported_fraction=0.36, unit_desc="LB / ACRE")
     MAIZE = Series(

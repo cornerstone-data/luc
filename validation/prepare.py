@@ -1499,10 +1499,12 @@ def read_faostat_production() -> pandas.DataFrame:
     if not FAOSTAT_CACHE.exists():
         logger.info(f"Fetching the ingested FAOSTAT parquet to {FAOSTAT_CACHE}")
         FAOSTAT_CACHE.parent.mkdir(exist_ok=True, parents=True)
-        faostat_production.load().to_parquet(FAOSTAT_CACHE)
+        faostat_production.load(dataset=faostat_production.CROP_DATASET).to_parquet(
+            FAOSTAT_CACHE
+        )
         pull.record_digest(
             key="faostat_production.parquet",
-            origin=faostat_production.DATASET.get_prefix(tile_id="world"),
+            origin=faostat_production.CROP_DATASET.get_prefix(tile_id="world"),
             path=FAOSTAT_CACHE,
             source="faostat",
         )
@@ -1591,7 +1593,7 @@ def get_unpaired_crop_names(
     """
     unpaired = set(wri_yields["crop_name"]) - set(comparison["crop_name"])
     compared = set(comparison["crop_name"])
-    mapped = {item.name for item in faostat_production.ItemCode}
+    mapped = {crop.name for crop in faostat_production.Crop}
     reasons: dict[schema.UnpairedReason, tuple[str, ...]] = {}
     for reason, names in (
         (

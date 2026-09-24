@@ -93,7 +93,8 @@ Every input is ingested from its upstream publisher into cloud storage as tiled 
 | **IFPRI MapSPAM**                  | Global per-crop physical area + production, 2000/2005/2010/2020 (statistical leg)                  | Harvard Dataverse                           | raster  |
 | **USDA NASS QuickStats**           | State-level crop yields (jurisdictional-direct production)                                         | NASS QuickStats API                         | tabular |
 | **World Bank Official Boundaries** | Admin-0/1/2 jurisdiction polygons                                                                  | World Bank                                  | vector  |
-| **FAOSTAT Production**             | National crop production and harvested area (validation yardstick)                                 | FAO bulk download                           | tabular |
+| **FAOSTAT Production, livestock**  | National livestock stocks and meat production — ingestable, not read by either leg                 | FAO bulk download                           | tabular |
+| **FAOSTAT Production, crops**      | National crop production and harvested area (validation yardstick)                                 | FAO bulk download                           | tabular |
 | **GLAD GLCLUC v2**                 | Land cover / land-use time series (2000–2020) — ingestable, no longer read by the emissions core   | GLAD/Hansen GeoTIFFs                        | raster  |
 | **GPW livestock headcount**        | Annual livestock heads per hectare, 2000/2005/2010/2020 — ingestable, not read by either leg       | Zenodo (doi:10.5281/zenodo.17491242)        | raster  |
 

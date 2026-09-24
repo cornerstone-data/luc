@@ -30,7 +30,8 @@ class DatasetName(enum.StrEnum):
         return name
 
     DESCALS_OIL_PALM = enum.auto()
-    FAOSTAT_PRODUCTION = enum.auto()
+    FAOSTAT_PRODUCTION_CROPS = enum.auto()
+    FAOSTAT_PRODUCTION_LIVESTOCK = enum.auto()
     GLAD_GLCLUC = enum.auto()
     GNW_GLOBAL_PEATLANDS = enum.auto()
     GNW_HARRIS_AGB = enum.auto()
@@ -60,7 +61,8 @@ NAME_TO_CLS: dict[
     DatasetName, base.RasterDataset | base.TabularDataset | base.VectorDataset
 ] = {
     DatasetName.DESCALS_OIL_PALM: descals_oil_palm.DATASET,
-    DatasetName.FAOSTAT_PRODUCTION: faostat_production.DATASET,
+    DatasetName.FAOSTAT_PRODUCTION_CROPS: faostat_production.CROP_DATASET,
+    DatasetName.FAOSTAT_PRODUCTION_LIVESTOCK: faostat_production.LIVESTOCK_DATASET,
     DatasetName.GLAD_GLCLUC: glad_glcluc.DATASET,
     DatasetName.GNW_GLOBAL_PEATLANDS: gnw_global_peatlands.DATASET,
     DatasetName.GNW_HARRIS_AGB: gnw_harris_agb.DATASET,
