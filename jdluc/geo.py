@@ -66,7 +66,7 @@ def convert_geotiff_to_cog(
 
 
 # NB: an equal-area projection, so that parts of one jurisdiction can be ranked by size
-EQUAL_AREA_CRS = "EPSG:6933"
+EQUAL_AREA_CRS = 6933
 
 
 def convert_vector_to_flatgeobuf(
@@ -218,7 +218,7 @@ def downscale_darray(
         rasterio.open(path_to_unscaled) as unscaled_fp,
         rasterio.vrt.WarpedVRT(
             unscaled_fp,
-            crs=f"EPSG:{epsg:d}",
+            crs=epsg,
             height=height,
             resampling=resampling,
             transform=rasterio.transform.Affine.from_gdal(*transform),

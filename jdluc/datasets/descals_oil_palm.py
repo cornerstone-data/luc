@@ -93,7 +93,7 @@ def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
         NUM_THREADS="ALL_CPUS",
         compress="deflate",
         count=1,
-        crs=rasterio.CRS.from_epsg(4326),
+        crs=4326,
         driver="GTiff",
         dtype="uint16",
         fp=local_path,

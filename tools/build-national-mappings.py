@@ -48,7 +48,7 @@ OVERRIDES = pull.DATA / "admin_1_overrides.json"
 ORBAE_OUTPUT = pull.DATA / "orbae_to_world_bank_admin_1.json"
 
 # An equal-area projection, so a province's area does not depend on its latitude.
-EQUAL_AREA_CRS = "EPSG:6933"
+EQUAL_AREA_CRS = 6933
 SQUARE_METRES_PER_SQUARE_KILOMETRE = 1e6
 
 WRI_REVISION = "559fe23eb752e9df270a1bf93e7f290044026bab"

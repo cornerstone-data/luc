@@ -33,7 +33,7 @@ See `docs/data.md` for the full column reference and `docs/coverage.md` for the 
 
 The harmonized inputs and per-pixel emissions behind that table are pipeline outputs rather than published artifacts — zarr stores far too large to deposit alongside it. Reproduce them with the steps under [Running the pipeline](#running-the-pipeline); sharing the underlying maps is open work.
 
-The data is licensed [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). Please follow the latest attribution guidance in ATTRIBUTION.md.
+The data is licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Please follow the latest attribution guidance in ATTRIBUTION.md.
 
 ## Methodology and architecture
 

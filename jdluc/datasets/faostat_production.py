@@ -1,6 +1,6 @@
 """Food and Agriculture Organization of the United Nations | FAOSTAT Production
 
-license: CC-BY-4.0
+license: CC BY 4.0
 
 year: 1961, ..., 2024
 
