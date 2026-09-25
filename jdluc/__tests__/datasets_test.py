@@ -18,7 +18,7 @@ def test_flatten_ranges() -> None:
 
 
 @pytest.mark.integration
-def test_get_ten_degree_tile_ids_for_country() -> None:
+def test_get_ten_degree_tile_ids_for_admin_id() -> None:
     iso_3166 = "BRA"  # Brazil
     expected = [
         "00N_040W",

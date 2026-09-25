@@ -217,7 +217,7 @@ HECTARES_PER_CELL = get_value(
         ),
     ),
 )
-def test_get_crop_to_share(
+def test_get_commodity_to_share(
     areas: dict[int, dict[str, float]],
     before: int,
     after: int,
@@ -235,13 +235,19 @@ def test_get_crop_to_share(
     )
     # No pasture moves in any of these cases, so it takes nothing off the crops
     assert all(get_value(shares[livestock]) == 0.0 for livestock in Livestock)
-    # Shares are absolute: asking for fewer crops must not renormalise onto the ones asked for
-    subset = get_commodity_to_share(
-        after=after, before=before, crops=tuple(expected), dset=dset
+
+
+def test_get_commodity_to_share_does_not_renormalise_onto_the_crops_asked_for() -> None:
+    # MAIZE's half of the cell's expansion, whichever other crops are asked for alongside it
+    shares = get_commodity_to_share(
+        after=2010,
+        before=2005,
+        crops=(Crop.MAIZE,),
+        dset=get_dset_for_areas(
+            areas={2005: {}, 2010: {"MAIZ": 100.0, "SOYB": 50.0, OTHER_0: 50.0}}
+        ),
     )
-    assert {crop: get_value(subset[crop]) for crop in expected} == pytest.approx(
-        expected
-    )
+    assert get_value(shares[Crop.MAIZE]) == pytest.approx(0.5)
 
 
 @pytest.mark.parametrize(
@@ -270,11 +276,18 @@ def test_get_crop_to_area_share(
     assert {crop: get_value(shares[crop]) for crop in expected} == pytest.approx(
         expected
     )
-    # Shares are absolute: asking for fewer crops must not renormalise onto the ones asked for
-    subset = get_crop_to_area_share(crops=tuple(expected), dset=dset, year=year)
-    assert {crop: get_value(subset[crop]) for crop in expected} == pytest.approx(
-        expected
+
+
+def test_get_crop_to_area_share_does_not_renormalise_onto_the_crops_asked_for() -> None:
+    # MAIZE's half of the occupied cropland, whichever other crops are asked for alongside it
+    shares = get_crop_to_area_share(
+        crops=(Crop.MAIZE,),
+        dset=get_dset_for_areas(
+            areas={2020: {"MAIZ": 100.0, "SOYB": 50.0, OTHER_2020: 50.0}}
+        ),
+        year=2020,
     )
+    assert get_value(shares[Crop.MAIZE]) == pytest.approx(0.5)
 
 
 def test_get_crop_to_area_share_survives_zero_expansion() -> None:
@@ -291,7 +304,7 @@ def test_get_crop_to_area_share_survives_zero_expansion() -> None:
     assert get_value(area_shares[Crop.MAIZE]) == 0.5
 
 
-def test_get_crop_to_share_is_reclassification_invariant() -> None:
+def test_get_commodity_to_share_is_reclassification_invariant() -> None:
     # The same +50 ha of non-MAIZE expansion, spread over one band and then over two.  MAIZE's
     # share depends on how much other cropland expanded, never on how MapSPAM chose to file it.
     # ("Residual" is avoided here: in `ifpri_mapspam` it means a group's catch-all constituent.)
@@ -308,7 +321,7 @@ def test_get_crop_to_share_is_reclassification_invariant() -> None:
     assert get_value(shares_lumped[Crop.MAIZE]) == get_value(shares_split[Crop.MAIZE])
 
 
-def test_get_crop_to_share_tolerates_nodata_absent_crops() -> None:
+def test_get_commodity_to_share_tolerates_nodata_absent_crops() -> None:
     # Real rasters carry nodata, not zero, where a crop is absent.  That must not poison the
     # denominator with NaN and take the whole cell down with it.
     dset = get_dset_for_areas(areas={2005: {}, 2010: {"MAIZ": 100.0}})
@@ -324,7 +337,7 @@ def test_get_crop_to_share_tolerates_nodata_absent_crops() -> None:
     assert get_value(shares[Crop.MAIZE]) == 1.0
 
 
-def test_get_crop_to_share_decomposition_does_not_warn_on_zero_reference() -> None:
+def test_get_commodity_to_share_decomposition_does_not_warn_on_zero_reference() -> None:
     # No reference year places BANP, so the within-group split divides by a zero pool.  The
     # decomposition guards that denominator rather than dividing and discarding the NaN, which
     # would work but bury every run in RuntimeWarnings.
