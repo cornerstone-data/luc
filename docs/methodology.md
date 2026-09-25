@@ -93,14 +93,14 @@ Every input is ingested from its upstream publisher into cloud storage as tiled 
 | **IFPRI MapSPAM**                  | Global per-crop physical area + production, 2000/2005/2010/2020 (statistical leg)                  | Harvard Dataverse                           | raster  |
 | **USDA NASS QuickStats**           | State-level crop yields (jurisdictional-direct production)                                         | NASS QuickStats API                         | tabular |
 | **World Bank Official Boundaries** | Admin-0/1/2 jurisdiction polygons                                                                  | World Bank                                  | vector  |
-| **FAOSTAT Production, livestock**  | National livestock stocks and meat production — ingestable, not read by either leg                 | FAO bulk download                           | tabular |
+| **FAOSTAT Production, livestock**  | National livestock stocks and carcass-weight meat production (statistical leg)                     | FAO bulk download                           | tabular |
 | **FAOSTAT Production, crops**      | National crop production and harvested area (validation yardstick)                                 | FAO bulk download                           | tabular |
 | **GLAD GLCLUC v2**                 | Land cover / land-use time series (2000–2020) — ingestable, no longer read by the emissions core   | GLAD/Hansen GeoTIFFs                        | raster  |
-| **GPW livestock headcount**        | Annual livestock heads per hectare, 2000/2005/2010/2020 — ingestable, not read by either leg       | Zenodo (doi:10.5281/zenodo.17491242)        | raster  |
+| **GPW livestock headcount**        | Annual livestock heads per hectare, 2000/2005/2010/2020 (statistical leg)                          | Zenodo (doi:10.5281/zenodo.17491242)        | raster  |
 
-The first nine rasters feed the per-pixel emissions core. CDL and MapSPAM feed the two attribution legs respectively. NASS yields and World Bank boundaries are joined downstream when building emissions factors.
+The first nine rasters feed the per-pixel emissions core. CDL and MapSPAM feed the two attribution legs respectively, and the statistical leg also reads GPW livestock and FAOSTAT's livestock table for its livestock commodities. NASS yields and World Bank boundaries are joined downstream when building emissions factors.
 
-The last three are ingested but feed neither leg, and are listed so the inventory matches `datasets.DatasetName`. FAOSTAT is the national production yardstick the validation tooling measures against — the global analogue of NASS QuickStats, and deliberately outside the attribution path so that no leg can consume the number it is measured by (see `validation.md`). GLAD GLCLUC is the land-cover series the emissions core read before the three annual layers replaced it, kept ingestable because the comparisons in `further_research.md` measure against it. GPW livestock is Global Pasture Watch's FAOSTAT-adjusted annual headcount of buffalo, cattle, goats, horses and sheep.
+FAOSTAT's crop table and GLAD GLCLUC are ingested but feed neither leg, and are listed so the inventory matches `datasets.DatasetName`. FAOSTAT's crop production is the national yardstick the validation tooling measures against — the global analogue of NASS QuickStats, and deliberately outside the attribution path so that no leg can consume the number it is measured by (see `validation.md`). Its livestock table is the exception: it prices the livestock commodities' production (see `validation.md`). GLAD GLCLUC is the land-cover series the emissions core read before the three annual layers replaced it, kept ingestable because the comparisons in `further_research.md` measure against it. GPW livestock is Global Pasture Watch's FAOSTAT-adjusted annual headcount of buffalo, cattle, goats, horses and sheep.
 
 GPW grassland is native to the GLAD tile grid: its published mosaics are 0.00025° with pixel edges on whole degrees, so a ten-degree tile is a windowed read at an integer offset with no resampling. Its dominant-class band separates cultivated grassland from natural/semi-natural grassland and, new in v2, open shrubland — a split the land-cover series it replaced could not express, since those codes encode cover fraction rather than vegetation type. Reported F1 from five-fold spatially blocked cross-validation is 0.64 for cultivated and 0.76 for natural/semi-natural; both are v1 figures, and open shrubland arrives in v2-beta unvalidated.
 
@@ -189,7 +189,7 @@ ______________________________________________________________________
 
 ## 3. Attribution and emissions factors
 
-Attribution turns the crop-agnostic per-pixel emissions layer into per-(jurisdiction, crop) totals, and then into emissions factors. `attribute.py` dispatches each country to one of two methodologies, fanning out over the ten-degree tiles that country touches and summing the per-tile partials (see [`coverage.md`](coverage.md) for the full country list and the territorial extent rule), and `trace.py` converts the rollups into the final emissions-factor table. Both legs clip to provincial (World Bank admin-1) polygons.
+Attribution turns the crop-agnostic per-pixel emissions layer into per-(jurisdiction, commodity) totals, and then into emissions factors. `attribute.py` dispatches each country to one of two methodologies, fanning out over the ten-degree tiles that country touches and summing the per-tile partials (see [`coverage.md`](coverage.md) for the full country list and the territorial extent rule), and `trace.py` converts the rollups into the final emissions-factor table. Both legs clip to provincial (World Bank admin-1) polygons.
 
 ### Shared framing
 
@@ -216,15 +216,19 @@ Concretely:
 1. Downsample the per-pixel emissions to the MapSPAM ~10 km grid — per-span conversion emissions and their source split, the cropland and pastureland peatland-occupation bands, and pasture extent at each MapSPAM snapshot.
 2. For each MapSPAM span, compute each commodity's **expansion** and its **share** of total expansion in that cell. A crop's expansion is the positive change in its MapSPAM physical area; pastureland's is the positive change in the hectares Global Pasture Watch calls cultivated grassland, measured the same way. Because MapSPAM has no 2015 snapshot, the 2010→2015 and 2015→2020 spans both use the 2010→2020 expansion. The total is built by clipping each commodity's own movement, exactly as its numerator is, so the shares sum to **at most** one.
 3. Attribute each span's emissions to commodities by that span's expansion share, weighting by the same GHGP span discount weights.
-4. Compute each crop's production denominator as a discount-weighted average over the lookback window (described below), rather than a single current-year snapshot.
+4. Compute each commodity's production denominator as a discount-weighted average over the lookback window (described below), rather than a single current-year snapshot.
 
-**Pastureland is an expansion term and a row of its own.** Grazing land is inside the boundary the LSRS draws, and forest cleared for pasture emits whether or not a crop ever follows, so pasture takes its share of the cell alongside the crops and appears in the output as `PASTURE`. This matches the external references, which divide by cropland plus cultivated pasture rather than by cropland alone. The consequence for every crop is that its share is diluted by whatever pasture expanded beside it — in pasture-led frontiers that is most of the cell. The row carries area but no production, because MapSPAM measures none for pasture, so no emissions factor is published for it.
+**Pastureland is an expansion term, divided among its grazers.** Grazing land is inside the boundary the LSRS draws, and forest cleared for pasture emits whether or not a crop ever follows, so pasture takes its share of the cell alongside the crops. This matches the external references, which divide by cropland plus cultivated pasture rather than by cropland alone. The consequence for every crop is that its share is diluted by whatever pasture expanded beside it — in pasture-led frontiers that is most of the cell.
 
-Peatland occupation is allocated differently from conversion, because it is a land-management flux on land that is drained *now* and has no relationship to expansion. It is split by each commodity's share of occupied area instead, and the two occupation bands keep the crop and pasture halves apart: the split is made on the 30 m grid, where cropland and cultivated grassland are separable, so nothing has to assume how peat, pasture and cropland sit relative to one another inside a 10 km cell.
+Pasture's share is then divided among livestock commodities by grazing pressure at the end of each span. Each species' livestock units per hectare are its Global Pasture Watch headcount density times FAO's livestock-unit coefficient for it — cattle and buffalo 0.70, horses 0.65, sheep and goats 0.10, the South America row of FAO (2011) applied everywhere — and `BEEF_CATTLE` takes cattle's fraction of the cell's units. `PASTURE` keeps the rest: the units of species no commodity names, and all of pasture's share where no grazer is mapped. Within a cell, every livestock unit is taken to graze an equal slice of the pasture. Dividing the pool rather than measuring each grazer's own expansion means a shift between grazers on unchanged pasture is not read as new pasture, and no crop's share depends on the herd.
+
+`BEEF_CATTLE`'s production is the cattle GPW maps in cells holding any cultivated grassland, times FAOSTAT's national carcass weight per standing head — meat production (carcass weight, bone in) over stocks — at each snapshot, reduced over the window like a crop's. A cell's herd counts whole rather than weighted by the pasture fraction, since it grazes the cell's pasture rather than standing in its forest or cropland, and herds in cells without mapped pasture — feedlots, rangeland — earn no production. Production therefore sits where the herd grazes, as a crop's sits where it grows, and follows the same standing herd the grazing split does. The carcass carries all of beef's emissions — offal, fat and hides take none — and meat is not split from milk, so `BEEF_CATTLE` holds dairy herds' pasture and culled dairy animals' meat along with beef herds'. The simplifications still open — GPW's herd against FAOSTAT's, one set of livestock units, one national rate per head, and herds off mapped pasture — are measured in "Livestock attribution rests on national rates and one set of livestock units" in `further_research.md`. `PASTURE` carries area but no production, so no emissions factor is published for it.
+
+Peatland occupation is allocated differently from conversion, because it is a land-management flux on land that is drained *now* and has no relationship to expansion. It is split by each commodity's share of occupied area instead — a crop's share of MapSPAM cropland at 2020, and a livestock commodity's grazing share of the pasture at 2020 — and the two occupation bands keep the crop and pasture halves apart: the split is made on the 30 m grid, where cropland and cultivated grassland are separable, so nothing has to assume how peat, pasture and cropland sit relative to one another inside a 10 km cell.
 
 **The unattributed remainder is discarded, not reassigned.** Because the shares sum to at most one, part of each cell's conversion emissions corresponds to expansion by MapSPAM crops this leg does not model — citrus, cocoa, rubber, vegetables and ten others. Those crops get no row, so that fraction is simply dropped: it is charged to nobody. Two consequences follow. Each modeled commodity's factor is unaffected, which is the point — a crop is not charged for a neighbour's expansion. But the emissions-factor table still accounts for less than the whole of a landscape's conversion emissions, and **summing its rows does not give a jurisdiction's LUC total** — the `DROPPED` row closes the other half of that shortfall, the carbon no destination layer claimed, but this share-based remainder has no row and is inferable only from the shortfall itself. Peatland-occupation shares are formed the same way and discard a comparable fraction. See "MapSPAM crops that first appear in a later snapshot read as expansion from zero" in `further_research.md`, which is the largest single contributor to it.
 
-This leg is global; MapSPAM crops are modeled with a broader `Crop` enum (maize, soybean, wheat, rice, oil palm, coffee, and more; see `statistical.py`).
+This leg is global; MapSPAM crops are modeled with a broader `Crop` enum (maize, soybean, wheat, rice, oil palm, coffee, and more; see `statistical.py`), and livestock with the `Livestock` enum (`BEEF_CATTLE` and the residual `PASTURE`).
 
 **Reconciling MapSPAM's crop taxonomy.** Because MapSPAM's crop list is coarser in 2000 than in later years, any crop that appears only in the finer later-year taxonomy must be recovered from its 2000 group. The 2000 group total is decomposed into its constituent crops, assuming each constituent's within-group share matches its share of the group pooled over the later snapshots (`DECOMPOSITION_REFERENCE_YEARS`, 2005/2010/2020). Pooling rather than deferring to the nearest year is deliberate: a pixel the 2000 snapshot places a group in but 2005 does not is an inconsistency between MapSPAM's own releases, not a crop that arrived later.
 
@@ -238,7 +242,7 @@ Where no reference year places the group in a pixel there is no basis for a spli
 
 ### From rollups to emissions factors (`trace.py`)
 
-`trace.py` takes the attribution rollup and derives the emissions factor identically for both methodologies — the only methodology-specific step is where production comes from (NASS yield × area for direct; MapSPAM production for statistical):
+`trace.py` takes the attribution rollup and derives the emissions factor identically for both methodologies — the only methodology-specific step is where production comes from (NASS yield × area for direct; for statistical, MapSPAM production for crops and GPW heads × FAOSTAT carcass weight per head for livestock):
 
 ```
 emissions_factor_kgco2e_per_kg = Σ emissions / Σ production
@@ -264,10 +268,12 @@ Primary datasets and standards this methodology depends on. Exact values, factor
 - Peatland extent — Global Nature Watch Global Peatlands.
 - Climate domain — Lewis (2022) raster, built from the IPCC 2019 Refinement decision tree. https://doi.org/10.5281/zenodo.7303808
 
-**Crop & jurisdiction datasets**
+**Commodity & jurisdiction datasets**
 
 - US per-pixel crop identity — USDA NASS Cropland Data Layer (CDL).
 - Global per-crop area & production — IFPRI MapSPAM.
+- Livestock headcount — Global Pasture Watch, Parente et al. (2026), FAOSTAT-adjusted, v1-rc. https://doi.org/10.5281/zenodo.17491242, https://doi.org/10.5281/zenodo.17494177
+- National livestock stocks & carcass-weight meat production — FAOSTAT Production (QCL).
 - US crop yields — USDA NASS QuickStats.
 - Jurisdiction boundaries — World Bank Official Boundaries.
 
@@ -279,3 +285,4 @@ Primary datasets and standards this methodology depends on. Exact values, factor
 - Dead organic matter — UNFCCC CDM AR-TOOL-12.
 - Grassland/shrubland vegetation carbon — BLUE bookkeeping model (Hansis et al., 2015). https://doi.org/10.1002/2014GB004997
 - Yield unit conversion — USDA Agricultural Handbook 697, table 6 (marketing bushel weights).
+- Livestock units — FAO (2011), Guidelines for the preparation of livestock sector reviews, after Chilonda & Otte (2006). https://www.lrrd.org/lrrd18/8/chil18117.htm
