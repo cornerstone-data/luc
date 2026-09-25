@@ -274,6 +274,15 @@ The statistical pipeline covers the following 32 crops, identified by IFPRI MapS
 | WHEAT          | WHEA         |
 | YAM            | YAMS         |
 
+### sLUC livestock (statistical)
+
+The statistical pipeline also divides pasture's share of each cell among livestock commodities, by livestock units from Global Pasture Watch's headcounts.
+
+| Commodity   | Grazers                                                                            |
+| ----------- | ---------------------------------------------------------------------------------- |
+| BEEF_CATTLE | Cattle                                                                             |
+| PASTURE     | The residual: buffalo, goats, horses and sheep, and pasture no grazer is mapped on |
+
 ### jdLUC (jurisdictional-direct)
 
 The jurisdictional-direct pipeline (USA only) covers the following 11 crops, mapped to USDA NASS CDL crop classes.

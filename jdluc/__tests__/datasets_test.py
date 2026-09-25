@@ -2,7 +2,7 @@ import itertools
 
 import pytest
 
-from jdluc.datasets import ifpri_mapspam
+from jdluc.datasets import NAME_TO_CLS, base, ifpri_mapspam
 from jdluc.datasets.glad_glcluc import flatten_ranges
 from jdluc.datasets.worldbank_jurisdictions import (
     AdminLevel,
@@ -18,7 +18,7 @@ def test_flatten_ranges() -> None:
 
 
 @pytest.mark.integration
-def test_get_ten_degree_tile_ids_for_country() -> None:
+def test_get_ten_degree_tile_ids_for_admin_id() -> None:
     iso_3166 = "BRA"  # Brazil
     expected = [
         "00N_040W",
@@ -226,3 +226,15 @@ def test_unrecoverable_crop_names_grow_with_the_taxonomy() -> None:
         for year in ifpri_mapspam.YEARS
     }
     assert counts == {2000: 2, 2005: 10, 2010: 10, 2020: 14}
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        pytest.param(dataset, id=name)
+        for name, dataset in NAME_TO_CLS.items()
+        if isinstance(dataset, base.TabularDataset)
+    ],
+)
+def test_a_tabular_datasets_are_hashable(dataset: base.TabularDataset) -> None:
+    assert hash(dataset)

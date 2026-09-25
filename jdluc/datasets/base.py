@@ -154,7 +154,7 @@ class VectorDataset:
 GetRecordsForTileIdType = typing.Callable[[str], list[dict[str, str | float]]]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False)
 class TabularDataset:
     get_records_for_tile_id: GetRecordsForTileIdType
     idx_column_names: list[str]
