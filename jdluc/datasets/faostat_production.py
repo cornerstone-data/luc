@@ -384,6 +384,7 @@ LIVESTOCK_DATASET = base.TabularDataset(
 )
 
 
+@utils.threadsafe_cache
 def load(dataset: base.TabularDataset) -> pandas.DataFrame:
     uri = storage.join_uri(
         prefix=dataset.get_prefix(tile_id="world"),

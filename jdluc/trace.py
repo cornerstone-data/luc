@@ -3,7 +3,8 @@
 Starting from the per-(admin, commodity) attribution rollup (`attribute.workflow`), determines
 each commodity's total production — the only step that depends on methodology:
   - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield (4-year mean).
-  - STATISTICAL: production = MAPSPAM production, carried straight through the attribute.
+  - STATISTICAL: production = MAPSPAM production for crops, and GPW heads x FAOSTAT carcass
+    weight per head for livestock, carried straight through the attribute.
 
 It then derives, identically for both, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached

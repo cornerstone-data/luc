@@ -84,21 +84,21 @@ emissions = xarray.open_zarr("<scratch-root>/<cache-key>.zarr", consolidated=Fal
 
 Deposited per data version as `emissions-factors.parquet` (see [Access](#access)).
 
-The final per-(jurisdiction, crop) table produced by the `trace` stage. Indexed by `(admin_level, admin_id, commodity_name, methodology)` — all strings — where `admin_level` is `PROVINCIAL` (World Bank admin-1) or `NATIONAL` (admin-0, summed from provincial rows) and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Two `commodity_name` values are not crops: `PASTURE`, which carries emissions and area but no production, and `DROPPED`, which carries only the emissions no destination layer claimed. Neither takes a production figure, so neither is published with an emissions factor.
+The final per-(jurisdiction, commodity) table produced by the `trace` stage. Indexed by `(admin_level, admin_id, commodity_name, methodology)` — all strings — where `admin_level` is `PROVINCIAL` (World Bank admin-1) or `NATIONAL` (admin-0, summed from provincial rows) and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Three `commodity_name` values are not crops. `BEEF_CATTLE` is a livestock commodity: it carries its share of pasture's emissions and area, and production like a crop's. `PASTURE` keeps the rest of pasture's share, with emissions and area but no production, and `DROPPED` carries only the emissions no destination layer claimed. Neither of those two takes a production figure, so neither is published with an emissions factor.
 
-| Column                             | Type    | Units        | Description                                                                                |
-| ---------------------------------- | ------- | ------------ | ------------------------------------------------------------------------------------------ |
-| `jurisdiction_name`                | string  | —            | Display name (e.g. `United States of America \| Iowa`)                                     |
-| `commodity_hectares`               | float64 | ha           | Area the commodity occupies (land occupation), on production's discounted 2000–2020 window |
-| `peatland_commodity_hectares`      | float64 | ha           | Commodity area on peatland                                                                 |
-| `emissions_mt`                     | float64 | t CO₂e       | Total allocated LUC emissions                                                              |
-| `peatland_occupation_emissions_mt` | float64 | t CO₂e       | Annual peatland-occupation emissions on the commodity's pixels                             |
-| `forest_emissions_mt`              | float64 | t CO₂e       | Forest-conversion emissions                                                                |
-| `grassland_emissions_mt`           | float64 | t CO₂e       | Grassland-conversion emissions                                                             |
-| `peatland_conversion_emissions_mt` | float64 | t CO₂e       | Peatland-conversion (drainage-pulse) emissions                                             |
-| `production_kg`                    | float64 | kg           | Crop production (NASS yield × area for the direct leg; MapSPAM for the statistical leg)    |
-| `yield_kg_per_ha`                  | float64 | kg/ha        | `production_kg / commodity_hectares`                                                       |
-| `emissions_factor_kgco2e_per_kg`   | float64 | kg CO₂e / kg | `1000 × emissions_mt / production_kg` — the headline factor                                |
+| Column                             | Type    | Units        | Description                                                                                                                      |
+| ---------------------------------- | ------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `jurisdiction_name`                | string  | —            | Display name (e.g. `United States of America \| Iowa`)                                                                           |
+| `commodity_hectares`               | float64 | ha           | Area the commodity occupies (land occupation), on production's discounted 2000–2020 window                                       |
+| `peatland_commodity_hectares`      | float64 | ha           | Commodity area on peatland                                                                                                       |
+| `emissions_mt`                     | float64 | t CO₂e       | Total allocated LUC emissions                                                                                                    |
+| `peatland_occupation_emissions_mt` | float64 | t CO₂e       | Annual peatland-occupation emissions on the commodity's pixels                                                                   |
+| `forest_emissions_mt`              | float64 | t CO₂e       | Forest-conversion emissions                                                                                                      |
+| `grassland_emissions_mt`           | float64 | t CO₂e       | Grassland-conversion emissions                                                                                                   |
+| `peatland_conversion_emissions_mt` | float64 | t CO₂e       | Peatland-conversion (drainage-pulse) emissions                                                                                   |
+| `production_kg`                    | float64 | kg           | Production: crops from NASS yield × area (direct leg) or MapSPAM (statistical leg); livestock as FAOSTAT carcass weight, bone in |
+| `yield_kg_per_ha`                  | float64 | kg/ha        | `production_kg / commodity_hectares`                                                                                             |
+| `emissions_factor_kgco2e_per_kg`   | float64 | kg CO₂e / kg | `1000 × emissions_mt / production_kg` — the headline factor                                                                      |
 
 Both attribution legs emit the same columns.
 
