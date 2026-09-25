@@ -189,17 +189,18 @@ def get_commodity_to_share(
     def get_unattributed(names: set[str], year: int) -> xarray.DataArray:
         # NB: no canonical lookup is required -- these names are already `year`'s own, and
         # nothing divides by them, so the raw band is the whole answer
-        ret = sum(
-            ifpri_mapspam.get_reported_quantity(
-                dset=dset,
-                quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
-                reported_crop_name=name,
-                year=year,
-            )
-            for name in sorted(names)
+        return sum(
+            (
+                ifpri_mapspam.get_reported_quantity(
+                    dset=dset,
+                    quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
+                    reported_crop_name=name,
+                    year=year,
+                )
+                for name in sorted(names)
+            ),
+            start=xarray.DataArray(numpy.float32(0)),
         )
-        assert isinstance(ret, xarray.DataArray)
-        return ret
 
     unattributed_expansion = (
         get_unattributed(names=after_names, year=after)
@@ -333,15 +334,17 @@ def get_crop_to_area_share(
 ) -> dict[Crop, xarray.DataArray]:
     # NB: the denominator walks `year`'s own taxonomy, so every name here is already reported
     total_area = sum(
-        ifpri_mapspam.get_reported_quantity(
-            dset=dset,
-            quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
-            reported_crop_name=e.name,
-            year=year,
-        )
-        for e in ifpri_mapspam.YEAR_TO_CROP_CLS[year]
+        (
+            ifpri_mapspam.get_reported_quantity(
+                dset=dset,
+                quantity=ifpri_mapspam.Quantity.PHYSICAL_AREA,
+                reported_crop_name=e.name,
+                year=year,
+            )
+            for e in ifpri_mapspam.YEAR_TO_CROP_CLS[year]
+        ),
+        start=xarray.DataArray(numpy.float32(0)),
     )
-    assert isinstance(total_area, xarray.DataArray)
     total_area = total_area.where(total_area > 0)
     return {
         # Share is zero when no crop occupies the cell at all
