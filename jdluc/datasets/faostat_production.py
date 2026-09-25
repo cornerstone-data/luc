@@ -165,6 +165,12 @@ class Species(enum.StrEnum):
     SHEEP = enum.auto()
 
 
+# Live animals in heads (e.g., "Cattle"): the standing herd at a reference date in the year, every
+# age and purpose -- calves and dairy cows included. Not the animals slaughtered in the year, which
+# FAOSTAT counts under the meat items. Meat over stocks is therefore carcass weight per standing
+# head a year -- the share of the herd slaughtered times the carcass weight -- which assumes every
+# head in a country yields alike in a given year, though breeding regions slaughter a smaller share
+# than finishing ones.
 SPECIES_TO_STOCKS_ITEM_CODE = {
     Species.BUFFALO: 946,
     Species.CATTLE: 866,
@@ -172,6 +178,9 @@ SPECIES_TO_STOCKS_ITEM_CODE = {
     Species.HORSE: 1096,
     Species.SHEEP: 976,
 }
+# Carcass weight in kg, bone in (e.g., "Meat of cattle with the bone, fresh or chilled"): the
+# dressed carcass, without the offal, fat and hides FAOSTAT lists as items of their own. Not live
+# weight or boneless meat, either of which would scale a comparison by a dressing or deboning yield.
 SPECIES_TO_MEAT_ITEM_CODE = {
     Species.BUFFALO: 947,
     Species.CATTLE: 867,
