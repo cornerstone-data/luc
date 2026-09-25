@@ -13,9 +13,9 @@ summary flags byte-identical parquets, and jdluc.storage logs the URI each side 
 cache keys are in the run log. `--isolated` sidesteps it with a private SCRATCH_ROOT per side, at
 the price of the full pipeline rather than a cache read.
 
-Every crop in the capture gets checked -- Target.crop_names is the same
-attribute.get_crop_names call that drives the capture, so the two cannot diverge. The cache key
-includes crop_names, so asking for a subset would also cold-miss every layer an ordinary
+Every commodity in the capture gets checked -- Target.commodity_names is the same
+attribute.get_commodity_names call that drives the capture, so the two cannot diverge. The cache
+key includes commodity_names, so asking for a subset would also cold-miss every layer an ordinary
 `uv run python jdluc/trace.py USA` populated; captures are one country at a time over the full
 per-methodology list. Scoring the same list means each sum drift is a true all-crop total, and
 production_kg must hold to float32 noise under any within-group redistribution.
@@ -221,11 +221,11 @@ class Target:
     iso_3166: str
 
     @property
-    def crop_names(self) -> tuple[str, ...]:
+    def commodity_names(self) -> tuple[str, ...]:
         # The same list the capture hands the pipeline, so what gets checked can never be less
         # than what ran.  A curated subset scores a partial sum, which moves whenever a crop
         # trades with a sibling outside it -- indistinguishable from mass being created.
-        return attribute.get_crop_names(methodology=self.methodology)
+        return attribute.get_commodity_names(methodology=self.methodology)
 
     @property
     def slug(self) -> str:
@@ -325,7 +325,7 @@ def load_capture(
 
 def check_alignment(
     baseline: pandas.DataFrame,
-    crop_names: tuple[str, ...],
+    commodity_names: tuple[str, ...],
     head: pandas.DataFrame,
     slug: str,
     written: tuple[tuple[str, ...], tuple[str, ...]],
@@ -366,7 +366,7 @@ def check_alignment(
             )
         # A target that silently stopped existing would otherwise be reported as nothing at all
         if absent := sorted(
-            set(crop_names) - set(df.index.get_level_values("commodity_name"))
+            set(commodity_names) - set(df.index.get_level_values("commodity_name"))
         ):
             findings.append(
                 Finding(
@@ -481,7 +481,7 @@ def check_excluded_crops(
         Finding(
             message=(
                 f"{len(excluded):d} crop(s) outside the checked set moved where nothing "
-                f"checked them: {measured:s}, plus {flips:d} NaN flip(s). Target.crop_names "
+                f"checked them: {measured:s}, plus {flips:d} NaN flip(s). Target.commodity_names "
                 "should cover every crop the capture holds, so this means they diverged"
             ),
             severity=Severity.ADVISORY,
@@ -516,7 +516,7 @@ def check_value_drift(
     Filtered to the hardcoded crops, which is what that subset is for; alignment ran over the
     whole table.
     """
-    crops = list(target.crop_names)
+    crops = list(target.commodity_names)
     left_all = baseline[baseline.index.get_level_values("commodity_name").isin(crops)]
     right_all = head[head.index.get_level_values("commodity_name").isin(crops)]
     shared = left_all.index.intersection(right_all.index)
@@ -610,13 +610,15 @@ def check_sum_drift(
     def nationals(df: pandas.DataFrame) -> pandas.DataFrame:
         return df[
             (df.index.get_level_values("admin_level") == NATIONAL)
-            & df.index.get_level_values("commodity_name").isin(list(target.crop_names))
+            & df.index.get_level_values("commodity_name").isin(
+                list(target.commodity_names)
+            )
         ]
 
     left, right = nationals(baseline), nationals(head)
     print(
         f"\n  {target.slug:s}: {len(left):d} vs {len(right):d} national row(s) over "
-        f"{len(target.crop_names):d} hardcoded crop(s)"
+        f"{len(target.commodity_names):d} hardcoded crop(s)"
     )
     print(f"    {'column':<34}{'baseline':>15}{'head':>15}{'delta':>14}{'rel':>11}")
     totals = [
@@ -892,17 +894,17 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
     row_counts: dict[str, int] = {}
     parquet_sha256: dict[str, str] = {}
     for index, target in enumerate(targets, start=1):
-        # The full crop list, so this reuses the caches an ordinary trace.py run populates
-        crop_names = attribute.get_crop_names(methodology=target.methodology)
+        # The full commodity list, so this reuses the caches an ordinary trace.py run populates
+        commodity_names = attribute.get_commodity_names(methodology=target.methodology)
         logger.info(
-            f"[{label!s}] tracing {target.slug:s} with {len(crop_names):d} crops "
+            f"[{label!s}] tracing {target.slug:s} with {len(commodity_names):d} commodities "
             f"({index:d}/{len(targets):d})"
         )
 
         retired = {"skip_glad_crop_filter": False}
         parameters = inspect.signature(trace.workflow).parameters
         df = trace.workflow(
-            crop_names=crop_names,
+            commodity_names=commodity_names,
             iso_3166s=(target.iso_3166,),
             methodology=target.methodology,
             **{name: value for name, value in retired.items() if name in parameters},
@@ -1067,7 +1069,7 @@ def compare_target(
     print(f"\n=== {target.slug:s}: alignment ===")
     findings = check_alignment(
         baseline=left,
-        crop_names=target.crop_names,
+        commodity_names=target.commodity_names,
         head=right,
         slug=target.slug,
         written=(pair[Side.BASELINE][1], pair[Side.HEAD][1]),

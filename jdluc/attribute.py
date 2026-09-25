@@ -1,9 +1,9 @@
-"""Roll up per-pixel emissions to per-(jurisdiction, crop) totals.
+"""Roll up per-pixel emissions to per-(jurisdiction, commodity) totals.
 
 Dispatches each ten-degree tile to a per-methodology workflow once per overlapping ISO
 3166 country and sums the partials, since a jurisdiction may straddle a tile boundary:
   - STATISTICAL (default): downscales the per-pixel emissions to the MAPSPAM grid and
-    attributes them across crops by MAPSPAM crop-expansion shares.
+    attributes them across commodities by their shares of each cell's expansion.
   - JURISDICTIONAL_DIRECT: masks the per-pixel emissions to each crop's CDL codes.
 Both clip to provincial (World Bank admin-1) polygons and sum commodity area, peatland
 commodity area, peatland-occupation emissions, and total emissions. Returns a pandas.DataFrame indexed by
@@ -55,7 +55,7 @@ def merge_dfs(*dfs: pandas.DataFrame) -> pandas.DataFrame:
 
 def workflow(
     concurrency: int,
-    crop_names: tuple[str, ...],
+    commodity_names: tuple[str, ...],
     iso_3166s: collections.abc.Iterable[str],
     methodology: Methodology,
 ) -> pandas.DataFrame:
@@ -79,7 +79,7 @@ def workflow(
     def workflow_for_tile_id(tile_id: str) -> list[pandas.DataFrame]:
         return [
             workflow_for_tile(
-                crop_names=crop_names,
+                commodity_names=commodity_names,
                 iso_3166=iso_3166,
                 tile_id=tile_id,
             )
@@ -94,7 +94,7 @@ def workflow(
         dfs = [df for future in futures for df in future.result()]
 
     # NB: ensure empty jurisdictions aren't dropped
-    all_jurisdiction_crops = pandas.DataFrame.from_records(
+    all_jurisdiction_commodities = pandas.DataFrame.from_records(
         data=[
             {
                 "admin_level": jurisdiction.level,
@@ -109,12 +109,12 @@ def workflow(
                 iso_3166=iso_3166,
                 tile_id=tile_id,
             )
-            for commodity_name in crop_names
+            for commodity_name in commodity_names
         ]
     ).set_index(keys=["admin_level", "admin_id", "commodity_name"])
 
     ret = (
-        merge_dfs(all_jurisdiction_crops, *dfs)
+        merge_dfs(all_jurisdiction_commodities, *dfs)
         .assign(methodology=methodology.name)
         .set_index("methodology", append=True)
         .sort_index()
@@ -123,12 +123,14 @@ def workflow(
     return ret
 
 
-def get_crop_names(methodology: Methodology) -> tuple[str, ...]:
+def get_commodity_names(methodology: Methodology) -> tuple[str, ...]:
     if methodology == Methodology.STATISTICAL:
-        return tuple(sorted(c.name for c in statistical.Crop))
+        return tuple(
+            sorted(e.name for e in (*statistical.Crop, *statistical.Livestock))
+        )
     else:
         assert methodology == Methodology.JURISDICTIONAL_DIRECT
-        return tuple(sorted(c.name for c in jurisdictional_direct.Crop))
+        return tuple(sorted(e.name for e in jurisdictional_direct.Crop))
 
 
 DEFAULT_CONCURRENCY = 4
@@ -166,7 +168,7 @@ def main() -> int:
     methodology = Methodology[str(args.methodology_name)]
     df = workflow(
         concurrency=int(args.concurrency),
-        crop_names=get_crop_names(methodology=methodology),
+        commodity_names=get_commodity_names(methodology=methodology),
         iso_3166s=(
             worldbank_jurisdictions.get_all_iso_3166s()
             if args.backfill

@@ -1,7 +1,7 @@
-"""Build the per-(jurisdiction, crop) emissions-factor table.
+"""Build the per-(jurisdiction, commodity) emissions-factor table.
 
-Starting from the per-(admin, crop) attribution rollup (`attribute.workflow`), determines
-each crop's total production — the only step that depends on methodology:
+Starting from the per-(admin, commodity) attribution rollup (`attribute.workflow`), determines
+each commodity's total production — the only step that depends on methodology:
   - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield (4-year mean).
   - STATISTICAL: production = MAPSPAM production, carried straight through the attribute.
 
@@ -115,16 +115,16 @@ def iter_national_from_provincials(
         }  # type: ignore
 
 
-@storage.cache_to_parquet(ignored_args=["concurrency"], version=1)
+@storage.cache_to_parquet(ignored_args=["concurrency"], version=0)
 def workflow(
     concurrency: int,
-    crop_names: tuple[str, ...],
+    commodity_names: tuple[str, ...],
     iso_3166s: tuple[str, ...],
     methodology: attribute.Methodology,
 ) -> pandas.DataFrame:
     emissions = attribute.workflow(
         concurrency=concurrency,
-        crop_names=crop_names,
+        commodity_names=commodity_names,
         iso_3166s=iso_3166s,
         methodology=methodology,
     )
@@ -201,7 +201,7 @@ def main() -> int:
     methodology = attribute.Methodology[str(args.methodology_name)]
     df = workflow(
         concurrency=int(args.concurrency),
-        crop_names=attribute.get_crop_names(methodology=methodology),
+        commodity_names=attribute.get_commodity_names(methodology=methodology),
         iso_3166s=tuple(
             sorted(
                 worldbank_jurisdictions.get_all_iso_3166s()

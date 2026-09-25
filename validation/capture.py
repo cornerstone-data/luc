@@ -9,8 +9,8 @@ sLUC-versus-jdLUC head-to-head is a filter on `methodology` within one table rat
 between two files. A join there would invite exactly the alignment failure the comparison exists to
 rule out.
 
-**Every crop, not just the targets.** `attribute.get_crop_names` fixes the crop set per
-leg, so a capture covers every commodity the leg models rather than only the pairs
+**Every commodity, not just the targets.** `attribute.get_commodity_names` fixes the commodity
+set per leg, so a capture covers every commodity the leg models rather than only the pairs
 `targets.json` names. It is cheaper than it looks:
 `statistical.get_downscaled_luc_emissions` is keyed on `tile_id` alone, so the expensive
 per-tile layer is shared and a crop adds only its share arithmetic.
@@ -159,15 +159,15 @@ def workflow(iso_3166s: tuple[str, ...], repo_root: pathlib.Path) -> pandas.Data
     """Both legs over the given countries, stamped with the code that produced them."""
     frames = []
     for methodology, wanted in iter_methodologies(iso_3166s=iso_3166s):
-        crop_names = attribute.get_crop_names(methodology=methodology)
+        commodity_names = attribute.get_commodity_names(methodology=methodology)
         logger.info(
             f"Capturing {methodology.name:s} over {len(wanted):d} country(ies) and "
-            f"{len(crop_names):d} crops"
+            f"{len(commodity_names):d} commodities"
         )
         frames.append(
             trace.workflow(
                 concurrency=attribute.DEFAULT_CONCURRENCY,
-                crop_names=crop_names,
+                commodity_names=commodity_names,
                 iso_3166s=wanted,
                 methodology=methodology,
             )
@@ -188,9 +188,10 @@ def render_plan(iso_3166s: tuple[str, ...]) -> str:
         else "tile count unavailable: the ingested admin-0 layer has not been read",
     ]
     for methodology, wanted in iter_methodologies(iso_3166s=iso_3166s):
-        crop_names = attribute.get_crop_names(methodology=methodology)
+        commodity_names = attribute.get_commodity_names(methodology=methodology)
         lines.append(
-            f"{methodology.name:s}: {len(wanted):d} country(ies) x {len(crop_names):d} crops"
+            f"{methodology.name:s}: {len(wanted):d} country(ies) x "
+            f"{len(commodity_names):d} commodities"
         )
     covered = set(iso_3166s)
     missing = [

@@ -377,16 +377,20 @@ SCHEMA = {
 }
 
 
-@storage.cache_to_parquet(version=1)
+@storage.cache_to_parquet(version=0)
 def workflow(
-    crop_names: tuple[str, ...],
+    commodity_names: tuple[str, ...],
     iso_3166: str,
     tile_id: str,
 ) -> pandas.DataFrame:
     from rioxarray.exceptions import NoDataInBounds
 
-    crops = tuple(Crop[commodity_name] for commodity_name in crop_names)
-    logger.info(f"Computing emissions for {crops=:} and {tile_id=:s}")
+    commodities: tuple[Commodity, ...] = tuple(
+        Crop[name] if name in Crop.__members__ else Livestock[name]
+        for name in commodity_names
+    )
+    crops = tuple(commodity for commodity in commodities if isinstance(commodity, Crop))
+    logger.info(f"Computing emissions for {commodities=:} and {tile_id=:s}")
     merged = geo.exact_merge(
         # NB: this is deferred because it is expensive and would like to cache it
         get_downscaled_luc_emissions(tile_id=tile_id),
@@ -423,7 +427,6 @@ def workflow(
                     )
                     for (before, after) in dict.fromkeys(SPAN_TO_MAPSPAM_SPAN.values())
                 }
-                commodities: tuple[Commodity, ...] = (*crops, Livestock.PASTURE)
                 commodity_to_span_to_share = {
                     commodity: {
                         span: commodity_to_share[commodity]
