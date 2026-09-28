@@ -107,6 +107,24 @@ The forest-source share of Uruguay's `DROPPED` is a separate and legitimate case
 
 **Potential improvement path:** (1) National correction tables: GPW's national heads per species and year, summed at ingest, to rescale headcounts to FAOSTAT stocks, and FAOSTAT Livestock Patterns' country livestock units, with a fallback where it reports none (it gives Brazil's buffalo 0.0). A multiplicative rescale cannot restore a species GPW has zeroed out. (2) Subnational offtake from slaughter statistics where published, such as Brazil's IBGE. (3) Measure whether Argentina's uncovered herd sits on natural grassland, using GPW's production-systems layer (Zenodo 14933679). (4) Price buffalo meat where FAOSTAT reports bovine meat as buffalo, by naming buffalo as a grazer of its own commodity.
 
+## Grazed wetland is charged as drained peat
+
+**Issue**: pasture occupation charges every GNW peat pixel under GPW cultivated grassland at the assessment year the drained-peat rate, 37.3 t CO₂e/ha/yr (see `peatland_methodology_supplement.md`). The rate assumes a lowered water table, but cattle graze seasonally flooded grassland without draining it. South of 40° the GNW layer also comes from Gumbricht et al. (2017), a hydrological wetland model, so some of what it calls peat may be wet mineral soil (see "Peatland dataset choice" below).
+
+**Measured in Argentina.** Pasture peat occupation is 5.2 of `BEEF_CATTLE`'s 20.3 Mt CO₂e a year there (29%), and 60% of Santa Fe's. Most of it lies in the Bajos Submeridionales, a seasonally flooded lowland across northern Santa Fe and Santiago del Estero, and the rest on the Paraná floodplain; Corrientes' Iberá peat is almost all outside cultivated grassland. On the pipeline's ingested tile `20S_070W`, the charged pixels read:
+
+| Province            | Charged peat pasture (kha) | GLAD GLCLUC wetland class, 2020 | JRC open water ever, 1984–2021 | JRC open water ≥10% of observations |
+| ------------------- | -------------------------: | ------------------------------: | -----------------------------: | ----------------------------------: |
+| Santa Fe            |                       38.9 |                             90% |                            16% |                                  3% |
+| Santiago del Estero |                       19.1 |                             89% |                            22% |                                  8% |
+| Whole tile          |                       60.2 |                             89% |                            19% |                                  5% |
+
+Three Paraná windows on the neighbouring tiles read 99–100% wetland class, and 63–83% show open water at some point. JRC detects open water rather than flooded vegetation, so it understates wetness in the Bajos.
+
+**Potential impact:** Most of Argentina's beef peat occupation, and most of Santa Fe's beef factor, is probably overstated; parts of the Bajos Submeridionales are drained by canals, so not all of it. Brazil's beef peat occupation is 9.55 Mt a year and hasn't been checked; floodplain grazing in the Pantanal and the Amazon várzea is the obvious candidate for the same pattern. Cropland on peat is much more often drained, so crops are less exposed.
+
+**Potential improvement path:** (1) Withhold occupation on pasture peat that GLCLUC classes as wetland, or where JRC shows recurrent water. GLCLUC is ingested but not read by the emissions core, so either `emit` reads it or it joins the stack `statistical.get_downscaled_luc_emissions` harmonizes; both recompute an expensive cache. (2) Replace or supplement the peat layer south of 40° with a peat-specific map, which addresses wetland mapped as peat. (3) Measure Brazil first, since it carries nearly twice Argentina's beef peat occupation.
+
 ## MapSPAM's 2000 release carries area its successor does not account for
 
 **Issue**: The 2000 snapshot is a different MapSPAM release (v3.0.7) from the ones that follow (v3.2), and its unmodeled crop vocabulary is disjoint from 2005's: a catch-all `OTHE` holds 560 Mha where the nine crops that replace it hold 161 Mha, correlating at r = 0.17 per pixel. The 2000 release simply accounts for ~400 Mha that 2005 does not, and no mapping between the two would be honest.
@@ -279,6 +297,7 @@ Each of these moves a parameter or a boundary rather than the structure of the m
 - Liao, Y., Chen, S., Bai, Y., Wang, J. & Gong, P. (2026). Global 30-m annual cropland extent dynamics (2000–2024) [preprint]. Earth System Science Data Discussions. https://doi.org/10.5194/essd-2025-838
 - Parente, L., Sloat, L., Mesquita, V. et al. (2024). Annual 30-m maps of global grassland class and extent (2000–2022) based on spatiotemporal Machine Learning. Scientific Data 11, 1303. https://doi.org/10.1038/s41597-024-04139-6
 - Parente, L., Ehrmann, S., Hengl, T. et al. (2026). Global distribution of cattle, horses, goats, sheep and buffaloes at 1 km resolution for 2000-2022 based on subnational census data and spatiotemporal machine learning. PeerJ 14, e21494. https://doi.org/10.7717/peerj.21494
+- Pekel, J.-F., Cottam, A., Gorelick, N. & Belward, A.S. (2016). High-resolution mapping of global surface water and its long-term changes. Nature 540, 418–422. https://doi.org/10.1038/nature20584
 - Potapov, P., Hansen, M.C., Pickens, A. et al. (2022a). The Global 2000–2020 Land Cover and Land Use Change Dataset Derived From the Landsat Archive: First Results. Frontiers in Remote Sensing 3, 856903. https://doi.org/10.3389/frsen.2022.856903
 - Sanderman, J., Hengl, T. & Fiske, G.J. (2017). Soil carbon debt of 12,000 years of human land use. Proceedings of the National Academy of Sciences 114(36), 9575–9580. https://doi.org/10.1073/pnas.1706103114
 - Spawn, S.A., Lark, T.J. & Gibbs, H.K. (2019). Carbon emissions from cropland expansion in the United States. Environmental Research Letters 14, 045009. https://doi.org/10.1088/1748-9326/ab0399
