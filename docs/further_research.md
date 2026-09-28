@@ -44,6 +44,24 @@ Two consequences follow, and the first is why this entry is separate from the on
 
 **Potential impact:** Unquantified globally. PNG is one measured instance; the 43.0 Mha figure above is the 5-arcmin upper bound across all countries, and the crops carrying it are staples rather than traded commodities, so the exposure is concentrated in jurisdictional totals rather than in any export factor.
 
+## Cleared Chaco forest resolves to no destination
+
+**Issue**: the pasture destination is Global Pasture Watch's cultivated grassland at the assessment year, and most forest cleared in the Gran Chaco is not that class. Tree-cover loss dates the clearance, GPW calls the land natural grassland or "other" (not grassland), and the pixel's carbon goes to `dropped-emissions` — charged to nobody, although the landscape is ranched.
+
+**Measured in Paraguay.** `DROPPED` is 49.3 of the 79.3 Mt CO₂e a year Paraguay's statistical table holds (62%), against 13.2 Mt for `BEEF_CATTLE`. On three half-degree Chaco windows, the 2001–2020 loss pixels read in GPW's 2020 map as:
+
+| Window               | Other | Cultivated grassland | Natural grassland |
+| -------------------- | ----: | -------------------: | ----------------: |
+| Boquerón             | 48.5% |                32.7% |             18.8% |
+| Presidente Hayes     | 57.7% |                42.1% |              0.3% |
+| Alto Paraguay (west) | 76.2% |                14.4% |              9.2% |
+
+It is not a lag between clearing and grass: in Boquerón, 38–56% of forest cleared in 2001–2018 is still "other" in 2020, and 82% of 2020's "other" is still "other" in GPW's 2023 map. Nor is it mostly regrowth: only 7% of Boquerón's loss is GLAD GLCLUC tree cover in 2020, against 18–21% on Amazon windows in Rondônia and Pará, and 89–94% of the cleared natural and "other" pixels sit in cells where GPW's livestock layer maps at least 10 cattle per km². Chaco ranching's tree strips and silvopasture are a plausible reason the class misses it.
+
+**Potential impact:** Large for Chaco beef. If most of Paraguay's `DROPPED` is cattle pasture, its beef factor is understated by up to about 4×; Argentina's `DROPPED` is 55% of its table, and its Chaco provinces are the likely share of it. The measurements are pixel counts rather than emissions, and use GLAD GLCLUC's cropland class in place of GACED30.
+
+**Potential improvement path:** (1) A regional pasture destination for the Chaco, such as MapBiomas Chaco, alongside GPW, as Descals supplies oil palm alongside GACED30. (2) Or a rule counting forest cleared to natural grassland or "other" as pasture where GPW's livestock layer maps cattle — though that test discriminates weakly, since regrowth pixels in these landscapes sit in cattle cells too. Either changes `emit`'s destinations, so the per-pixel emissions layer is recomputed.
+
 ## sLUC grassland attribution (expansion-share over-attribution)
 
 **Issue**: The statistical (sLUC) leg attributes each coarse cell's conversion emissions to crops by their share of crop *expansion* within the cell (`statistical.py`; see §3, Statistical). A post-refactor validation found this hands corn/soy/wheat substantially more grassland conversion than the per-pixel jurisdictional-direct (jdLUC) leg does on the *same* emissions layer (grassland EF: corn 0.032 vs 0.012, soy 0.126 vs 0.054 kg CO₂e/kg), driving the US corn+soy+wheat total to ~76 MtCO₂e — the highest of the satellite EF models and above jdLUC (61). Grassland (30.9 Mt) is the largest single US source and the biggest change from the refactor, yet it has **no reliable external anchor** since WRI is forest-only. The one weak reference — EPA's whole-cropland Grassland→Cropland, **10.6 Mt for 2020** — sits *below* the sLUC corn+soy+wheat *subset* (30.9): a three-crop subset nearly **tripling** the whole-cropland total. Both sides are annual, so this is not muddied by a temporal basis. The GHGP per-year weights integrate to exactly 1.0 across the 20-year window, so `SPAN_TO_LINEAR_DISCOUNT_WEIGHT` allocates each conversion's emissions to a *single sourcing year* rather than accumulating twenty of them, and the production denominator is a weighted mean over the same spans — an annual numerator over an annual denominator. The one real mismatch is scope, and it runs against us: widening sLUC from three crops to all cropland can only raise 30.9. Whether expansion-share allocation over-attributes grassland — or the per-pixel CDL leg under-attributes it — is unresolved.
@@ -53,6 +71,27 @@ Two consequences follow, and the first is why this entry is separate from the on
 **Potential impact:** Grassland is the dominant driver of US row-crop LUC emissions and the largest sLUC pool, so this directly sets the headline US emission factors and totals; resolving it could move the US corn+soy+wheat total by tens of MtCO₂e. It is also the largest source of divergence between the two attribution legs (state-level sLUC/jdLUC spans 0.19–39×).
 
 **Potential improvement path:** (1) Match the scope: compute the sLUC grassland figure over all cropland rather than the corn-soy-wheat subset, which is what stands between this and a like-for-like check. The time bases already agree and need no adjustment on either side. (2) Anchor grassland — and peat, which is equally unanchored (WRI forest-only) — externally and non-circularly: biome-stratified grassland carbon from Spawn et al. (2019) / IPCC, and IPCC drained-organic-soil (peat) emission factors from the 2013 Wetlands Supplement. This is the only route to a validation that does not lean on sLUC's own carbon densities. (3) Stress-test the expansion-share rule itself — in particular its behavior on cells where the converted pixel's CDL destination is non-crop — against the jdLUC state-level head-to-head.
+
+## Grassland class flicker reads as conversion
+
+**Issue**: a pixel's grassland source is dated by the last year it left a class, over annual Global Pasture Watch maps. Where the classifier switches a pixel between natural and cultivated grassland from year to year, that switch reads as a departure: a pixel ending cultivated is charged as rangeland → pasture conversion, and one ending natural is a pasture source with no destination, so its grassland carbon goes to `dropped-emissions`. Pasture that stays pasture is treated as churn; natural and cultivated grassland swapping back and forth is not.
+
+**Measured in Uruguay**, on two quarter-degree windows in tile `30S_060W`, following `emit`'s source and destination rules over GPW's annual maps for 2000–2020:
+
+|                                                           | Rivera/Tacuarembó (forestry) | Durazno/Florida (ranching) |
+| --------------------------------------------------------- | ---------------------------: | -------------------------: |
+| Pixels that are pasture sources                           |                        22.5% |                      30.1% |
+| … with no destination in 2020                             |                          93% |                        62% |
+| … of those, natural grassland again in 2020               |                          62% |                        78% |
+| Attributed rangeland → pasture: a single clean change     |                          25% |                        51% |
+| Attributed rangeland → pasture: three or more changes     |                          22% |                        28% |
+| All pixels: two or more changes into or out of cultivated |                          20% |                        32% |
+
+The forest-source share of Uruguay's `DROPPED` is a separate and legitimate case: 63–85% of its forest loss is tree cover again by 2020, eucalyptus and pine harvested and replanted.
+
+**Potential impact:** Uruguay's `BEEF_CATTLE` emissions are 90% grassland conversion (4.7 of 5.3 Mt) and soybean's 3.6 Mt nearly all, so an unmeasured but large part of those factors may be classification noise rather than conversion. The same applies wherever the natural/cultivated distinction is unstable; in Argentina, beef's grassland emissions exceed its forest ones. These are pixel counts on two windows, not a share of emissions.
+
+**Potential improvement path:** Require a class to hold for several consecutive years before a departure from it counts, or treat switches between natural and cultivated grassland as churn, as pasture → pasture already is. Either changes `emit`'s source dating, so the per-pixel emissions layer is recomputed; sizing it first means running the persistence test inside `emit` on a tile and comparing the emissions.
 
 ## Livestock attribution rests on national rates and one set of livestock units
 
