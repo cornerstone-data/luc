@@ -114,7 +114,7 @@ SCHEMA = {
 }
 
 
-@storage.cache_to_parquet(version=1)
+@storage.cache_to_parquet(version=0)
 def workflow(
     commodity_names: tuple[str, ...],
     iso_3166: str,

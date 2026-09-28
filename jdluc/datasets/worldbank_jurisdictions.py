@@ -103,11 +103,11 @@ def get_jurisdiction_for_admin_level(admin_level: AdminLevel) -> geopandas.GeoDa
 @functools.cache
 def get_ten_degree_tile_ids_for_admin_id(
     admin_id: str, admin_level: AdminLevel
-) -> frozenset[str]:
+) -> set[str]:
     gdf = get_jurisdiction_for_admin_level(admin_level=admin_level)
     geometry = gdf.loc[admin_id].geometry
     assert isinstance(geometry, shapely.Polygon | shapely.MultiPolygon)
-    return frozenset(
+    return set(
         tiling.iter_ten_degree_tile_id_for_geometry(geometry=geometry)
     ).intersection(tiling.GLOBAL_NATURE_WATCH_TILE_IDS)
 
@@ -133,9 +133,7 @@ def iso_3166_str(s: str) -> str:
 # Countries the pipeline produces nothing for. Each does intersect a published tile, so no
 # geometric predicate replaces this list; MapSPAM coverage is the real criterion and reading it
 # needs the ingested rasters.
-UNPRODUCTIVE_ISO_3166S = frozenset(
-    {"BLM", "GIB", "GRL", "MAF", "MCO", "NRU", "TUV", "VAT"}
-)
+UNPRODUCTIVE_ISO_3166S = {"BLM", "GIB", "GRL", "MAF", "MCO", "NRU", "TUV", "VAT"}
 
 
 def get_all_iso_3166s() -> set[str]:

@@ -70,12 +70,12 @@ class Livestock(enum.StrEnum):
 
 
 LIVESTOCK_TO_SPECIES = {
-    Livestock.BEEF_CATTLE: frozenset({gpw_livestock.Species.CATTLE}),
+    Livestock.BEEF_CATTLE: (gpw_livestock.Species.CATTLE,),
 }
 assert set(LIVESTOCK_TO_SPECIES) == set(Livestock) - {Livestock.PASTURE}
 # No grazer may be named by two commodities, or its units would be shared out twice
 assert sum(len(species) for species in LIVESTOCK_TO_SPECIES.values()) == len(
-    frozenset().union(*LIVESTOCK_TO_SPECIES.values())
+    set(LIVESTOCK_TO_SPECIES.values())
 )
 
 # FAO's livestock units per head, a head's grazing equivalent: the South America row of the regional
