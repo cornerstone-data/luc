@@ -63,7 +63,7 @@ assert {e.value for e in Crop} == ifpri_mapspam.RECOVERABLE_CROP_NAMES
 
 @enum.unique
 class Livestock(enum.StrEnum):
-    """The commodities dividing the pasture pool, PASTURE keeping what no other one's grazers do."""
+    """The commodities dividing pasture's share of a cell; PASTURE keeps what the others don't."""
 
     BEEF_CATTLE = enum.auto()
     PASTURE = enum.auto()
@@ -73,16 +73,17 @@ LIVESTOCK_TO_SPECIES = {
     Livestock.BEEF_CATTLE: (gpw_livestock.Species.CATTLE,),
 }
 assert set(LIVESTOCK_TO_SPECIES) == set(Livestock) - {Livestock.PASTURE}
-# No grazer may be named by two commodities, or its units would be shared out twice
+# No grazer may be named by two commodities, or its livestock units would count toward both shares
 assert sum(len(species) for species in LIVESTOCK_TO_SPECIES.values()) == len(
     set(LIVESTOCK_TO_SPECIES.values())
 )
 
-# FAO's livestock units per head, a head's grazing equivalent: the South America row of the regional
-# coefficients FAOSTAT Livestock Patterns applies (FAO 2011, after Chilonda and Otte 2006), applied
-# everywhere. That row leaves buffalo blank, so it takes the 0.70 most other regions give it. Only
-# the ratios between species matter, since a share divides each by the cell's total, and FAOSTAT
-# holds the coefficients fixed over time.
+# FAO's livestock units per head, weighing how much one head of each species grazes: the South
+# America row of the regional coefficients FAOSTAT Livestock Patterns applies (FAO 2011, after
+# Chilonda and Otte 2006; reprinted as Table 1 of
+# https://files-faostat.fao.org/production/EK/EK_e.pdf), applied everywhere. That row leaves buffalo
+# blank, so it takes the 0.70 most other regions give it. Only the ratios between species matter,
+# since a share divides each by the cell's total, and FAOSTAT holds the coefficients fixed in time.
 SPECIES_TO_LIVESTOCK_UNITS_PER_HEAD = {
     gpw_livestock.Species.BUFFALO: 0.70,
     gpw_livestock.Species.CATTLE: 0.70,
@@ -235,7 +236,7 @@ def get_commodity_hectares(
 def get_commodity_to_share(
     after: int, before: int, crops: tuple[Crop, ...], dset: xarray.Dataset
 ) -> dict[Commodity, xarray.DataArray]:
-    """Each commodity's share of all a cell emitted in a span, whatever each pixel's destination."""
+    """Each commodity's share of everything a cell emitted in a span, whatever each pixel became."""
 
     def get_expansion(crop: Crop) -> xarray.DataArray:
         return (
@@ -284,8 +285,9 @@ def get_commodity_to_share(
     return {
         crop: (get_expansion(crop=crop) / total_expansion).fillna(0) for crop in crops
     } | {
-        # NB: split by who grazes the pasture at the end of the span, since clipping each livestock
-        # commodity's own expansion would read a shift between grazers as new pasture
+        # NB: pasture's share is split by who grazes at the end of the span. Measuring each
+        # livestock commodity's own expansion instead would count one grazer replacing another as
+        # new pasture.
         livestock: pasture_share * grazing_share
         for livestock, grazing_share in get_livestock_to_grazing_share(
             dset=dset, year=after
@@ -356,16 +358,19 @@ def get_commodity_name_to_totals(
             for component in emit.EmissionComponent
         }
 
-        # A livestock commodity takes its grazing share of the pasture band and its herd's carcass
-        # weight, while a crop takes its area share of the cropland band and MapSPAM's production
+        # Peat occupation and production: a livestock commodity takes its grazing share of the
+        # pasture peat band and reports its herd's carcass weight; a crop takes its area share of
+        # the cropland peat band and reports MapSPAM's production
         if isinstance(commodity, Livestock):
             occupation = pastureland_occupation * occupation_shares[commodity]
             if commodity in LIVESTOCK_TO_SPECIES:
-                # NB: a cell's herd grazes that cell's pasture, so its heads count wherever the
-                # cell holds any rather than weighted by the fraction, which would discount them
-                # twice. Herds in cells without pasture -- feedlots, rangeland -- earn nothing.
-                # Production sits where the herd grazes, as a crop's sits where it grows, so it
-                # follows the same standing herd the grazing split does.
+                # NB: GPW's density is heads per hectare of the whole cell, so times the cell's
+                # hectares it is the cell's entire herd, all of it grazing the cell's pasture
+                # however little of the cell that is. Scaling by the pasture fraction too would
+                # drop part of the herd. Cells with no mapped pasture -- feedlots, natural
+                # rangeland -- produce nothing. Counting production where the herd stands, as a
+                # crop's is counted where it grows, keeps it on the same animals the grazing split
+                # weighs.
                 year_to_kg_per_ha = {
                     year: sum(
                         (
@@ -499,8 +504,8 @@ def workflow(
         ),
     )
 
-    # National carcass weight per standing head. A year FAOSTAT reports no meat for yields none,
-    # as `attribute` would read a missing production anyway.
+    # National carcass weight per standing head. A year FAOSTAT reports no meat for gets a rate of
+    # 0, which is what `attribute` would make of a missing production anyway.
     livestock = faostat_production.load(
         dataset=faostat_production.LIVESTOCK_DATASET
     ).reset_index()
@@ -563,7 +568,7 @@ def workflow(
                     # that is drained *now* -- it has no relationship to expansion, and expansion is zero on
                     # the long-established peat cropland that dominates this pool. So allocate it by each
                     # crop's share of area occupied -- matching the approach for the jurisdictional-direct leg.
-                    # Pasture's divides by grazing share instead.
+                    # The pasture peat band is divided by grazing share instead.
                     occupation_shares=get_crop_to_area_share(
                         crops=crops,
                         dset=clipped,
