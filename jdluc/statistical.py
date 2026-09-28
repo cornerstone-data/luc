@@ -11,7 +11,7 @@ import xarray
 from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
     DatasetName,
-    faostat_production,
+    faostat,
     gpw_grassland,
     gpw_livestock,
     ifpri_mapspam,
@@ -92,9 +92,7 @@ SPECIES_TO_LIVESTOCK_UNITS_PER_HEAD = {
     gpw_livestock.Species.SHEEP: 0.10,
 }
 assert set(SPECIES_TO_LIVESTOCK_UNITS_PER_HEAD) == set(gpw_livestock.Species)
-assert {e.name for e in faostat_production.Species} == {
-    e.name for e in gpw_livestock.Species
-}
+assert {e.name for e in faostat.Species} == {e.name for e in gpw_livestock.Species}
 
 
 # `Crop` stays exactly MapSPAM's recoverable crops, because everything that divides by one looks
@@ -385,7 +383,7 @@ def get_commodity_name_to_totals(
                 totals["production_mt"] = (
                     get_discounted_snapshot_mean(year_to_value=year_to_kg_per_ha)
                     * hectares
-                    / faostat_production.KG_PER_TONNE
+                    / faostat.KG_PER_TONNE
                 )
         else:
             occupation = cropland_occupation * occupation_shares[commodity]
@@ -506,9 +504,7 @@ def workflow(
 
     # National carcass weight per standing head. A year FAOSTAT reports no meat for gets a rate of
     # 0, which is what `attribute` would make of a missing production anyway.
-    livestock = faostat_production.load(
-        dataset=faostat_production.LIVESTOCK_DATASET
-    ).reset_index()
+    livestock = faostat.load(dataset=faostat.LIVESTOCK_DATASET).reset_index()
     livestock = livestock[
         (livestock["admin_id"] == iso_3166)
         & livestock["year"].isin(MAPSPAM_SNAPSHOT_YEARS)

@@ -31,7 +31,7 @@ import iso3166
 import pandas
 
 from jdluc import statistical
-from jdluc.datasets import faostat_production, ifpri_mapspam
+from jdluc.datasets import faostat, ifpri_mapspam
 from validation import pull, schema, targets
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ YIELD_TAXONOMY_YEAR = 2020
 WRI_REPORTING_YEARS = (2020, 2021, 2022, 2023, 2024)
 # Where the ingested FAOSTAT parquet is kept once fetched. 1.3 MiB against the 33 MiB archive it
 # replaces, and cached so the report keeps running offline after the first read.
-FAOSTAT_CACHE = pull.CACHE / "faostat_production.parquet"
+FAOSTAT_CACHE = pull.CACHE / "faostat.parquet"
 # How much of a revision or digest identifies an anchor in a `source_version`. Long enough not to
 # collide, short enough that a stale-baseline message is readable.
 SOURCE_VERSION_LENGTH = 12
@@ -402,11 +402,11 @@ def get_eligible() -> pandas.DataFrame:
     tiled = set(json.loads(TILED_ISO_3166S.read_text())["tiled_iso_3166s"])
     assert tiled, f"{TILED_ISO_3166S} names no countries, so every pair would fail E1"
     key_map = json.loads((pull.DATA / "gadm_to_world_bank_admin_1.json").read_text())
-    faostat = read_faostat_production()
+    production = read_faostat_production()
     candidates = tuple(
         iter_candidates(
             area_coverage=key_map["area_coverage"],
-            production_by_pair=faostat[faostat["year"] == REFERENCE_YEAR][
+            production_by_pair=production[production["year"] == REFERENCE_YEAR][
                 ["iso_3166", "crop_name", "production_kg"]
             ],
             tiled_iso_3166s=tiled,
@@ -1499,12 +1499,10 @@ def read_faostat_production() -> pandas.DataFrame:
     if not FAOSTAT_CACHE.exists():
         logger.info(f"Fetching the ingested FAOSTAT parquet to {FAOSTAT_CACHE}")
         FAOSTAT_CACHE.parent.mkdir(exist_ok=True, parents=True)
-        faostat_production.load(dataset=faostat_production.CROP_DATASET).to_parquet(
-            FAOSTAT_CACHE
-        )
+        faostat.load(dataset=faostat.CROP_DATASET).to_parquet(FAOSTAT_CACHE)
         pull.record_digest(
-            key="faostat_production.parquet",
-            origin=faostat_production.CROP_DATASET.get_prefix(tile_id="world"),
+            key="faostat.parquet",
+            origin=faostat.CROP_DATASET.get_prefix(tile_id="world"),
             path=FAOSTAT_CACHE,
             source="faostat",
         )
@@ -1517,7 +1515,7 @@ def read_faostat_production() -> pandas.DataFrame:
 def get_faostat_yields() -> pandas.DataFrame:
     """FAOSTAT's yield per country, crop and year, derived rather than read.
 
-    `jdluc.datasets.faostat_production` carries area and production and deliberately not yield,
+    `jdluc.datasets.faostat` carries area and production and deliberately not yield,
     because a MapSPAM group crop's yield is not the sum of its constituents'. Dividing here
     reproduces FAOSTAT's own published yield exactly for the one-to-one crops, which are all this
     compares.
@@ -1593,24 +1591,24 @@ def get_unpaired_crop_names(
     """
     unpaired = set(wri_yields["crop_name"]) - set(comparison["crop_name"])
     compared = set(comparison["crop_name"])
-    mapped = {crop.name for crop in faostat_production.Crop}
+    mapped = {crop.name for crop in faostat.Crop}
     reasons: dict[schema.UnpairedReason, tuple[str, ...]] = {}
     for reason, names in (
         (
             schema.UnpairedReason.SPAM_GROUP,
-            unpaired & faostat_production.SPAM_GROUP_CROP_NAMES,
+            unpaired & faostat.SPAM_GROUP_CROP_NAMES,
         ),
         (
             schema.UnpairedReason.SPAM_SPLIT,
-            unpaired & faostat_production.SPLIT_CROP_NAMES,
+            unpaired & faostat.SPLIT_CROP_NAMES,
         ),
         (schema.UnpairedReason.TOO_FEW_COUNTRIES, (unpaired & mapped) - compared),
         (
             schema.UnpairedReason.UNMAPPED,
             unpaired
             - mapped
-            - faostat_production.SPAM_GROUP_CROP_NAMES
-            - faostat_production.SPLIT_CROP_NAMES,
+            - faostat.SPAM_GROUP_CROP_NAMES
+            - faostat.SPLIT_CROP_NAMES,
         ),
     ):
         if names:
