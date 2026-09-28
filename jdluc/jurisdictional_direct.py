@@ -114,13 +114,13 @@ SCHEMA = {
 }
 
 
-@storage.cache_to_parquet(version=1)
+@storage.cache_to_parquet(version=0)
 def workflow(
-    crop_names: tuple[str, ...],
+    commodity_names: tuple[str, ...],
     iso_3166: str,
     tile_id: str,
 ) -> pandas.DataFrame:
-    crops = tuple(Crop[commodity_name] for commodity_name in crop_names)
+    crops = tuple(Crop[commodity_name] for commodity_name in commodity_names)
     assert iso_3166 == "USA", "JD only supports USA today"
 
     logger.info(f"Computing emissions for {crops=:} and {tile_id=:s}")

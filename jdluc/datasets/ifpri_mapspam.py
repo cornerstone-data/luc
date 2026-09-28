@@ -655,22 +655,25 @@ def get_canonical_quantity(
         siblings = sorted(GROUP_TO_CONSTITUENT_NAMES[group_name])
 
         def reference(canonical_name: str) -> xarray.DataArray:
-            ret = sum(
-                get_reported_quantity(
-                    dset=dset,
-                    quantity=quantity,
-                    reported_crop_name=get_reported_crop_name(
-                        canonical_crop_name=canonical_name, year=reference_year
-                    ),
-                    year=reference_year,
-                )
-                for reference_year in DECOMPOSITION_REFERENCE_YEARS
+            return sum(
+                (
+                    get_reported_quantity(
+                        dset=dset,
+                        quantity=quantity,
+                        reported_crop_name=get_reported_crop_name(
+                            canonical_crop_name=canonical_name, year=reference_year
+                        ),
+                        year=reference_year,
+                    )
+                    for reference_year in DECOMPOSITION_REFERENCE_YEARS
+                ),
+                start=xarray.DataArray(numpy.float32(0)),
             )
-            assert isinstance(ret, xarray.DataArray)
-            return ret
 
-        reference_group = sum(reference(canonical_name=s) for s in siblings)
-        assert isinstance(reference_group, xarray.DataArray)
+        reference_group = sum(
+            (reference(canonical_name=s) for s in siblings),
+            start=xarray.DataArray(numpy.float32(0)),
+        )
         constituent_share = xarray.where(
             reference_group > 0,
             reference(canonical_name=canonical_crop_name)

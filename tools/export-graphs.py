@@ -116,17 +116,17 @@ def iter_dfs(
     iso_3166_to_crop_names: dict[str, tuple[str, ...]],
     methodology: attribute.Methodology,
 ) -> collections.abc.Iterator[pandas.DataFrame]:
-    # The full crop list, so this reuses the caches an ordinary trace.py run populates
-    workflow_crop_names = attribute.get_crop_names(methodology=methodology)
+    # The full commodity list, so this reuses the caches an ordinary trace.py run populates
+    workflow_commodity_names = attribute.get_commodity_names(methodology=methodology)
     for iso_3166, crop_names in iso_3166_to_crop_names.items():
         logger.info(
             f"Tracing {methodology.name:s}/{iso_3166:s} with "
-            f"{len(workflow_crop_names):d} crops, tabulating {len(crop_names):d}"
+            f"{len(workflow_commodity_names):d} commodities, tabulating {len(crop_names):d}"
         )
         yield subset_to_crop_names(
             crop_names=crop_names,
             df=trace.workflow(
-                crop_names=workflow_crop_names,
+                commodity_names=workflow_commodity_names,
                 iso_3166s=(iso_3166,),
                 methodology=methodology,
             ),

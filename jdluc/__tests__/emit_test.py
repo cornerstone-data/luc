@@ -563,7 +563,7 @@ def get_dset_for_pixel(conversion: Conversion, is_peat: float) -> xarray.Dataset
         ),
     ),
 )
-def test_get_span_to_source_to_emissions(
+def test_get_span_to_component_to_emissions(
     conversion: Conversion, is_peat: float, source_to_expected: dict[str, float]
 ) -> None:
     # `emissions_mt` is computed from the span totals rather than by summing the component columns,
