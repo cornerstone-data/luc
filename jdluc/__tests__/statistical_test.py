@@ -554,9 +554,10 @@ def get_name_to_totals(
         },
         dset=dset.assign(
             {
-                "cropland-peatland-occupation:tco2e-per-ha": grid + cropland_occupation,
+                f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha": grid
+                + cropland_occupation,
                 "dropped-emissions:tco2e-per-ha": grid,
-                "pastureland-peatland-occupation:tco2e-per-ha": grid
+                f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha": grid
                 + pasture_occupation,
             }
             | {

@@ -273,12 +273,17 @@ DESTINATION_DATASET_TO_PREDICATE: dict[
 }
 assert set(DestinationDataset) == set(DESTINATION_DATASET_TO_PREDICATE)
 
-TO_CROPLAND = DestinationDataset.DESCALS_OIL_PALM | DestinationDataset.LIAO_GACED30
-TO_PASTURE = DestinationDataset.GPW_GRASSLAND
+CROPLAND_DATASETS = (
+    DestinationDataset.DESCALS_OIL_PALM | DestinationDataset.LIAO_GACED30
+)
+PASTURE_DATASETS = DestinationDataset.GPW_GRASSLAND
 # Each member belongs to one group, and the cropland members come first -- so a cropland bit
 # outranks a pasture one, which is what lets a pixel be tested against the two groups in turn
 # rather than resolved to a single member first
-assert tuple(DestinationDataset) == (*TO_CROPLAND, *TO_PASTURE)
+assert tuple(DestinationDataset) == (*CROPLAND_DATASETS, *PASTURE_DATASETS)
+# How band names spell each destination's land class
+CROPLAND = "cropland"
+PASTURELAND = "pastureland"
 
 
 def get_last_departure_year(is_source: xarray.DataArray) -> xarray.DataArray:
@@ -356,8 +361,8 @@ def get_conversion_record(dset: xarray.Dataset) -> ConversionRecord:
     destination_dataset = destination_dataset.astype(numpy.uint8)
     # NB: a cropland bit outranks a pasture one, so testing the groups in turn is the whole of
     # the priority order
-    to_cropland = (destination_dataset & TO_CROPLAND).astype(bool)
-    to_pasture = ~to_cropland & (destination_dataset & TO_PASTURE).astype(bool)
+    to_cropland = (destination_dataset & CROPLAND_DATASETS).astype(bool)
+    to_pasture = ~to_cropland & (destination_dataset & PASTURE_DATASETS).astype(bool)
 
     conversion_to_mask = {
         Conversion.FOREST_TO_CROPLAND: from_forest & to_cropland,
@@ -722,12 +727,12 @@ def workflow(tile_id: str) -> xarray.Dataset:
             for (before, after), darray in span_to_vegetation_emissions.items()
         }
         | {
-            "cropland-peatland-occupation": cropland_occupation_emissions,
+            f"{CROPLAND:s}-peatland-occupation": cropland_occupation_emissions,
             # NB: charged to nobody, so it is reported beside the total rather than inside it
             "dropped-emissions": dropped_emissions,
             "emissions-per-hectare": emissions_per_hectare,
             "hectares-per-pixel": get_hectares_per_pixel(darray=emissions_per_hectare),
-            "pastureland-peatland-occupation": pastureland_occupation_emissions,
+            f"{PASTURELAND:s}-peatland-occupation": pastureland_occupation_emissions,
         }
     )
 

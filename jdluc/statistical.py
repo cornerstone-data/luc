@@ -100,13 +100,13 @@ DATASET_NAMES = (
 
 
 EMIT_VARIABLE_NAMES = [
-    "cropland-peatland-occupation:tco2e-per-ha",
+    f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha",
     "dropped-emissions:tco2e-per-ha",
     "emissions:tco2e-per-ha:2000-2005",
     "emissions:tco2e-per-ha:2005-2010",
     "emissions:tco2e-per-ha:2010-2015",
     "emissions:tco2e-per-ha:2015-2020",
-    "pastureland-peatland-occupation:tco2e-per-ha",
+    f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
 ]
 
 
@@ -334,11 +334,13 @@ def get_commodity_name_to_totals(
     occupation_shares: dict[Commodity, xarray.DataArray],
     species_to_year_to_kg_per_head: dict[gpw_livestock.Species, dict[int, float]],
 ) -> dict[str, dict[str, float]]:
-    cropland_occupation_per_hectare = dset["cropland-peatland-occupation:tco2e-per-ha"]
+    cropland_occupation_per_hectare = dset[
+        f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
+    ]
     hectares = emit.get_hectares_per_pixel(darray=cropland_occupation_per_hectare)
     cropland_occupation = cropland_occupation_per_hectare * hectares
     pastureland_occupation = (
-        dset["pastureland-peatland-occupation:tco2e-per-ha"] * hectares
+        dset[f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha"] * hectares
     )
 
     commodity_to_totals: dict[
