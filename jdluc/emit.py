@@ -568,8 +568,9 @@ def get_span_to_component_to_emissions(
 
     A span's `emissions` is vegetation plus soil, and every unit of both is claimed exactly once:
     peat takes all the soil it sits under whatever the source class, and the source class takes
-    the soil that is left. So the three sum back to the span's own total, which is what lets
-    `emissions_mt` check them rather than restate them.
+    the soil that is left. So the three sum back to the span's own total: the statistical leg
+    builds `emissions_mt` by adding them up, and the jurisdictional-direct leg, which reads
+    `emissions_mt` from `emissions-per-hectare`, can check them against it.
 
     There is no residual, because `get_conversion_emissions` charges only where a conversion
     fired and every conversion names a source class. Carbon that reaches no conversion is real,
