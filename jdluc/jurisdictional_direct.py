@@ -44,11 +44,11 @@ EMISSIONS_AND_CROP_VARIABLE_NAMES = [
     # Harmonized
     gnw_global_peatlands.DATASET.fully_qualified_band_name,
     # Emissions
-    "cropland-peatland-occupation:tco2e-per-ha",
+    f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha",
     "dropped-emissions:tco2e-per-ha",
     "emissions-per-hectare:tco2e-per-ha",
     "hectares-per-pixel:ha",
-    "pastureland-peatland-occupation:tco2e-per-ha",
+    f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
     *(f"{component!s}-emissions:tco2e-per-ha" for component in emit.EmissionComponent),
     # Crop
     usda_nass_cdl.DATASET.fully_qualified_band_name,
@@ -189,7 +189,7 @@ def workflow(
                     # NB: this leg allocates to CDL crops alone, so peat drained under
                     # pasture has no row to land on, and leaves the total along with it
                     emissions_per_hectare=clipped["emissions-per-hectare:tco2e-per-ha"]
-                    - clipped["pastureland-peatland-occupation:tco2e-per-ha"],
+                    - clipped[f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha"],
                     hectares_per_pixel=clipped["hectares-per-pixel:ha"],
                     # NB: no data has to read as not peat rather than truth-testing to peat
                     is_peatland=clipped[
@@ -197,7 +197,7 @@ def workflow(
                     ]
                     == 1,
                     peatland_occupation_per_hectare=clipped[
-                        "cropland-peatland-occupation:tco2e-per-ha"
+                        f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
                     ],
                 )
                 for commodity_name, totals in commodity_name_to_totals.items():

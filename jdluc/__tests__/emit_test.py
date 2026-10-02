@@ -446,7 +446,7 @@ def test_get_dset_for_output_appends_each_band_its_units() -> None:
     result = get_dset_for_output(
         name_to_darray={
             "conversion": get_darray_for_data(data=[[1]]).rename(None),
-            "emissions:2015-2020": get_darray_for_data(data=[[1]]).rename(
+            "soil-emissions:2015-2020": get_darray_for_data(data=[[1]]).rename(
                 "tco2e-per-ha"
             ),
             "hectares-per-pixel": get_darray_for_data(data=[[1]]).rename("ha"),
@@ -454,7 +454,7 @@ def test_get_dset_for_output_appends_each_band_its_units() -> None:
     )
     assert set(result) == {
         "conversion",
-        "emissions:tco2e-per-ha:2015-2020",
+        "soil-emissions:tco2e-per-ha:2015-2020",
         "hectares-per-pixel:ha",
     }
 
