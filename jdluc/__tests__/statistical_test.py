@@ -14,6 +14,7 @@ from jdluc.statistical import (
     Livestock,
     get_band_name_to_livestock_units,
     get_commodity_name_to_totals,
+    get_commodity_to_peatland_conversion_share,
     get_commodity_to_share,
     get_crop_to_area_share,
     get_livestock_to_grazing_share,
@@ -706,6 +707,67 @@ def test_get_commodity_to_share_charges_pasture_and_its_grazers(
     assert {
         commodity: get_value(shares[commodity]) for commodity in expected
     } == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("areas", "pasture_fraction", "density", "expected"),
+    (
+        pytest.param(
+            {2010: {}, 2020: {"MAIZ": 100.0}},
+            {2020: 100.0 / HECTARES_PER_CELL},
+            {},
+            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 1.0},
+            id="pasture-expanding-beside-the-crop-takes-none-of-the-cropland-pulse",
+        ),
+        pytest.param(
+            {2010: {}, 2020: {}},
+            {2020: 0.25},
+            {},
+            {Crop.MAIZE: 0.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 1.0},
+            id="where-no-crop-expanded-the-cropland-pulse-goes-to-nobody",
+        ),
+        pytest.param(
+            {2010: {}, 2020: {"MAIZ": 100.0, UNATTRIBUTED_0: 100.0}},
+            {},
+            {},
+            {Crop.MAIZE: 0.5},
+            id="crops-it-cannot-attribute-keep-their-share-of-the-cropland-pulse",
+        ),
+        pytest.param(
+            {2010: {}, 2020: {"MAIZ": 100.0}},
+            {2010: 0.5, 2020: 0.5},
+            {(CATTLE, 2020): 0.1, (SHEEP, 2020): 0.7},
+            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.5, Livestock.PASTURE: 0.5},
+            id="the-pasture-pulse-goes-to-the-grazers-where-only-crops-expanded",
+        ),
+        pytest.param(
+            {2010: {}, 2020: {}},
+            {2010: 0.5, 2020: 0.5},
+            {(SHEEP, 2010): 0.7, (CATTLE, 2020): 0.1},
+            {Crop.MAIZE: 0.0, Livestock.BEEF_CATTLE: 1.0, Livestock.PASTURE: 0.0},
+            id="the-pasture-pulse-goes-to-whoever-grazes-at-the-end-of-the-span",
+        ),
+    ),
+)
+def test_get_commodity_to_peatland_conversion_share(
+    areas: dict[int, dict[str, float]],
+    pasture_fraction: dict[int, float],
+    density: dict[tuple[gpw_livestock.Species, int], float],
+    expected: dict[Commodity, float],
+) -> None:
+    dset = get_dset_for_areas(
+        areas=areas, density=density, pasture_fraction=pasture_fraction
+    )
+    shares = get_commodity_to_peatland_conversion_share(
+        after=2020, before=2010, crops=(Crop.MAIZE,), dset=dset
+    )
+    assert {
+        commodity: get_value(shares[commodity]) for commodity in expected
+    } == pytest.approx(expected)
+    # Unlike the crops', the grazers' shares always divide the whole of their half
+    assert sum(
+        get_value(shares[livestock]) for livestock in Livestock
+    ) == pytest.approx(1.0)
 
 
 def test_occupation_divides_each_peat_band_by_its_own_shares() -> None:

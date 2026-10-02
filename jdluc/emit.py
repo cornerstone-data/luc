@@ -233,6 +233,13 @@ FROM_GRASSLAND = (
     Conversion.RANGELAND_TO_PASTURE,
 )
 assert set(FROM_FOREST) ^ set(FROM_GRASSLAND) == set(Conversion) - {Conversion.NONE}
+TO_CROPLAND = (
+    Conversion.FOREST_TO_CROPLAND,
+    Conversion.PASTURE_TO_CROPLAND,
+    Conversion.RANGELAND_TO_CROPLAND,
+)
+TO_PASTURE = (Conversion.FOREST_TO_PASTURE, Conversion.RANGELAND_TO_PASTURE)
+assert set(TO_CROPLAND) ^ set(TO_PASTURE) == set(Conversion) - {Conversion.NONE}
 
 
 class DestinationDataset(enum.IntFlag):

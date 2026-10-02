@@ -239,18 +239,23 @@ def get_commodity_hectares(
         )
 
 
-def get_commodity_to_share(
-    after: int, before: int, crops: tuple[Crop, ...], dset: xarray.Dataset
-) -> dict[Commodity, xarray.DataArray]:
-    """Each commodity's share of everything a cell emitted in a span, whatever each pixel became."""
+def get_crop_expansion(
+    after: int, before: int, crop: Crop, dset: xarray.Dataset
+) -> xarray.DataArray:
+    return (
+        get_commodity_hectares(commodity=crop, dset=dset, year=after)
+        - get_commodity_hectares(commodity=crop, dset=dset, year=before)
+    ).clip(min=0)
 
-    def get_expansion(crop: Crop) -> xarray.DataArray:
-        return (
-            get_commodity_hectares(commodity=crop, dset=dset, year=after)
-            - get_commodity_hectares(commodity=crop, dset=dset, year=before)
-        ).clip(min=0)
 
-    attributed_expansion = sum(get_expansion(crop=crop) for crop in sorted(Crop))
+def get_cropland_expansion(
+    after: int, before: int, dset: xarray.Dataset
+) -> xarray.DataArray:
+    """Every crop's expansion in a cell over a span, whether or not `Crop` claims it."""
+    attributed_expansion = sum(
+        get_crop_expansion(after=after, before=before, crop=crop, dset=dset)
+        for crop in sorted(Crop)
+    )
 
     # Drop any crops which are being newly tracked so they aren't interpreted as an expansion from zero
     before_names = ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[before]
@@ -278,18 +283,32 @@ def get_commodity_to_share(
         get_unattributed(names=after_names, year=after)
         - get_unattributed(names=before_names, year=before)
     ).clip(min=0)
+    return attributed_expansion + unattributed_expansion
+
+
+def get_commodity_to_share(
+    after: int, before: int, crops: tuple[Crop, ...], dset: xarray.Dataset
+) -> dict[Commodity, xarray.DataArray]:
+    """Each commodity's share of everything a cell emitted in a span, whatever each pixel became."""
     # Pastureland expands alongside the crops, measured net and clipped exactly as a crop's is:
     # GPW is annual, and its gross gain would charge pasture for churn MapSPAM cannot see
     pasture_expansion = (
         get_pasture_hectares(dset=dset, year=after)
         - get_pasture_hectares(dset=dset, year=before)
     ).clip(min=0)
-    total_expansion = attributed_expansion + unattributed_expansion + pasture_expansion
+    total_expansion = (
+        get_cropland_expansion(after=after, before=before, dset=dset)
+        + pasture_expansion
+    )
     total_expansion = total_expansion.where(total_expansion > 0)
     # Share is zero when there is no expansion at all
     pasture_share = (pasture_expansion / total_expansion).fillna(0)
     return {
-        crop: (get_expansion(crop=crop) / total_expansion).fillna(0) for crop in crops
+        crop: (
+            get_crop_expansion(after=after, before=before, crop=crop, dset=dset)
+            / total_expansion
+        ).fillna(0)
+        for crop in crops
     } | {
         # NB: pasture's share is split by who grazes at the end of the span. Measuring each
         # livestock commodity's own expansion instead would count one grazer replacing another as
@@ -299,6 +318,27 @@ def get_commodity_to_share(
             dset=dset, year=after
         ).items()
     }
+
+
+def get_commodity_to_peatland_conversion_share(
+    after: int, before: int, crops: tuple[Crop, ...], dset: xarray.Dataset
+) -> dict[Commodity, xarray.DataArray]:
+    """Each commodity's share of the pulse on peat drained for its own land class.
+
+    A crop takes its share of crop expansion alone, so pasture expanding beside it takes none of
+    the pulse on peat drained for cropland, and where no crop expanded that pulse goes to nobody.
+    The grazers divide the pulse on peat drained for pasture by grazing share at the end of the
+    span, which always sums to one.
+    """
+    cropland_expansion = get_cropland_expansion(after=after, before=before, dset=dset)
+    cropland_expansion = cropland_expansion.where(cropland_expansion > 0)
+    return {
+        crop: (
+            get_crop_expansion(after=after, before=before, crop=crop, dset=dset)
+            / cropland_expansion
+        ).fillna(0)
+        for crop in crops
+    } | get_livestock_to_grazing_share(dset=dset, year=after)
 
 
 SPAN_TO_MAPSPAM_SPAN = {
