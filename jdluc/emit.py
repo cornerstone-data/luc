@@ -5,8 +5,8 @@ conversion carries, charges them to the five-year span holding that year, adds o
 peatland-occupation emissions split by destination, and applies the GHGP 20-year linear discount.
 
 Returns a cached xarray.Dataset: the conversion, the year its source class ended and the datasets
-that claimed its destination; vegetation, soil and total emissions per span; the two occupation
-bands; the discounted per-hectare total; the source carbon no destination claimed; and a
+that claimed its destination; vegetation and soil emissions per span; the two occupation bands;
+the discounted per-hectare total; the source carbon no destination claimed; and a
 hectares-per-pixel band for downstream area-scaling.
 
 Source carbon that no destination claimed is charged to nobody and reported on its own as
@@ -566,7 +566,7 @@ def get_span_to_component_to_emissions(
 ) -> dict[SpanType, dict[EmissionComponent, xarray.DataArray]]:
     """Split each span's emissions into the three components that claim them.
 
-    A span's `emissions` is vegetation plus soil, and every unit of both is claimed exactly once:
+    A span's emissions are vegetation plus soil, and every unit of both is claimed exactly once:
     peat takes all the soil it sits under whatever the source class, and the source class takes
     the soil that is left. So the three sum back to the span's own total: the statistical leg
     builds `emissions_mt` by adding them up, and the jurisdictional-direct leg, which reads
@@ -721,10 +721,6 @@ def workflow(tile_id: str) -> xarray.Dataset:
             "conversion": conversion_record.conversion,
             "conversion-year": conversion_record.year,
             "destination-dataset": conversion_record.destination_dataset,
-        }
-        | {
-            f"emissions:{before:d}-{after:d}": darray
-            for (before, after), darray in span_to_emissions.items()
         }
         | {
             f"soil-emissions:{before:d}-{after:d}": darray
