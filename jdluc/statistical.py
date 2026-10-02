@@ -102,12 +102,15 @@ DATASET_NAMES = (
 EMIT_VARIABLE_NAMES = [
     f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha",
     "dropped-emissions:tco2e-per-ha",
-    "emissions:tco2e-per-ha:2000-2005",
-    "emissions:tco2e-per-ha:2005-2010",
-    "emissions:tco2e-per-ha:2010-2015",
-    "emissions:tco2e-per-ha:2015-2020",
     f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
 ]
+
+# Components divided by the pooled expansion share. The peat pulse is not one of them: it is stored
+# as two bands, peat drained for cropland and peat drained for pasture, each with its own share.
+POOLED_COMPONENTS = (emit.EmissionComponent.FOREST, emit.EmissionComponent.GRASSLAND)
+assert set(POOLED_COMPONENTS) == set(emit.EmissionComponent) - {
+    emit.EmissionComponent.PEATLAND_CONVERSION
+}
 
 
 @storage.cache_to_zarr(version=0)
@@ -131,9 +134,22 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
     for (before, after), component_to_darray in emit.get_span_to_component_to_emissions(
         dset=luc_and_emissions
     ).items():
-        for component, darray in component_to_darray.items():
+        for component in POOLED_COMPONENTS:
             name = f"{component!s}:tco2e-per-ha:{before:d}-{after:d}"
-            luc_and_emissions[name] = darray
+            luc_and_emissions[name] = component_to_darray[component]
+            derived_variable_names.append(name)
+        # NB: `emit` puts soil emissions only on converted pixels, and every conversion ends in
+        # cropland or pasture, so the two bands add up to the whole pulse
+        for land_class, conversions in (
+            (emit.CROPLAND, emit.TO_CROPLAND),
+            (emit.PASTURELAND, emit.TO_PASTURE),
+        ):
+            name = (
+                f"{land_class:s}-peatland-conversion:tco2e-per-ha:{before:d}-{after:d}"
+            )
+            luc_and_emissions[name] = component_to_darray[
+                emit.EmissionComponent.PEATLAND_CONVERSION
+            ].where(luc_and_emissions["conversion"].isin(conversions), other=0)
             derived_variable_names.append(name)
 
     logger.info("Measuring pasture extent at each MAPSPAM snapshot")
@@ -369,11 +385,20 @@ def get_discounted_snapshot_mean(
 
 
 def get_commodity_name_to_totals(
-    commodity_to_span_to_share: dict[Commodity, dict[emit.SpanType, xarray.DataArray]],
+    commodities: tuple[Commodity, ...],
     dset: xarray.Dataset,
     occupation_shares: dict[Commodity, xarray.DataArray],
+    span_to_commodity_to_peatland_conversion_share: dict[
+        emit.SpanType, dict[Commodity, xarray.DataArray]
+    ],
+    span_to_commodity_to_share: dict[emit.SpanType, dict[Commodity, xarray.DataArray]],
     species_to_year_to_kg_per_head: dict[gpw_livestock.Species, dict[int, float]],
 ) -> dict[str, dict[str, float]]:
+    """Each commodity's emissions, area and production, summed over a jurisdiction's cells.
+
+    Both share mappings are keyed by MapSPAM span. Each emissions span uses the shares of the
+    MapSPAM span that contains it (`SPAN_TO_MAPSPAM_SPAN`).
+    """
     cropland_occupation_per_hectare = dset[
         f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
     ]
@@ -386,8 +411,11 @@ def get_commodity_name_to_totals(
     commodity_to_totals: dict[
         Commodity | emit.NonCommodity, dict[str, xarray.DataArray]
     ] = collections.defaultdict(dict)
-    for commodity, span_to_share in commodity_to_span_to_share.items():
+    for commodity in commodities:
         totals = commodity_to_totals[commodity]
+        land_class = (
+            emit.PASTURELAND if isinstance(commodity, Livestock) else emit.CROPLAND
+        )
         component_to_emissions = {
             component: emit.get_linear_discounted_total(
                 span_to_value={
@@ -395,11 +423,26 @@ def get_commodity_name_to_totals(
                         f"{component!s}:tco2e-per-ha:{before:d}-{after:d}"
                     ]
                     * hectares
-                    * span_to_share[SPAN_TO_MAPSPAM_SPAN[(before, after)]]
+                    * span_to_commodity_to_share[SPAN_TO_MAPSPAM_SPAN[(before, after)]][
+                        commodity
+                    ]
                     for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
                 }
             )
-            for component in ("emissions", *emit.EmissionComponent)
+            for component in POOLED_COMPONENTS
+        } | {
+            emit.EmissionComponent.PEATLAND_CONVERSION: emit.get_linear_discounted_total(
+                span_to_value={
+                    (before, after): dset[
+                        f"{land_class:s}-peatland-conversion:tco2e-per-ha:{before:d}-{after:d}"
+                    ]
+                    * hectares
+                    * span_to_commodity_to_peatland_conversion_share[
+                        SPAN_TO_MAPSPAM_SPAN[(before, after)]
+                    ][commodity]
+                    for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
+                }
+            )
         }
         totals |= {
             component.column: component_to_emissions[component]
@@ -461,7 +504,7 @@ def get_commodity_name_to_totals(
             occupation / emit.PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA
         )
         totals["peatland_occupation_emissions_mt"] = occupation
-        totals["emissions_mt"] = component_to_emissions["emissions"] + occupation
+        totals["emissions_mt"] = sum(component_to_emissions.values(), start=occupation)
 
     commodity_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
         dset["dropped-emissions:tco2e-per-ha"] * hectares
@@ -613,12 +656,14 @@ def workflow(
                     )
                     for (before, after) in dict.fromkeys(SPAN_TO_MAPSPAM_SPAN.values())
                 }
-                commodity_to_span_to_share = {
-                    commodity: {
-                        span: commodity_to_share[commodity]
-                        for span, commodity_to_share in span_to_commodity_to_share.items()
-                    }
-                    for commodity in commodities
+                span_to_commodity_to_peatland_conversion_share = {
+                    (before, after): get_commodity_to_peatland_conversion_share(
+                        after=after,
+                        before=before,
+                        crops=crops,
+                        dset=clipped,
+                    )
+                    for (before, after) in span_to_commodity_to_share
                 }
 
                 logger.info(
@@ -626,7 +671,7 @@ def workflow(
                     f"{len(commodities):d} commodities"
                 )
                 commodity_name_to_totals = get_commodity_name_to_totals(
-                    commodity_to_span_to_share=commodity_to_span_to_share,
+                    commodities=commodities,
                     dset=clipped,
                     # NB: unlike conversion emissions, peatland occupation is a land-management flux on land
                     # that is drained *now* -- it has no relationship to expansion, and expansion is zero on
@@ -641,6 +686,8 @@ def workflow(
                     | get_livestock_to_grazing_share(
                         dset=clipped, year=max(ifpri_mapspam.YEARS)
                     ),
+                    span_to_commodity_to_peatland_conversion_share=span_to_commodity_to_peatland_conversion_share,
+                    span_to_commodity_to_share=span_to_commodity_to_share,
                     species_to_year_to_kg_per_head=species_to_year_to_kg_per_head,
                 )
                 for commodity_name, totals in commodity_name_to_totals.items():
