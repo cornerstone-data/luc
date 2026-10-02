@@ -12,6 +12,7 @@ from jdluc.statistical import (
     Commodity,
     Crop,
     Livestock,
+    get_band_name_to_livestock_units,
     get_commodity_name_to_totals,
     get_commodity_to_share,
     get_crop_to_area_share,
@@ -50,6 +51,15 @@ UNATTRIBUTED_2020_ONLY = sorted(
 # `get_value` below exact
 GRID = {"y": [0.1, 0.2], "x": [0.1, 0.2]}
 PIXELS = 4
+# FAO's livestock units per head for South America, written out so every expected share below
+# can be checked by hand
+UNITS_PER_HEAD = {
+    gpw_livestock.Species.BUFFALO: 0.70,
+    gpw_livestock.Species.CATTLE: 0.70,
+    gpw_livestock.Species.GOAT: 0.10,
+    gpw_livestock.Species.HORSE: 0.65,
+    gpw_livestock.Species.SHEEP: 0.10,
+}
 
 
 def get_value(darray: xarray.DataArray) -> float:
@@ -60,11 +70,12 @@ def get_dset(
     values: dict[tuple[ifpri_mapspam.Quantity, int], dict[str, float]],
     density: dict[tuple[gpw_livestock.Species, int], float] | None = None,
     pasture_fraction: dict[int, float] | None = None,
+    units_per_head: dict[gpw_livestock.Species, float] | None = None,
 ) -> xarray.Dataset:
     # A band for every crop of every (quantity, year) -- the real dset always carries all four
     # snapshots.  Unset crops, and unset years, are 0.  Pasture rides along as a cell fraction, and
-    # each grazer as a density in heads/ha.
-    return xarray.Dataset(
+    # each grazer as a density in heads/ha, weighed into livestock units as `workflow` weighs them.
+    dset = xarray.Dataset(
         {
             ifpri_mapspam.get_band_name(
                 quantity=quantity, reported_crop_name=crop.name, year=year
@@ -90,6 +101,11 @@ def get_dset(
             ).items()
         }
     ).expand_dims(GRID)
+    return dset.assign(
+        get_band_name_to_livestock_units(
+            dset=dset, species_to_units_per_head=units_per_head or UNITS_PER_HEAD
+        )
+    )
 
 
 def get_dset_for_areas(
@@ -792,6 +808,13 @@ def test_get_livestock_to_grazing_share(
 
 
 @pytest.mark.parametrize(
+    "units_per_head",
+    (
+        pytest.param(UNITS_PER_HEAD, id="south-america-coefficients"),
+        pytest.param(UNITS_PER_HEAD | {CATTLE: 1.4}, id="cattle-weighed-double"),
+    ),
+)
+@pytest.mark.parametrize(
     ("pasture_fraction", "year_to_kg_per_head", "expected_kg_per_ha"),
     (
         pytest.param(
@@ -819,11 +842,15 @@ def test_the_beef_row_reports_its_herds_carcass_weight(
     pasture_fraction: float,
     year_to_kg_per_head: dict[int, float],
     expected_kg_per_ha: float,
+    units_per_head: dict[gpw_livestock.Species, float],
 ) -> None:
+    # Production counts heads, so however a head of cattle is weighed in livestock units, the herd's
+    # carcass weight is the same
     totals = get_name_to_totals(
         dset=get_dset(
             density=get_density(heads_per_ha={CATTLE: 0.1}),
             pasture_fraction=dict.fromkeys(ifpri_mapspam.YEARS, pasture_fraction),
+            units_per_head=units_per_head,
             values={},
         ),
         year_to_kg_per_head=year_to_kg_per_head,

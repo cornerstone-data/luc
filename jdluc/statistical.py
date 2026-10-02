@@ -11,7 +11,7 @@ import xarray
 from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
     DatasetName,
-    faostat_production,
+    faostat,
     gpw_grassland,
     gpw_livestock,
     ifpri_mapspam,
@@ -78,23 +78,7 @@ assert sum(len(species) for species in LIVESTOCK_TO_SPECIES.values()) == len(
     set(LIVESTOCK_TO_SPECIES.values())
 )
 
-# FAO's livestock units per head, weighing how much one head of each species grazes: the South
-# America row of the regional coefficients FAOSTAT Livestock Patterns applies (FAO 2011, after
-# Chilonda and Otte 2006; reprinted as Table 1 of
-# https://files-faostat.fao.org/production/EK/EK_e.pdf), applied everywhere. That row leaves buffalo
-# blank, so it takes the 0.70 most other regions give it. Only the ratios between species matter,
-# since a share divides each by the cell's total, and FAOSTAT holds the coefficients fixed in time.
-SPECIES_TO_LIVESTOCK_UNITS_PER_HEAD = {
-    gpw_livestock.Species.BUFFALO: 0.70,
-    gpw_livestock.Species.CATTLE: 0.70,
-    gpw_livestock.Species.GOAT: 0.10,
-    gpw_livestock.Species.HORSE: 0.65,
-    gpw_livestock.Species.SHEEP: 0.10,
-}
-assert set(SPECIES_TO_LIVESTOCK_UNITS_PER_HEAD) == set(gpw_livestock.Species)
-assert {e.name for e in faostat_production.Species} == {
-    e.name for e in gpw_livestock.Species
-}
+assert {e.name for e in faostat.Species} == {e.name for e in gpw_livestock.Species}
 
 
 # `Crop` stays exactly MapSPAM's recoverable crops, because everything that divides by one looks
@@ -191,17 +175,39 @@ def get_pasture_hectares(dset: xarray.Dataset, year: int) -> xarray.DataArray:
     return darray * emit.get_hectares_per_pixel(darray=darray)
 
 
+def get_livestock_units_band_name(species: gpw_livestock.Species, year: int) -> str:
+    """The band carrying `species`' density in livestock units/ha in `year`."""
+    return f"{species:s}:livestock-units-per-ha:{year:d}"
+
+
+def get_band_name_to_livestock_units(
+    dset: xarray.Dataset, species_to_units_per_head: dict[gpw_livestock.Species, float]
+) -> dict[str, xarray.DataArray]:
+    """Each grazer's density in livestock units/ha, for assigning beside its density in heads.
+
+    Livestock units weigh how much one head of a species grazes, so they divide pasture between
+    grazers; production counts heads, and reads the heads bands.
+    """
+    return {
+        get_livestock_units_band_name(species=species, year=year): dset[
+            gpw_livestock.get_band_name(species=species, year=year)
+        ]
+        * species_to_units_per_head[species]
+        for species, year in gpw_livestock.SPECIES_YEARS
+    }
+
+
 def get_livestock_to_grazing_share(
     dset: xarray.Dataset, year: int
 ) -> dict[Livestock, xarray.DataArray]:
     """Each commodity's share of a cell's pasture: its grazers' livestock units over all of them.
 
-    Each livestock unit in a cell is taken to graze an equal slice of that cell's pasture.
+    Each livestock unit in a cell is taken to graze an equal slice of that cell's pasture. Only the
+    ratios between species' units per head matter, since a share divides each by the cell's total.
     """
     species_to_units = {
-        species: dset[gpw_livestock.get_band_name(species=species, year=year)]
-        * units_per_head
-        for species, units_per_head in SPECIES_TO_LIVESTOCK_UNITS_PER_HEAD.items()
+        species: dset[get_livestock_units_band_name(species=species, year=year)]
+        for species in gpw_livestock.Species
     }
     zero = xarray.DataArray(numpy.float32(0))
     total = sum(species_to_units.values(), start=zero)
@@ -385,7 +391,7 @@ def get_commodity_name_to_totals(
                 totals["production_mt"] = (
                     get_discounted_snapshot_mean(year_to_value=year_to_kg_per_ha)
                     * hectares
-                    / faostat_production.KG_PER_TONNE
+                    / faostat.KG_PER_TONNE
                 )
         else:
             occupation = cropland_occupation * occupation_shares[commodity]
@@ -504,11 +510,27 @@ def workflow(
         ),
     )
 
+    stocks = faostat.load(dataset=faostat.LIVESTOCK_DATASET)
+    # Each grazer's livestock units per head, as FAOSTAT counts them for this country
+    merged = merged.assign(
+        get_band_name_to_livestock_units(
+            dset=merged,
+            species_to_units_per_head={
+                gpw_livestock.Species[species.name]: units_per_head
+                for species, units_per_head in faostat.get_species_to_livestock_units_per_head(
+                    iso_3166=iso_3166,
+                    livestock_units=faostat.load(
+                        dataset=faostat.LIVESTOCK_PATTERNS_DATASET
+                    ),
+                    stocks=stocks,
+                ).items()
+            },
+        )
+    )
+
     # National carcass weight per standing head. A year FAOSTAT reports no meat for gets a rate of
     # 0, which is what `attribute` would make of a missing production anyway.
-    livestock = faostat_production.load(
-        dataset=faostat_production.LIVESTOCK_DATASET
-    ).reset_index()
+    livestock = stocks.reset_index()
     livestock = livestock[
         (livestock["admin_id"] == iso_3166)
         & livestock["year"].isin(MAPSPAM_SNAPSHOT_YEARS)

@@ -3,7 +3,7 @@ import enum
 from jdluc.datasets import (
     base,
     descals_oil_palm,
-    faostat_production,
+    faostat,
     glad_glcluc,
     gnw_global_peatlands,
     gnw_harris_agb,
@@ -30,6 +30,7 @@ class DatasetName(enum.StrEnum):
         return name
 
     DESCALS_OIL_PALM = enum.auto()
+    FAOSTAT_LIVESTOCK_PATTERNS = enum.auto()
     FAOSTAT_PRODUCTION_CROPS = enum.auto()
     FAOSTAT_PRODUCTION_LIVESTOCK = enum.auto()
     GLAD_GLCLUC = enum.auto()
@@ -61,8 +62,9 @@ NAME_TO_CLS: dict[
     DatasetName, base.RasterDataset | base.TabularDataset | base.VectorDataset
 ] = {
     DatasetName.DESCALS_OIL_PALM: descals_oil_palm.DATASET,
-    DatasetName.FAOSTAT_PRODUCTION_CROPS: faostat_production.CROP_DATASET,
-    DatasetName.FAOSTAT_PRODUCTION_LIVESTOCK: faostat_production.LIVESTOCK_DATASET,
+    DatasetName.FAOSTAT_LIVESTOCK_PATTERNS: faostat.LIVESTOCK_PATTERNS_DATASET,
+    DatasetName.FAOSTAT_PRODUCTION_CROPS: faostat.CROP_DATASET,
+    DatasetName.FAOSTAT_PRODUCTION_LIVESTOCK: faostat.LIVESTOCK_DATASET,
     DatasetName.GLAD_GLCLUC: glad_glcluc.DATASET,
     DatasetName.GNW_GLOBAL_PEATLANDS: gnw_global_peatlands.DATASET,
     DatasetName.GNW_HARRIS_AGB: gnw_harris_agb.DATASET,
