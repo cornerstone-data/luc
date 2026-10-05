@@ -116,7 +116,7 @@ This is a deliberately **lightweight** way to get one of the nicest developer-ex
 
 ### Ingest-layer provenance
 
-Provenance for *ingested* data is handled differently, and on purpose. Ingested datasets are best thought of as minimally-modified, analysis-ready copies of the external sources; they change rarely, so a more expensive and manual explicit approach is worthwhile. Each ingested COG carries metadata tags (`watershed-data-version`, `watershed-processing-version` = git SHA, `watershed-processing-time`, `watershed-source-name`, `watershed-product-name`, `watershed-remote-url`), and tiles are stored under a deterministic prefix `{source}/{product}/{version}/{partitioning}/{tile_id}`. The goal is that anyone who stumbles onto an artifact can understand how it was created and where to find more context.
+Provenance for *ingested* data is handled differently, and on purpose. Ingested datasets are best thought of as minimally-modified, analysis-ready copies of the external sources; they change rarely, so a more expensive and manual explicit approach is worthwhile. Each ingested COG carries metadata tags (`cornerstone-data-version`, `cornerstone-processing-version` = git SHA, `cornerstone-processing-time`, `cornerstone-source-name`, `cornerstone-product-name`, `cornerstone-remote-url`), and tiles are stored under a deterministic prefix `{source}/{product}/{version}/{partitioning}/{tile_id}`. The goal is that anyone who stumbles onto an artifact can understand how it was created and where to find more context.
 
 The contrast is deliberate: **explicit provenance for slow-changing ingested sources; light, implicit cache keys for the internal logic that changes often.**
 

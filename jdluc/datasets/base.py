@@ -75,12 +75,12 @@ class RasterDataset:
                 path_to_cog = os.path.join(tmpdir, "cog.tif")
                 geo.convert_geotiff_to_cog(
                     metadata={
-                        "watershed-data-version": self.version,
-                        "watershed-processing-time": utils.get_utc_timestamp(),
-                        "watershed-processing-version": utils.get_git_version(),
-                        "watershed-product-name": self.product_name,
-                        "watershed-remote-url": utils.get_git_remote_url(),
-                        "watershed-source-name": self.source_name,
+                        "cornerstone-data-version": self.version,
+                        "cornerstone-processing-time": utils.get_utc_timestamp(),
+                        "cornerstone-processing-version": utils.get_git_version(),
+                        "cornerstone-product-name": self.product_name,
+                        "cornerstone-remote-url": utils.get_git_remote_url(),
+                        "cornerstone-source-name": self.source_name,
                     },
                     no_data=self.no_data,
                     path_to_cog=path_to_cog,
