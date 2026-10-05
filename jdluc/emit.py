@@ -5,8 +5,8 @@ conversion carries, charges them to the five-year span holding that year, adds o
 peatland-occupation emissions split by destination, and applies the GHGP 20-year linear discount.
 
 Returns a cached xarray.Dataset: the conversion, the year its source class ended and the datasets
-that claimed its destination; vegetation, soil and total emissions per span; the two occupation
-bands; the discounted per-hectare total; the source carbon no destination claimed; and a
+that claimed its destination; vegetation and soil emissions per span; the two occupation bands;
+the discounted per-hectare total; the source carbon no destination claimed; and a
 hectares-per-pixel band for downstream area-scaling.
 
 Source carbon that no destination claimed is charged to nobody and reported on its own as
@@ -233,6 +233,13 @@ FROM_GRASSLAND = (
     Conversion.RANGELAND_TO_PASTURE,
 )
 assert set(FROM_FOREST) ^ set(FROM_GRASSLAND) == set(Conversion) - {Conversion.NONE}
+TO_CROPLAND = (
+    Conversion.FOREST_TO_CROPLAND,
+    Conversion.PASTURE_TO_CROPLAND,
+    Conversion.RANGELAND_TO_CROPLAND,
+)
+TO_PASTURE = (Conversion.FOREST_TO_PASTURE, Conversion.RANGELAND_TO_PASTURE)
+assert set(TO_CROPLAND) ^ set(TO_PASTURE) == set(Conversion) - {Conversion.NONE}
 
 
 class DestinationDataset(enum.IntFlag):
@@ -273,12 +280,17 @@ DESTINATION_DATASET_TO_PREDICATE: dict[
 }
 assert set(DestinationDataset) == set(DESTINATION_DATASET_TO_PREDICATE)
 
-TO_CROPLAND = DestinationDataset.DESCALS_OIL_PALM | DestinationDataset.LIAO_GACED30
-TO_PASTURE = DestinationDataset.GPW_GRASSLAND
+CROPLAND_DATASETS = (
+    DestinationDataset.DESCALS_OIL_PALM | DestinationDataset.LIAO_GACED30
+)
+PASTURE_DATASETS = DestinationDataset.GPW_GRASSLAND
 # Each member belongs to one group, and the cropland members come first -- so a cropland bit
 # outranks a pasture one, which is what lets a pixel be tested against the two groups in turn
 # rather than resolved to a single member first
-assert tuple(DestinationDataset) == (*TO_CROPLAND, *TO_PASTURE)
+assert tuple(DestinationDataset) == (*CROPLAND_DATASETS, *PASTURE_DATASETS)
+# How band names spell each destination's land class
+CROPLAND = "cropland"
+PASTURELAND = "pastureland"
 
 
 def get_last_departure_year(is_source: xarray.DataArray) -> xarray.DataArray:
@@ -356,8 +368,8 @@ def get_conversion_record(dset: xarray.Dataset) -> ConversionRecord:
     destination_dataset = destination_dataset.astype(numpy.uint8)
     # NB: a cropland bit outranks a pasture one, so testing the groups in turn is the whole of
     # the priority order
-    to_cropland = (destination_dataset & TO_CROPLAND).astype(bool)
-    to_pasture = ~to_cropland & (destination_dataset & TO_PASTURE).astype(bool)
+    to_cropland = (destination_dataset & CROPLAND_DATASETS).astype(bool)
+    to_pasture = ~to_cropland & (destination_dataset & PASTURE_DATASETS).astype(bool)
 
     conversion_to_mask = {
         Conversion.FOREST_TO_CROPLAND: from_forest & to_cropland,
@@ -554,10 +566,11 @@ def get_span_to_component_to_emissions(
 ) -> dict[SpanType, dict[EmissionComponent, xarray.DataArray]]:
     """Split each span's emissions into the three components that claim them.
 
-    A span's `emissions` is vegetation plus soil, and every unit of both is claimed exactly once:
+    A span's emissions are vegetation plus soil, and every unit of both is claimed exactly once:
     peat takes all the soil it sits under whatever the source class, and the source class takes
-    the soil that is left. So the three sum back to the span's own total, which is what lets
-    `emissions_mt` check them rather than restate them.
+    the soil that is left. So the three sum back to the span's own total: the statistical leg
+    builds `emissions_mt` by adding them up, and the jurisdictional-direct leg, which reads
+    `emissions_mt` from `emissions-per-hectare`, can check them against it.
 
     There is no residual, because `get_conversion_emissions` charges only where a conversion
     fired and every conversion names a source class. Carbon that reaches no conversion is real,
@@ -710,10 +723,6 @@ def workflow(tile_id: str) -> xarray.Dataset:
             "destination-dataset": conversion_record.destination_dataset,
         }
         | {
-            f"emissions:{before:d}-{after:d}": darray
-            for (before, after), darray in span_to_emissions.items()
-        }
-        | {
             f"soil-emissions:{before:d}-{after:d}": darray
             for (before, after), darray in span_to_soil_emissions.items()
         }
@@ -722,12 +731,12 @@ def workflow(tile_id: str) -> xarray.Dataset:
             for (before, after), darray in span_to_vegetation_emissions.items()
         }
         | {
-            "cropland-peatland-occupation": cropland_occupation_emissions,
+            f"{CROPLAND:s}-peatland-occupation": cropland_occupation_emissions,
             # NB: charged to nobody, so it is reported beside the total rather than inside it
             "dropped-emissions": dropped_emissions,
             "emissions-per-hectare": emissions_per_hectare,
             "hectares-per-pixel": get_hectares_per_pixel(darray=emissions_per_hectare),
-            "pastureland-peatland-occupation": pastureland_occupation_emissions,
+            f"{PASTURELAND:s}-peatland-occupation": pastureland_occupation_emissions,
         }
     )
 

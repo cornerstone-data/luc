@@ -66,7 +66,6 @@ The crop-agnostic, per-pixel, per-span LUC emissions produced by the `emit` stag
 | `destination-dataset`                                | float32 | Dataset bitmask | Which layers claimed the pixel at the assessment year — one bit each, so a contested pixel keeps both    |
 | `vegetation-emissions:tco2e-per-ha:{before}-{after}` | float32 | t CO₂e/ha       | Per-span vegetation-carbon loss (above-ground, below-ground, dead organic matter, grassland)             |
 | `soil-emissions:tco2e-per-ha:{before}-{after}`       | float32 | t CO₂e/ha       | Per-span soil-carbon loss (mineral stock change + peatland drainage pulse)                               |
-| `emissions:tco2e-per-ha:{before}-{after}`            | float32 | t CO₂e/ha       | Per-span total (vegetation + soil), before temporal discounting                                          |
 | `cropland-peatland-occupation:tco2e-per-ha`          | float32 | t CO₂e/ha       | Current-year annual peatland-occupation emissions under cropland                                         |
 | `pastureland-peatland-occupation:tco2e-per-ha`       | float32 | t CO₂e/ha       | The same under pasture, split from cropland on the 30 m grid                                             |
 | `dropped-emissions:tco2e-per-ha`                     | float32 | t CO₂e/ha       | Source carbon no destination claimed, reported beside the total rather than inside it                    |
