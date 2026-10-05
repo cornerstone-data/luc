@@ -25,7 +25,6 @@ import typing
 import numpy
 import rasterio
 import rasterio.enums
-import rasterio.errors
 import rioxarray
 import xarray
 
@@ -203,26 +202,13 @@ def get_vrt_for_dataset_band_tile_id(
 
     logger.info(f"Processing {dataset=} and {band_name=:s}")
     if dataset.partitioning == tiling.Partitioning.TEN_DEGREE_TILE:
-        try:
+        uri = storage.join_uri(prefix=dataset.get_prefix(tile_id=tile_id), root=root)
+        if storage.path_exists(uri=uri):
             tile = Tile.from_dataset_tile_id(
                 dataset=dataset,
                 root=root,
                 tile_id=tile_id,
             )
-        except rasterio.errors.RasterioIOError:
-            if ignore_missing_tiles:
-                logger.warning(
-                    f"{tile_id=:s} is missing for {dataset=} but due to {ignore_missing_tiles=} we are emitting an all-no-data band"
-                )
-                # Yield an empty tile band
-                lines.extend(
-                    iter_vrt_band_header(
-                        band_name=band_name, dtype="Float32", no_data=dataset.no_data
-                    )
-                )
-            else:
-                raise
-        else:
             lines.extend(
                 iter_vrt_band_header(
                     band_name=band_name,
@@ -244,6 +230,18 @@ def get_vrt_for_dataset_band_tile_id(
                     src_resolution=tile.resolution,
                 )
             )
+        elif ignore_missing_tiles:
+            logger.warning(
+                f"{tile_id=:s} is missing for {dataset=} but due to {ignore_missing_tiles=} we are emitting an all-no-data band"
+            )
+            # Yield an empty tile band
+            lines.extend(
+                iter_vrt_band_header(
+                    band_name=band_name, dtype="Float32", no_data=dataset.no_data
+                )
+            )
+        else:
+            raise FileNotFoundError(uri)
     elif dataset.partitioning == tiling.Partitioning.WHOLE_WORLD:
         tile = Tile.from_dataset_tile_id(
             dataset=dataset,

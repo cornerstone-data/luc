@@ -100,7 +100,7 @@ RAW_YIELDS = pandas.DataFrame.from_records(
 ).set_index(["admin_level", "admin_id", "jurisdiction_name", "commodity_name", "year"])
 
 
-def test_merge_jurisdictional_emissions_and_yields() -> None:
+def test_derive_jurisdictional_production_kg_then_attach_ratios() -> None:
     result = attach_ratios(
         df=derive_jurisdictional_production_kg(
             emissions=JURISDICTIONAL_EMISSIONS, raw_yields=RAW_YIELDS
