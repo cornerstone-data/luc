@@ -22,7 +22,6 @@ from jdluc.emit import (
     CLIMATE_ZONE_TO_SOC_RETENTION_FRACTION,
     CO2E_PER_CARBON,
     FROM_FOREST,
-    FROM_GRASSLAND,
     LOOKBACK_YEARS_RANGE,
     PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA,
     PEATLAND_EMISSIONS_PULSE_TCO2E_PER_HA,
@@ -111,10 +110,18 @@ def test_get_dead_organic_matter_carbon() -> None:
 
 
 def test_get_grassland_carbon() -> None:
-    data = [[Zone.TROPICAL_WET.value, Zone.BOREAL_DRY.value, -1, numpy.nan]]
-    result = get_grassland_carbon(climate_zones=get_darray_for_data(data=data))
+    data = [[Zone.TROPICAL_WET.value, Zone.BOREAL_DRY.value, -1, numpy.nan]] * 2
+    result = get_grassland_carbon(
+        climate_zones=get_darray_for_data(data=data),
+        from_pasture=get_darray_for_data(data=[[False] * 4, [True] * 4]),
+    )
     assert result.name == "tcarbon-per-ha"
-    assert numpy.array_equal(result.data, [[18, 3, 0, 0]])
+    numpy.testing.assert_allclose(
+        result.data,
+        # rangeland at BLUE's density, pasture at IPCC's non-woody one
+        [[18.0, 3.0, 0.0, 0.0], [16.1 * 0.47, 8.5 * 0.47, 0.0, 0.0]],
+        rtol=1e-6,
+    )
 
 
 def test_get_mineral_soil_emissions() -> None:
@@ -173,7 +180,10 @@ def get_record_for(conversion: Conversion, width: int = 1) -> ConversionRecord:
             ]
         ),
         from_forest=mask(FROM_FOREST),
-        from_grassland=mask(FROM_GRASSLAND),
+        from_pasture=mask((Conversion.PASTURE_TO_CROPLAND,)),
+        from_rangeland=mask(
+            (Conversion.RANGELAND_TO_CROPLAND, Conversion.RANGELAND_TO_PASTURE)
+        ),
         to_cropland=mask(to_cropland),
         to_pasture=mask(to_pasture),
         year=get_darray_for_data(data=[[ASSESSMENT_YEAR] * width]),
@@ -211,7 +221,8 @@ def test_a_half_resolved_pixel_is_charged_nothing() -> None:
             conversion=get_darray_for_data(data=[[Conversion.NONE]]),
             destination_dataset=get_darray_for_data(data=[[0]]),
             from_forest=mask(from_forest),
-            from_grassland=mask(False),
+            from_pasture=mask(False),
+            from_rangeland=mask(False),
             to_cropland=mask(to_cropland),
             to_pasture=mask(False),
             year=get_darray_for_data(data=[[ASSESSMENT_YEAR]]),
@@ -394,7 +405,8 @@ def test_get_dropped_emissions() -> None:
     result = get_dropped_emissions(
         forest_carbon=get_darray_for_data(data=[[FOREST_TCARBON_PER_HA] * 5]),
         from_forest=get_darray_for_data(data=[[True, True, False, False, False]]),
-        from_grassland=get_darray_for_data(data=[[False, False, True, True, False]]),
+        from_pasture=get_darray_for_data(data=[[False, False, True, False, False]]),
+        from_rangeland=get_darray_for_data(data=[[False, False, False, True, False]]),
         grassland_carbon=get_darray_for_data(data=[[GRASSLAND_TCARBON_PER_HA] * 5]),
         has_destination=get_darray_for_data(data=[[False, True, False, True, False]]),
     )
@@ -1102,5 +1114,48 @@ def test_the_halves_a_conversion_record_resolves(
         )
     )
     assert bool(result.from_forest) == from_forest
-    assert bool(result.from_grassland) == from_grassland
+    assert bool(result.from_rangeland | result.from_pasture) == from_grassland
     assert bool(result.to_cropland | result.to_pasture) == has_destination
+
+
+DEPARTS_PASTURE_IN_2012 = [
+    Grassland.CULTIVATED if year <= 2011 else Grassland.OTHER
+    for year in LOOKBACK_YEARS_RANGE
+]
+
+
+@pytest.mark.parametrize(
+    ("grassland_by_year", "loss_year", "from_pasture", "from_rangeland"),
+    (
+        pytest.param(
+            DEPARTS_PASTURE_IN_2012, None, True, False, id="a pasture departure"
+        ),
+        pytest.param(
+            DEPARTS_RANGELAND_IN_2012, None, False, True, id="a rangeland departure"
+        ),
+        pytest.param(
+            DEPARTS_PASTURE_IN_2012,
+            2012,
+            False,
+            False,
+            id="neither, where a forest loss outranks the departure",
+        ),
+    ),
+)
+def test_a_conversion_record_tells_pasture_from_rangeland_sources(
+    grassland_by_year: list[float],
+    loss_year: float | None,
+    from_pasture: bool,
+    from_rangeland: bool,
+) -> None:
+    # Pasture and rangeland sources carry different vegetation carbon, so the record keeps them apart
+    result = get_conversion_record(
+        dset=get_dset_for_one_pixel(
+            grassland_by_year=grassland_by_year,
+            is_cropland=True,
+            loss_year=loss_year,
+            planting_year=0,
+        )
+    )
+    assert bool(result.from_pasture) == from_pasture
+    assert bool(result.from_rangeland) == from_rangeland
