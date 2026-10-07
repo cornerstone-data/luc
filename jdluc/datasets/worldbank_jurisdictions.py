@@ -12,8 +12,10 @@ import dataclasses
 import enum
 import functools
 import logging
+import os
 
 import geopandas
+import pandas
 import shapely
 
 from jdluc import config, storage, tiling, utils
@@ -28,6 +30,48 @@ class AdminLevel(enum.IntEnum):
     DISTRICT = 2
 
 
+# Taiwan is its own country here, following CEDA's convention. The World Bank layers record it
+# inconsistently: admin 1 gives Taiwan a unit of its own, `TWN001`, but files it under China, and
+# admin 0 has no Taiwan at all. This fence separates Taiwan from China across the strait.
+TAIWAN_FENCE = shapely.Polygon(
+    shell=[(119.0, 21.5), (122.5, 21.5), (122.5, 25.9), (121.0, 25.9), (119.0, 24.0)]
+)
+
+
+def with_taiwan_carved_out_of_china(
+    admin_0: geopandas.GeoDataFrame,
+) -> geopandas.GeoDataFrame:
+    """The World Bank admin-0 layer with Taiwan as its own row, subtracted from CHN's polygon."""
+    is_china = admin_0["ISO_A3"] == "CHN"
+    china = admin_0[is_china]
+    (china_geometry,) = china.geometry
+    assert not china_geometry.intersects(TAIWAN_FENCE.exterior)
+
+    china_without_taiwan = china.set_geometry(
+        col=china.geometry.difference(TAIWAN_FENCE)
+    )
+    taiwan = geopandas.GeoDataFrame(
+        crs=admin_0.crs,
+        data={"ISO_A3": ["TWN"], "NAM_0": ["Taiwan"]},
+        geometry=[china_geometry.intersection(TAIWAN_FENCE)],
+    )
+    return pandas.concat(
+        [admin_0[~is_china], china_without_taiwan, taiwan], ignore_index=True
+    )
+
+
+def with_taiwan_province_separated(
+    admin_1: geopandas.GeoDataFrame,
+) -> geopandas.GeoDataFrame:
+    """The World Bank admin-1 layer with `TWN001` under TWN, so its name reads "Taiwan | Taiwan Sheng"."""
+    is_taiwan = admin_1["ADM1CD_c"].str.startswith("TWN")
+    assert is_taiwan.sum() == 1
+    return admin_1.assign(
+        ISO_A3=admin_1["ISO_A3"].where(cond=~is_taiwan, other="TWN"),
+        NAM_0=admin_1["NAM_0"].where(cond=~is_taiwan, other="Taiwan"),
+    )
+
+
 def save_tile_id_to_local_path_for_admin_level(
     admin_level: AdminLevel,
 ) -> base.SaveTileIdToLocalPathType:
@@ -38,11 +82,33 @@ def save_tile_id_to_local_path_for_admin_level(
     )
 
     def inner(local_path: str, tile_id: str) -> None:
-        utils.save_remote_url_to_local_path(
-            local_path=local_path,
-            params={},
-            remote_url=remote_url,
-        )
+        match admin_level:
+            case AdminLevel.NATIONAL:
+                path_to_raw = os.path.join(os.path.dirname(local_path), "raw.gpkg")
+                utils.save_remote_url_to_local_path(
+                    local_path=path_to_raw,
+                    params={},
+                    remote_url=remote_url,
+                )
+                with_taiwan_carved_out_of_china(
+                    admin_0=geopandas.read_file(filename=path_to_raw)
+                ).to_file(driver="GPKG", filename=local_path)
+            case AdminLevel.PROVINCIAL:
+                path_to_raw = os.path.join(os.path.dirname(local_path), "raw.gpkg")
+                utils.save_remote_url_to_local_path(
+                    local_path=path_to_raw,
+                    params={},
+                    remote_url=remote_url,
+                )
+                with_taiwan_province_separated(
+                    admin_1=geopandas.read_file(filename=path_to_raw)
+                ).to_file(driver="GPKG", filename=local_path)
+            case AdminLevel.DISTRICT:
+                utils.save_remote_url_to_local_path(
+                    local_path=local_path,
+                    params={},
+                    remote_url=remote_url,
+                )
 
     return inner
 
@@ -55,7 +121,8 @@ ADMIN_0_DATASET = base.VectorDataset(
         admin_level=AdminLevel.NATIONAL
     ),
     source_name="world-bank",
-    version="v0",
+    # v1: TWN carved out of CHN
+    version="v1",
 )
 
 ADMIN_1_DATASET = base.VectorDataset(
@@ -66,7 +133,8 @@ ADMIN_1_DATASET = base.VectorDataset(
         admin_level=AdminLevel.PROVINCIAL
     ),
     source_name="world-bank",
-    version="v0",
+    # v1: TWN001 under TWN rather than CHN
+    version="v1",
 )
 
 ADMIN_2_DATASET = base.VectorDataset(

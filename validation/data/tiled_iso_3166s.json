@@ -223,6 +223,7 @@
     "TTO",
     "TUN",
     "TUR",
+    "TWN",
     "TZA",
     "UGA",
     "UKR",
@@ -245,6 +246,6 @@
   ],
   "world_bank_source": {
     "dataset": "admin-1",
-    "version": "v0"
+    "version": "v1"
   }
 }

@@ -41,7 +41,7 @@ from validation import prepare, pull, targets
 
 logger = logging.getLogger(__name__)
 
-# Below this the join did not merely lose a country, it broke. 220 of the layer's 244 countries
+# Below this the join did not merely lose a country, it broke. 221 of the layer's 245 countries
 # survive the join and the carve-out below, so the headroom is wide and only a structural failure
 # trips it.
 MINIMUM_TILED_SHARE = 0.75
@@ -62,9 +62,12 @@ def get_tiled_iso_3166s(path_to_geopackage: pathlib.Path) -> tuple[set[str], int
     The GNW tile set covers 280 ten-degree cells rather than all of them, so this filter genuinely
     bites: a country entirely outside it has no tree-cover-loss data and cannot be computed. Read
     from the GeoPackage `build-national-mappings` downloads, so this needs no ingest -- run that
-    tool first on a cold cache, or this one fails on a missing file.
+    tool first on a cold cache, or this one fails on a missing file. Taiwan is separated from CHN
+    as the ingest separates it, so this set keeps matching `get_all_iso_3166s`.
     """
-    world_bank = geopandas.read_file(path_to_geopackage)
+    world_bank = worldbank_jurisdictions.with_taiwan_province_separated(
+        admin_1=geopandas.read_file(path_to_geopackage)
+    )
     tiles = geopandas.GeoDataFrame(
         crs=world_bank.crs,
         geometry=[

@@ -96,6 +96,22 @@ def test_iter_jurisdiction_for_iso_3166_tile_id_only_yields_overlapping() -> Non
     assert all(box.intersects(j.geometry) for j in yielded)
 
 
+@pytest.mark.integration
+def test_every_admin_1_prefix_has_an_admin_0_row() -> None:
+    # Provinces are selected by their country's `admin_id` prefix, so a province whose prefix
+    # names no national row is missing from every output. Upstream, Taiwan was one.
+    national = set(
+        get_jurisdiction_for_admin_level(admin_level=AdminLevel.NATIONAL).index
+    )
+    prefixes = {
+        str(admin_id)[:3]
+        for admin_id in get_jurisdiction_for_admin_level(
+            admin_level=AdminLevel.PROVINCIAL
+        ).index
+    }
+    assert prefixes - national == set()
+
+
 @pytest.mark.parametrize("year", sorted(ifpri_mapspam.YEARS))
 def test_get_reported_crop_name_always_names_a_band_that_year_has(year: int) -> None:
     # The load-bearing property: whatever it returns must be readable from that snapshot.  A
