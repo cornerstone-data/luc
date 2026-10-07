@@ -62,12 +62,11 @@ def get_tiled_iso_3166s(path_to_geopackage: pathlib.Path) -> tuple[set[str], int
     The GNW tile set covers 280 ten-degree cells rather than all of them, so this filter genuinely
     bites: a country entirely outside it has no tree-cover-loss data and cannot be computed. Read
     from the GeoPackage `build-national-mappings` downloads, so this needs no ingest -- run that
-    tool first on a cold cache, or this one fails on a missing file. Taiwan is separated from CHN
-    as the ingest separates it, so this set keeps matching `get_all_iso_3166s`.
+    tool first on a cold cache, or this one fails on a missing file. A unit's country is its
+    `ADM1CD_c` prefix, the rule the pipeline selects provinces by, rather than its `ISO_A3`, which
+    files Taiwan's `TWN001` under CHN.
     """
-    world_bank = worldbank_jurisdictions.with_taiwan_province_separated(
-        admin_1=geopandas.read_file(path_to_geopackage)
-    )
+    world_bank = geopandas.read_file(path_to_geopackage)
     tiles = geopandas.GeoDataFrame(
         crs=world_bank.crs,
         geometry=[
@@ -76,7 +75,7 @@ def get_tiled_iso_3166s(path_to_geopackage: pathlib.Path) -> tuple[set[str], int
         ],
     )
     joined = geopandas.sjoin(world_bank, tiles, how="inner", predicate="intersects")
-    return set(joined["ISO_A3"].dropna()), int(world_bank["ISO_A3"].dropna().nunique())
+    return set(joined["ADM1CD_c"].str[:3]), world_bank["ADM1CD_c"].str[:3].nunique()
 
 
 def iter_checks(
