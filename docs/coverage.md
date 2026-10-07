@@ -8,7 +8,9 @@ The pipeline produces emissions factors for the following countries and territor
 
 A country's footprint is its **full national boundary** (World Bank admin-0) intersected with the ten-degree tiles the source datasets actually publish. A country appears below when it touches at least one published tile *and* carries crop production for the pipeline to attribute emissions to.
 
-The first half is a property of the source data rather than a curated list, so the set can shift when an upstream dataset is refreshed. The second half is a list: eight countries touch a published tile but grow nothing the pipeline can produce a factor for — Saint Barthélemy, Gibraltar, Greenland, Saint Martin, Monaco, Nauru, Tuvalu and the Holy See — and no property of the geometry separates them, so they are named explicitly as `worldbank_jurisdictions.UNPRODUCTIVE_ISO_3166S` and excluded there — by `get_all_iso_3166s`, which is what `--backfill` runs, and by `tools/build-tiled-countries.py`, which reads the same constant. The table below and `validation/data/tiled_iso_3166s.json` are the same 220 codes; regenerating that file is what keeps them so.
+The first half is a property of the source data rather than a curated list, so the set can shift when an upstream dataset is refreshed. The second half is a list: eight countries touch a published tile but grow nothing the pipeline can produce a factor for — Saint Barthélemy, Gibraltar, Greenland, Saint Martin, Monaco, Nauru, Tuvalu and the Holy See — and no property of the geometry separates them, so they are named explicitly as `worldbank_jurisdictions.UNPRODUCTIVE_ISO_3166S` and excluded there — by `get_all_iso_3166s`, which is what `--backfill` runs, and by `tools/build-tiled-countries.py`, which reads the same constant. The table below and `validation/data/tiled_iso_3166s.json` are the same 221 codes; regenerating that file is what keeps them so.
+
+Taiwan is its own country, `TWN`, following CEDA's convention. The World Bank layers record it inconsistently: admin 1 gives Taiwan a unit of its own, `TWN001`, but files it under China, and admin 0 has no Taiwan at all. The ingest separates the two (`worldbank_jurisdictions.with_taiwan_carved_out_of_china` and `with_taiwan_province_separated`). `TWN` covers the main island and Penghu; Kinmen and Matsu stay with China.
 
 | Country                               | ISO 3166-1 alpha-3 |
 | ------------------------------------- | ------------------ |
@@ -205,6 +207,7 @@ The first half is a property of the source data rather than a curated list, so t
 | Sweden                                | SWE                |
 | Switzerland                           | CHE                |
 | Syria                                 | SYR                |
+| Taiwan                                | TWN                |
 | Tajikistan                            | TJK                |
 | Tanzania                              | TZA                |
 | Thailand                              | THA                |
