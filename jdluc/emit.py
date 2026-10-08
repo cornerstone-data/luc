@@ -592,7 +592,13 @@ def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
 
 @enum.unique
 class NonCommodity(enum.StrEnum):
-    DROPPED = "DROPPED"
+    # Emissions from clearing forest or grassland where, as far as our maps show, the land did not
+    # become cropland or pasture. They are reported on their own, outside the emissions total
+    DROPPED = enum.auto()
+    # Emissions from land that did become cropland or pasture, but that none of the commodities we
+    # model takes: mostly land used for crops or grazing we don't model. They are part of the
+    # emissions total, so this row and the commodity rows add up to it
+    UNATTRIBUTED = enum.auto()
 
 
 @enum.unique

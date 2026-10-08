@@ -398,6 +398,10 @@ def get_commodity_name_to_totals(
 
     Both share mappings are keyed by MapSPAM span. Each emissions span uses the shares of the
     MapSPAM span that contains it (`SPAN_TO_MAPSPAM_SPAN`).
+
+    Beside the commodities sit `DROPPED` and `UNATTRIBUTED` (see `emit.NonCommodity`). Here
+    `UNATTRIBUTED` is what the shares leave of the charge: conversion and occupation by the
+    MapSPAM crops no row models, and the cropland peat pulse in spans where no crop expanded.
     """
     cropland_occupation_per_hectare = dset[
         f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
@@ -508,6 +512,54 @@ def get_commodity_name_to_totals(
 
     commodity_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
         dset["dropped-emissions:tco2e-per-ha"] * hectares
+    )
+
+    # The whole charge each component carries, as a commodity holding every share would take it
+    component_to_charged = {
+        component: emit.get_linear_discounted_total(
+            span_to_value={
+                (before, after): dset[
+                    f"{component!s}:tco2e-per-ha:{before:d}-{after:d}"
+                ]
+                * hectares
+                for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
+            }
+        )
+        for component in POOLED_COMPONENTS
+    } | {
+        emit.EmissionComponent.PEATLAND_CONVERSION: emit.get_linear_discounted_total(
+            span_to_value={
+                (before, after): sum(
+                    dset[
+                        f"{land_class:s}-peatland-conversion:tco2e-per-ha:{before:d}-{after:d}"
+                    ]
+                    for land_class in (emit.CROPLAND, emit.PASTURELAND)
+                )
+                * hectares
+                for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
+            }
+        )
+    }
+    unattributed = commodity_to_totals[emit.NonCommodity.UNATTRIBUTED]
+    unattributed |= {
+        component.column: component_to_charged[component]
+        - sum(
+            commodity_to_totals[commodity][component.column]
+            for commodity in commodities
+        )
+        for component in emit.EmissionComponent
+    }
+    unattributed["peatland_occupation_emissions_mt"] = (
+        cropland_occupation
+        + pastureland_occupation
+        - sum(
+            commodity_to_totals[commodity]["peatland_occupation_emissions_mt"]
+            for commodity in commodities
+        )
+    )
+    unattributed["emissions_mt"] = sum(
+        (unattributed[component.column] for component in emit.EmissionComponent),
+        start=unattributed["peatland_occupation_emissions_mt"],
     )
 
     # NB: the residual pasture row names no herd, so it carries no production and `trace` declines
