@@ -759,9 +759,9 @@ def read_efs() -> pandas.DataFrame | None:
 def keep_crop_rows(frame: pandas.DataFrame) -> pandas.DataFrame:
     """Only the crop rows, kept before anything indexes `statistical.Crop`.
 
-    Two rows are not crops. Pastureland is a commodity the statistical leg attributes expansion
-    to, and the dropped row carries the carbon no destination layer claimed. Neither has a
-    MapSPAM code to key a join on, and neither WRI nor Orbae publishes an anchor for either.
+    Some rows are not crops: the livestock rows, and the dropped and unattributed rows (see
+    `emit.NonCommodity`). None has a MapSPAM code to key a join on, and neither WRI nor Orbae
+    publishes an anchor for any of them.
     Every comparison below is therefore about crops, and this is the one place that is said --
     stated as what is kept rather than what is removed, so a row added later is excluded by
     default rather than by being remembered here.

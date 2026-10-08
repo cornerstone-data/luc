@@ -798,6 +798,7 @@ def test_get_commodity_to_peatland_conversion_share(
 WHEAT = Crop.WHEAT.name
 BEEF = Livestock.BEEF_CATTLE.name
 PASTURE = Livestock.PASTURE.name
+UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
 
 
 # Expected values are per hectare of the cell. Every band and share is the same in each span, so a
@@ -874,6 +875,34 @@ PASTURE = Livestock.PASTURE.name
                 (WHEAT, "emissions_mt"): 106.1,
             },
             id="emissions-mt-is-the-components-plus-occupation-each-by-its-own-share",
+        ),
+        pytest.param(
+            0.0,
+            {
+                "commodity_to_share": {Crop.WHEAT: 0.5},
+                "cropland_occupation": 1000.0,
+                "cropland_pulse": 100.0,
+                "forest_emissions": 1.0,
+                "grassland_emissions": 10.0,
+                "occupation_shares": {Crop.WHEAT: 0.1},
+                "peatland_conversion_shares": {Crop.WHEAT: 0.25},
+            },
+            # Charged: forest 0.2, grassland 2.0, peat conversion 20 and occupation 1000, so
+            # 1022.2 in all; wheat's row and the unattributed row split each between them
+            {
+                (WHEAT, "forest_emissions_mt"): 0.1,
+                (WHEAT, "grassland_emissions_mt"): 1.0,
+                (WHEAT, "peatland_conversion_emissions_mt"): 5.0,
+                (WHEAT, "peatland_occupation_emissions_mt"): 100.0,
+                (WHEAT, "emissions_mt"): 106.1,
+                (UNATTRIBUTED, "forest_emissions_mt"): 0.1,
+                (UNATTRIBUTED, "grassland_emissions_mt"): 1.0,
+                (UNATTRIBUTED, "peatland_conversion_emissions_mt"): 15.0,
+                (UNATTRIBUTED, "peatland_occupation_emissions_mt"): 900.0,
+                (UNATTRIBUTED, "emissions_mt"): 916.1,
+                (UNATTRIBUTED, "production_mt"): math.nan,
+            },
+            id="the-unattributed-row-is-what-the-shares-leave-of-the-charge-so-the-rows-sum-to-it",
         ),
         pytest.param(
             0.0,
