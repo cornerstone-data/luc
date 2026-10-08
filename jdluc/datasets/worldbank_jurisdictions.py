@@ -13,6 +13,7 @@ import enum
 import functools
 import logging
 import os
+import shutil
 
 import geopandas
 import pandas
@@ -72,7 +73,7 @@ def with_taiwan_province_separated(
     )
 
 
-def save_tile_id_to_local_path_for_admin_level(
+def get_save_tile_id_to_local_path_for_admin_level(
     admin_level: AdminLevel,
 ) -> base.SaveTileIdToLocalPathType:
     remote_url = (
@@ -82,33 +83,21 @@ def save_tile_id_to_local_path_for_admin_level(
     )
 
     def inner(local_path: str, tile_id: str) -> None:
+        path_to_raw = os.path.join(os.path.dirname(local_path), "raw.gpkg")
+        utils.save_remote_url_to_local_path(
+            local_path=path_to_raw, params={}, remote_url=remote_url
+        )
         match admin_level:
             case AdminLevel.NATIONAL:
-                path_to_raw = os.path.join(os.path.dirname(local_path), "raw.gpkg")
-                utils.save_remote_url_to_local_path(
-                    local_path=path_to_raw,
-                    params={},
-                    remote_url=remote_url,
-                )
                 with_taiwan_carved_out_of_china(
                     admin_0=geopandas.read_file(filename=path_to_raw)
                 ).to_file(driver="GPKG", filename=local_path)
             case AdminLevel.PROVINCIAL:
-                path_to_raw = os.path.join(os.path.dirname(local_path), "raw.gpkg")
-                utils.save_remote_url_to_local_path(
-                    local_path=path_to_raw,
-                    params={},
-                    remote_url=remote_url,
-                )
                 with_taiwan_province_separated(
                     admin_1=geopandas.read_file(filename=path_to_raw)
                 ).to_file(driver="GPKG", filename=local_path)
             case AdminLevel.DISTRICT:
-                utils.save_remote_url_to_local_path(
-                    local_path=local_path,
-                    params={},
-                    remote_url=remote_url,
-                )
+                shutil.move(dst=local_path, src=path_to_raw)
 
     return inner
 
@@ -117,7 +106,7 @@ ADMIN_0_DATASET = base.VectorDataset(
     id_column_names=("ISO_A3",),
     name_column_names=("NAM_0",),
     product_name="admin-0",
-    save_tile_id_to_local_path=save_tile_id_to_local_path_for_admin_level(
+    save_tile_id_to_local_path=get_save_tile_id_to_local_path_for_admin_level(
         admin_level=AdminLevel.NATIONAL
     ),
     source_name="world-bank",
@@ -129,7 +118,7 @@ ADMIN_1_DATASET = base.VectorDataset(
     id_column_names=("ADM1CD_c",),
     name_column_names=("NAM_0", "NAM_1"),
     product_name="admin-1",
-    save_tile_id_to_local_path=save_tile_id_to_local_path_for_admin_level(
+    save_tile_id_to_local_path=get_save_tile_id_to_local_path_for_admin_level(
         admin_level=AdminLevel.PROVINCIAL
     ),
     source_name="world-bank",
@@ -141,7 +130,7 @@ ADMIN_2_DATASET = base.VectorDataset(
     id_column_names=("ADM2CD_c",),
     name_column_names=("NAM_0", "NAM_1", "NAM_2"),
     product_name="admin-2",
-    save_tile_id_to_local_path=save_tile_id_to_local_path_for_admin_level(
+    save_tile_id_to_local_path=get_save_tile_id_to_local_path_for_admin_level(
         admin_level=AdminLevel.DISTRICT
     ),
     source_name="world-bank",
