@@ -152,9 +152,10 @@ For each emissive transition, emissions are the sum of carbon lost from vegetati
 
 1. **Vegetation carbon**
 
-   - Above-ground biomass — Harris et al. (2021) for forests; a climate-domain lookup derived from the BLUE bookkeeping model (Hansis et al., 2015) for grassland/shrubland.
+   - Above-ground biomass — Harris et al. (2021) for forests.
    - Root (below-ground) biomass — Huang et al. (2021), with a root-to-shoot-ratio fallback where Huang data is missing.
    - Dead organic matter (dead wood + litter) — forests only, estimated as a fraction of above-ground biomass following UNFCCC CDM AR-TOOL-12. IPCC Tier 1 treats non-forest dead organic matter as zero, so it is excluded for grassland/shrubland.
+   - Grassland vegetation (above- and below-ground together) — a climate-domain lookup keyed on the class the pixel left. Natural grassland and open shrubland take the BLUE bookkeeping model's density (Hansis et al., 2015). Cultivated grassland (pasture, including pasture → cropland) takes the IPCC 2006 Tier 1 total non-woody biomass (Vol 4, Table 6.4) at IPCC's carbon fraction for herbaceous dry matter, as Orbae's v2.3 methodology does. Table 6.4 has no tropical montane row, so a montane pasture source takes the BLUE value.
 
    Forest conversions differentiate all three vegetation pools; rangeland and pasture use a single combined vegetation-carbon value. Each conversion releases the whole of its source stock: there is no destination stock to subtract, because the five conversions name the pools they release rather than differencing two land classes.
 
@@ -287,6 +288,7 @@ Primary datasets and standards this methodology depends on. Exact values, factor
 - Mineral-soil stock change — 2019 Refinement to the 2006 IPCC Guidelines, Vol 4, Ch 5.
 - Peatland emissions — 2013 IPCC Wetlands Supplement.
 - Dead organic matter — UNFCCC CDM AR-TOOL-12.
-- Grassland/shrubland vegetation carbon — BLUE bookkeeping model (Hansis et al., 2015). https://doi.org/10.1002/2014GB004997
+- Natural grassland and shrubland vegetation carbon — BLUE bookkeeping model (Hansis et al., 2015). https://doi.org/10.1002/2014GB004997
+- Pasture vegetation carbon — 2006 IPCC Guidelines, Vol 4, Ch 6, Table 6.4 (total non-woody biomass, Tier 1), as in Orbae's v2.3 methodology. https://app.orbae.adastra.eco/methodology
 - Yield unit conversion — USDA Agricultural Handbook 697, table 6 (marketing bushel weights).
 - Livestock units — FAO (2011), Guidelines for the preparation of livestock sector reviews, Animal Production and Health Guidelines No. 5, after Chilonda & Otte (2006); the regional table is reprinted as Table 1 of FAOSTAT's Livestock Patterns methodological note. https://www.fao.org/docrep/014/i2294e/i2294e00.pdf, https://files-faostat.fao.org/production/EK/EK_e.pdf, https://www.lrrd.org/lrrd18/8/chil18117.htm
