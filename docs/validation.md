@@ -25,7 +25,7 @@ Two constraints shape everything below. **Changing the methodology is out of sco
 ```
 tools/                          offline generators; the output is the artifact
   build-national-mappings.py    GADM<->World Bank and Orbae<->World Bank maps, self-checking
-  build-tiled-countries.py      the 220 countries E1 admits, self-checking
+  build-tiled-countries.py      the 221 countries E1 admits, self-checking
 validation/
   schema.py     vocabulary: enums, Finding, code_version, source identity
   targets.py    reads data/targets.json; Measure, Target, Control
@@ -63,7 +63,7 @@ Eligibility is mechanical, four filters, and re-derived on every run:
 
 |     | Filter                                                                                 | Why                                                                      |
 | --- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| E1  | the crop is modeled, and the country is one of the 220 in `coverage.md`                | a pair we cannot compute is not a target                                 |
+| E1  | the crop is modeled, and the country is one of the 221 in `coverage.md`                | a pair we cannot compute is not a target                                 |
 | E2  | at least one anchor, for at least one measure                                          | nothing to compare against, nothing to learn                             |
 | E3  | WRI publishes provincial rows, and the key map covers >=50% of the country's land area | the provincial grain is the default                                      |
 | E4  | national production >= 100 kt                                                          | a factor that cannot move a companywide number is not worth capture time |

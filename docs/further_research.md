@@ -180,6 +180,16 @@ Note for anyone re-measuring this: the even-split *fingerprint* — byte-identic
 
 **Potential improvement path:** Route the unattributable remainder to the sLUC residual for all six groups rather than only the two that happen to have a named catch-all — the residual already exists as a destination and needs no new constituent. Failing that, fall back to a coarser spatial prior (within-group shares aggregated to the admin unit or the country over the reference years) before resorting to an even split, so the rule degrades from pixel evidence to regional evidence rather than straight to uniform. A per-group choice between pooled and nearest-year shares, informed by the holdout above, would also recover most of the MILL penalty.
 
+## MapSPAM's 2010 release on Taiwan
+
+**Status**: open. Taiwan's `OTHER_OILCROPS` factor is published as computed and should not be relied on.
+
+MapSPAM's 2010 release puts 1.59 Mha of physical crop area on Taiwan, against 0.50 Mha in 2005 and 0.54 Mha in 2020. The excess is 728k ha of other oil crops and 401k ha of other tropical fruit, spread over nearly every cropped cell on the island, where FAOSTAT's oil crops on Taiwan come to about 25k ha. Fujian, across the strait, and the global totals for those classes hold steady across the three releases, so the error is Taiwan's alone.
+
+The 2010 snapshot ends the 2005–2010 span and starts the expansion both later spans use. Other oil crops take most of Taiwan's 2005–2010 expansion, diluting every other crop's share of that span, and the 2010 snapshot carries 46.9% of the weight in a row's averaged hectares and production. The 2010–2020 spans are less affected, because Taiwan's rice and maize are comparable in 2010 and 2020.
+
+**Potential improvement path:** Treat the 2010 snapshot as missing on Taiwan, so that its 2005–2010 and 2010–2020 spans read the expansion from 2005 to 2020 and its averaged hectares and production skip 2010. That would correct the other crops' 2005–2010 shares and the `OTHER_OILCROPS` factor. Whether the error is in the published release or in its ingest has not been checked.
+
 ## NASS yield coverage gaps and product-form conversions
 
 **Issue**: The jurisdictional-direct leg divides emissions by `commodity_hectares x yield_kg_per_ha`, where the yield is a USDA NASS survey statistic and the hectares come from the CDL. Every one of the eleven crops `jurisdictional_direct.Crop` models carries a yield, so every one produces an emissions factor. Three properties of how that denominator is assembled are worth recording, because each is an assumption rather than a measurement.

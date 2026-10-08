@@ -87,7 +87,7 @@ FAOSTAT_CACHE = pull.CACHE / "faostat.parquet"
 # collide, short enough that a stale-baseline message is readable.
 SOURCE_VERSION_LENGTH = 12
 # The one part of eligibility that cannot be computed from the pinned anchors: which countries
-# intersect a GNW tile, which needs a spatial join against a 93 MiB GeoPackage. 228 ISO codes, so
+# intersect a GNW tile, which needs a spatial join against a 93 MiB GeoPackage. 229 ISO codes, so
 # `tools/build-tiled-countries.py` commits this and `get_eligible` derives the rest here.
 #
 # The shortlist itself is deliberately NOT committed. Every other column in it -- WRI's
