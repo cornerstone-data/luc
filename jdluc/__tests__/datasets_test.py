@@ -1,7 +1,9 @@
 import itertools
 
+import geopandas
 import pandas
 import pytest
+import shapely
 
 from jdluc.datasets import NAME_TO_CLS, base, faostat, ifpri_mapspam
 from jdluc.datasets.glad_glcluc import flatten_ranges
@@ -10,6 +12,8 @@ from jdluc.datasets.worldbank_jurisdictions import (
     get_jurisdiction_for_admin_level,
     get_ten_degree_tile_ids_for_admin_id,
     iter_jurisdiction_for_iso_3166_tile_id,
+    with_taiwan_carved_out_of_china,
+    with_taiwan_province_separated,
 )
 from jdluc.tiling import get_box_for_tile_id
 
@@ -335,3 +339,102 @@ def test_get_species_to_livestock_units_per_head(
         ),
         stocks=get_faostat_frame(column_name="stocks_head", key_to_value=stocks),
     ) == pytest.approx(expected)
+
+
+MAINLAND_CHINA = shapely.Polygon(
+    shell=[
+        (122.7, 37.4),
+        (121.6, 28.3),
+        (109.9, 20.2),
+        (100.1, 21.5),
+        (89.0, 27.3),
+        (78.4, 32.5),
+        (73.5, 39.4),
+        (86.9, 49.1),
+        (105.0, 41.6),
+        (120.9, 53.3),
+        (134.8, 48.4),
+        (130.6, 42.4),
+    ]
+)
+TAIWAN = shapely.Polygon(
+    shell=[
+        (120.9, 21.9),
+        (120.0, 23.1),
+        (120.2, 23.8),
+        (121.0, 25.0),
+        (121.5, 25.3),
+        (121.9, 25.1),
+        (121.9, 24.5),
+        (121.4, 23.1),
+    ]
+)
+JAPAN = shapely.Polygon(
+    shell=[
+        (130.7, 31.0),
+        (129.7, 32.8),
+        (130.0, 33.8),
+        (132.6, 35.5),
+        (136.8, 37.5),
+        (139.0, 37.9),
+        (140.0, 40.6),
+        (140.0, 41.6),
+        (140.4, 43.3),
+        (141.7, 45.5),
+        (145.3, 44.3),
+        (145.8, 43.3),
+        (143.2, 41.9),
+        (141.5, 41.4),
+        (142.1, 39.5),
+        (141.0, 38.2),
+        (140.9, 35.7),
+        (138.8, 34.6),
+        (135.8, 33.4),
+        (133.0, 32.7),
+        (131.9, 31.6),
+    ]
+)
+
+
+def test_with_taiwan_carved_out_of_china() -> None:
+    from_world_bank = geopandas.GeoDataFrame(
+        crs=4326,
+        data={"ISO_A3": ["CHN", "JPN"], "NAM_0": ["China", "Japan"]},
+        geometry=[shapely.union(MAINLAND_CHINA, TAIWAN), JAPAN],
+    )
+    result = with_taiwan_carved_out_of_china(admin_0=from_world_bank).set_index(
+        "ISO_A3"
+    )
+    assert result.crs == from_world_bank.crs
+    assert len(result) == 3
+    assert list(result.columns) == ["NAM_0", "geometry"]
+    assert set(result.index) == {"CHN", "JPN", "TWN"}
+    assert result.loc["TWN"]["NAM_0"] == "Taiwan"
+    assert shapely.equals(result.loc["CHN"].geometry, MAINLAND_CHINA)
+    assert shapely.equals(result.loc["JPN"].geometry, JAPAN)
+    assert shapely.equals(result.loc["TWN"].geometry, TAIWAN)
+
+
+def test_with_taiwan_province_separated() -> None:
+    from_world_bank = geopandas.GeoDataFrame(
+        crs=4326,
+        data={
+            "ADM1CD_c": ["CHNXXX", "JPNXXX", "TWN001"],
+            "ISO_A3": ["CHN", "JPN", "CHN"],
+            "NAM_0": ["China", "Japan", "China"],
+            "NAM_1": ["merged", "merged", "Taiwan Sheng"],
+        },
+        geometry=[MAINLAND_CHINA, JAPAN, TAIWAN],
+    )
+    result = with_taiwan_province_separated(admin_1=from_world_bank).set_index(
+        "ADM1CD_c"
+    )
+    assert result.crs == from_world_bank.crs
+    assert len(result) == 3
+    assert list(result.columns) == ["ISO_A3", "NAM_0", "NAM_1", "geometry"]
+    assert set(result.index) == {"CHNXXX", "JPNXXX", "TWN001"}
+    assert result.loc["TWN001"]["ISO_A3"] == "TWN"
+    assert result.loc["TWN001"]["NAM_0"] == "Taiwan"
+    assert shapely.equals(result.loc["CHNXXX"].geometry, MAINLAND_CHINA)
+    assert shapely.equals(result.loc["JPNXXX"].geometry, JAPAN)
+    assert shapely.equals(result.loc["TWN001"].geometry, TAIWAN)
