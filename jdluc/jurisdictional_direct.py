@@ -63,11 +63,19 @@ def get_commodity_name_to_totals(
     emissions_per_hectare: xarray.DataArray,
     hectares_per_pixel: xarray.DataArray,
     is_peatland: xarray.DataArray,
+    pastureland_occupation_per_hectare: xarray.DataArray,
     peatland_occupation_per_hectare: xarray.DataArray,
 ) -> dict[str, dict[str, float]]:
 
     peatland_occupation_emissions = peatland_occupation_per_hectare * hectares_per_pixel
-    emissions_mt = emissions_per_hectare * hectares_per_pixel
+    pastureland_occupation_emissions = (
+        pastureland_occupation_per_hectare * hectares_per_pixel
+    )
+    # NB: this leg divides emissions among crops alone, so no crop row takes the peat drained under
+    # pasture, even on a pixel the crop map calls that crop
+    emissions_mt = (
+        emissions_per_hectare - pastureland_occupation_per_hectare
+    ) * hectares_per_pixel
     component_to_emissions = {
         component: per_hectare * hectares_per_pixel
         for component, per_hectare in component_to_per_hectare.items()
@@ -92,6 +100,21 @@ def get_commodity_name_to_totals(
         for component, emissions in component_to_emissions.items():
             crop_to_totals[crop][component.column] = emissions.where(crop_mask)
 
+    is_unattributed = ~crop_class.isin(
+        [value.value for crop in crops for value in crop.value]
+    )
+    crop_to_totals[emit.NonCommodity.UNATTRIBUTED] = {
+        component.column: emissions.where(is_unattributed)
+        for component, emissions in component_to_emissions.items()
+    } | {
+        # NB: zero rather than NaN on crop pixels, so the pasture peat drained under them is kept
+        "emissions_mt": emissions_mt.where(is_unattributed, other=0)
+        + pastureland_occupation_emissions,
+        "peatland_occupation_emissions_mt": peatland_occupation_emissions.where(
+            is_unattributed, other=0
+        )
+        + pastureland_occupation_emissions,
+    }
     crop_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
         dropped_per_hectare * hectares_per_pixel
     )
@@ -186,16 +209,16 @@ def workflow(
                     crop_class=clipped[usda_nass_cdl.DATASET.fully_qualified_band_name],
                     crops=crops,
                     dropped_per_hectare=clipped["dropped-emissions:tco2e-per-ha"],
-                    # NB: this leg allocates to CDL crops alone, so peat drained under
-                    # pasture has no row to land on, and leaves the total along with it
-                    emissions_per_hectare=clipped["emissions-per-hectare:tco2e-per-ha"]
-                    - clipped[f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha"],
+                    emissions_per_hectare=clipped["emissions-per-hectare:tco2e-per-ha"],
                     hectares_per_pixel=clipped["hectares-per-pixel:ha"],
                     # NB: no data has to read as not peat rather than truth-testing to peat
                     is_peatland=clipped[
                         gnw_global_peatlands.DATASET.fully_qualified_band_name
                     ]
                     == 1,
+                    pastureland_occupation_per_hectare=clipped[
+                        f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha"
+                    ],
                     peatland_occupation_per_hectare=clipped[
                         f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
                     ],
