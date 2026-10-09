@@ -33,6 +33,7 @@ The published deliverable is a single per-(jurisdiction, commodity) table — th
 
 - **Carbon removals are out of scope.** The methodology counts only LUC emissions, not sequestration when cropland reverts to forest or grassland. This is consistent with the LSRS approach, but matters where reversion is significant (e.g. US CRP enrollment).
 - **Windowed production denominator (an extension beyond WRI, not LSRS).** When calculating the sLUC emissions factors, emissions are divided by a discount-weighted production denominator over the 20-year window, rather than a single current-year snapshot. This keeps the numerator and denominator on a consistent time basis and avoids anomalies which can occur when production sharply increases or decreases over time.
+- **Emissions outside peatland are CO₂ only.** Methane and nitrous oxide from burning cleared vegetation, and nitrous oxide from soil carbon loss, are not counted. Peatland emissions include all three gases.
 - **Soil carbon depth.** SOC follows IPCC Tier 1 to 0–30 cm, but there is an opportunity to additionally capture sub-30 cm cultivation losses which are real and material.
 - **Geographic maturity.** jdLUC is US-only (CDL); sLUC is global but shows forest under-detection on tropical frontiers (e.g. oil-palm), traceable to how little of a woody perennial a general cropland mask recovers. See [`coverage.md`](coverage.md) for the enumerated crops and countries.
 - **Peat fire emissions** are excluded — negligible for the US, but a point of further research for global extension (e.g. Indonesia).
