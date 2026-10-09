@@ -35,9 +35,9 @@ compares one branch against another.
 Must run from the repo root -- the cache resolves module paths through git, and Config finds .env
 by walking up from the working directory.
 
-  uv run python tools/measure-drift.py --baseline 121d40c
-  uv run python tools/measure-drift.py --baseline 121d40c --iso USA --isolated
-  uv run python tools/measure-drift.py --baseline 121d40c --compare-only 2>/dev/null > now.txt
+  uv run python tools/measure-drift.py --baseline v202609
+  uv run python tools/measure-drift.py --baseline v202609 --iso USA --isolated
+  uv run python tools/measure-drift.py --baseline v202609 --compare-only 2>/dev/null > now.txt
 """
 
 import argparse
