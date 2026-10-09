@@ -65,7 +65,7 @@ The table below shows these emissions factors.
 | **Boreal**    | Cropland | 29.0          | 0.4              | 1.6 | 5.6 | **36.6**  |
 |               | Pasture  | 20.9          | 0.4              | 1.6 | 4.1 | **27.0**  |
 
-_All values in t CO₂-eq ha⁻¹ yr⁻¹, converted from t C using × 3.667, and using AR6 GWP values_
+_All values in t CO₂-eq ha⁻¹ yr⁻¹. Carbon is converted to CO₂ with × 3.667, and CH₄ and N₂O are converted with AR6 100-year global warming potentials of 27.0 and 273 (Forster et al., 2021)._
 
 Critically, these IPCC Tier 1 factors are based on calibration data from very differently aged plantations. The tropical plantations are under 10 years at median. In contrast, the temperate and boreal peatlands are decades to centuries old. This approach may make sense for national inventories, since it reflects a real difference in the typical ages of peatland drainage in those regions, but it must be parsed out for time-dependent models.
 
@@ -157,7 +157,7 @@ Finally we use the updated reference curve — now including both CO₂ and non-
 
 First we set **E_LM** equal to the steady-state of the all-GHG reference curve: the CO₂ floor plus the long-run non-CO₂ asymptote (temperate cropland value). That is **37.3 t CO₂-eq ha⁻¹ yr⁻¹**.
 
-Second, we set **P_LUC** by least-squares fit of the GHGP linear ramp to the all-GHG reference curve over years 1 to 20, with E_LM fixed from the previous step. That comes to **621 t CO₂ ha⁻¹**.
+Second, we set **P_LUC** by least-squares fit of the GHGP linear ramp to the all-GHG reference curve over years 1 to 20, with E_LM fixed from the previous step. That comes to **621 t CO₂-eq ha⁻¹**.
 
 The linear ramp undershoots the reference curve in year 1 and slightly overshoots in years 4–20, but matches total emissions very closely over the 20 year period. The graphs below show (a) annual emissions for the reference curve and the GHGP approximation, alongside IPCC EFs; and (b) cumulative emissions for the reference curve and the GHGP approximation, alongside cumulative emissions for different regions and crops if calculated with time-invariant IPCC EFs.
 
@@ -193,6 +193,8 @@ This catalogues a partial review of IPCC citations. We believe these to be repre
 - Deshmukh, C.S., Susanto, A.P., Nardi, N., et al. (2023). Net greenhouse gas balance of fibre wood plantation on peat in Indonesia. *Nature*, 616, 740–746.
 
 - Evans, C.D., Renou-Wilson, F. & Strack, M. (2016). The role of waterborne carbon in the greenhouse gas balance of drained and re-wetted peatlands. *Aquatic Sciences*, 78, 573–590.
+
+- Forster, P., Storelvmo, T., Armour, K., et al. (2021). The Earth's energy budget, climate feedbacks, and climate sensitivity. In *Climate Change 2021: The Physical Science Basis*, Contribution of Working Group I to the Sixth Assessment Report of the IPCC, Chapter 7, Table 7.15. Cambridge University Press.
 
 - Holzknecht A, Land M, Dessureault-Rompré J, Elsgaard L, Lång K, Berglund Ö. Effects of converting cropland to grassland on greenhouse gas emissions from peat and organic-rich soils in temperate and boreal climates: a systematic review. Environ Evid. 2025 Jan 19;14(1):1.
 
