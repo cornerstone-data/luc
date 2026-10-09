@@ -303,6 +303,14 @@ Each of these moves a parameter or a boundary rather than the structure of the m
 
 **Potential impact:** Negligible for forest carbon at a 10% threshold. The threshold matters where it meets grassland density, which "Grassland vegetation carbon density by source class" above covers.
 
+### Methane and nitrous oxide from conversion
+
+**Issue**: Carbon lost from vegetation and mineral soil is counted as CO₂ only. Burning cleared vegetation also releases methane and nitrous oxide, and soil carbon loss releases nitrous oxide. Neither is counted.
+
+**Potential impact:** With IPCC's default factors (IPCC 2019, Vol 4, Table 2.5 and Eq. 11.8), burning tropical forest adds about 14% to the CO₂ of the biomass burned, and soil nitrous oxide adds about 8% to the mineral-soil term. Burning matters on tropical frontiers cleared by fire, and is near zero where clearing is mechanical, as in most of the US.
+
+**Potential improvement path:** Add both terms in `emit`. Burning needs the share of cleared vegetation that is burned, by region. For soil nitrous oxide, first check whether the LSRS counts it as a land-use-change or a land management emission.
+
 ### Peat fire emissions
 
 **Issue**: The two-phase peatland model excludes peat fire emissions entirely; episodic fires can dwarf annual oxidative losses in fire years.
@@ -327,6 +335,7 @@ Each of these moves a parameter or a boundary rather than the structure of the m
 - Hansen, M.C., Potapov, P.V., Moore, R. et al. (2013). High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342(6160), 850–853. https://doi.org/10.1126/science.1244693
 - Harris, N.L., Gibbs, D.A., Baccini, A. et al. (2021). Global maps of twenty-first century forest carbon fluxes. Nature Climate Change 11(3), 234–240. https://doi.org/10.1038/s41558-020-00976-6
 - IPCC (2014). 2013 Supplement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories: Wetlands (Hiraishi, T. et al., eds.). IPCC, Switzerland. [Drained organic (peat) soil emission factors.]
+- IPCC (2019). 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Volume 4: Agriculture, Forestry and Other Land Use (Calvo Buendia, E. et al., eds.). IPCC, Switzerland.
 - Karra, K., Kontgis, C., Statman-Weil, Z., Mazzariello, J.C., Mathis, M. & Brumby, S.P. (2021). Global land use/land cover with Sentinel-2 and deep learning. IGARSS 2021, 4704–4707. https://doi.org/10.1109/IGARSS47720.2021.9553499
 - Li, X., Ciais, P., Frappart, F. et al. (2025). IB-AGC: Annual 25 km global live biomass carbon product from SMOS L-band passive microwave vegetation optical depth. Scientific Data 12, 1156. https://doi.org/10.1038/s41597-025-05470-2
 - Liao, Y., Chen, S., Bai, Y., Wang, J. & Gong, P. (2026). Global 30-m annual cropland extent dynamics (2000–2024) [preprint]. Earth System Science Data Discussions. https://doi.org/10.5194/essd-2025-838
