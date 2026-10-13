@@ -401,7 +401,8 @@ def get_commodity_name_to_totals(
 
     Beside the commodities sit `DROPPED` and `UNATTRIBUTED` (see `emit.NonCommodity`). Here
     `UNATTRIBUTED` is what the shares leave of the charge: conversion and occupation by the
-    MapSPAM crops no row models, and the cropland peat pulse in spans where no crop expanded.
+    MapSPAM crops no row models, the forest and grassland charge where neither cropland nor
+    pasture expanded, and the cropland peat pulse where no crop expanded.
     """
     cropland_occupation_per_hectare = dset[
         f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
