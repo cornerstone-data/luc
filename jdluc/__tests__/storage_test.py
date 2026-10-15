@@ -5,20 +5,6 @@ import pytest
 import xarray
 
 from jdluc import storage
-from jdluc.config import Config
-
-
-@pytest.fixture(autouse=True)
-def config_without_dot_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Writing a zarr reads number_of_dask_workers from .env, which CI does not have
-    config = Config(
-        harvard_dataverse_guestbook_json="",
-        ingest_root="",
-        number_of_dask_workers=2,
-        scratch_root="",
-        usda_nass_api_key="",
-    )
-    monkeypatch.setattr(Config, "from_dot_env", classmethod(lambda cls: config))
 
 
 def get_dset() -> xarray.Dataset:
