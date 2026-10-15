@@ -1,15 +1,13 @@
 import collections.abc
+import dataclasses
 import logging
 import math
-import tempfile
 import typing
 
 import numpy
 import rasterio
 import rasterio.enums
-import rasterio.shutil
 import rasterio.transform
-import rasterio.vrt
 import shapely
 import xarray
 
@@ -181,6 +179,35 @@ def exact_merge(*dsets: xarray.Dataset) -> xarray.Dataset:
     ).unify_chunks()
 
 
+@dataclasses.dataclass
+class AxisOverlaps:
+    coarse_cells: slice
+    weights: numpy.ndarray
+
+
+def get_overlap_weights(
+    coarse_size: int, fine_size: int, fine_start: int, fine_stop: int
+) -> AxisOverlaps:
+    """Along one axis, the share of each fine cell that falls inside each coarse cell.
+
+    The axis is cut into `coarse_size` equal coarse cells and, separately, into `fine_size` equal
+    fine cells. Only the fine cells from `fine_start` up to `fine_stop` are looked at. The result
+    names the coarse cells those fine cells fall in, and for every pair of coarse and fine cell
+    gives the share of the fine cell inside the coarse cell: 1 when it lies wholly inside, 0 when
+    it lies outside, and a fraction when the coarse cell's edge cuts through it.
+    """
+    first = fine_start * coarse_size // fine_size
+    last = (fine_stop * coarse_size - 1) // fine_size
+    edges = numpy.arange(first, last + 2) * (fine_size / coarse_size)
+    fine = numpy.arange(fine_start, fine_stop)[numpy.newaxis, :]
+    overlaps = numpy.minimum(fine + 1, edges[1:, numpy.newaxis]) - numpy.maximum(
+        fine, edges[:-1, numpy.newaxis]
+    )
+    return AxisOverlaps(
+        coarse_cells=slice(first, last + 1), weights=overlaps.clip(min=0)
+    )
+
+
 def downscale_darray(
     darray: xarray.DataArray,
     epsg: int,
@@ -189,55 +216,84 @@ def downscale_darray(
     transform: tuple[float, float, float, float, float, float],
     width: int,
 ) -> xarray.DataArray:
-    import rioxarray
+    """Average `darray` onto a coarser grid that covers the same area.
+
+    `transform`, `height` and `width` describe the coarser grid. Each coarse cell gets the mean of
+    the fine cells inside it, skipping missing (NaN) ones. A fine cell that the edge of a coarse
+    cell cuts through counts only by the share of it inside that coarse cell. A coarse cell with
+    no non-missing fine cell inside it is NaN. This matches GDAL's average resampling.
+
+    The fine grid is read one chunk at a time. Each chunk adds its weighted sum and weighted count
+    to the coarse cells it overlaps, and the mean is taken once every chunk is added in. So only a
+    few chunks are in memory at once, never the whole fine grid.
+    """
+    from rioxarray.rioxarray import affine_to_coords
+
+    assert resampling == rasterio.enums.Resampling.average
+    assert darray.rio.crs.to_epsg() == epsg
+    assert darray.dims == ("y", "x")
+    affine = rasterio.transform.Affine.from_gdal(*transform)
+    assert numpy.allclose(
+        darray.rio.bounds(),
+        rasterio.transform.array_bounds(height=height, transform=affine, width=width),
+    )
 
     logger.info(f"Downscaling {darray.name=:s}")
+    fine_height, fine_width = darray.shape
 
-    import dask.diagnostics
-
-    path_to_unscaled = tempfile.NamedTemporaryFile(  # noqa: SIM115
-        delete=False, suffix=".glad.tif"
-    ).name
-    chunk_size = 1 << 11  # 2k
-    logger.debug(f"Serializing to {path_to_unscaled=:s} with {chunk_size=:d}")
-    darray = darray.assign_attrs(long_name=darray.name).chunk(chunks=chunk_size)
-    with dask.diagnostics.ProgressBar():
-        darray.rio.to_raster(
-            path_to_unscaled,
-            BIGTIFF="IF_SAFER",
-            ZSTD_LEVEL=1,
-            blockxsize=chunk_size,
-            blockysize=chunk_size,
-            compress="ZSTD",
-            driver="GTiff",
-            lock=True,
-            num_threads="all_cpus",
-            tiled=True,
+    def get_partial_sums(
+        block: numpy.ndarray, block_info: dict[int | None, typing.Any]
+    ) -> numpy.ndarray:
+        (row_start, row_stop), (column_start, column_stop) = block_info[0][
+            "array-location"
+        ]
+        rows = get_overlap_weights(
+            coarse_size=height,
+            fine_size=fine_height,
+            fine_start=row_start,
+            fine_stop=row_stop,
         )
-    with (
-        rasterio.open(path_to_unscaled) as unscaled_fp,
-        rasterio.vrt.WarpedVRT(
-            unscaled_fp,
-            crs=epsg,
-            height=height,
-            resampling=resampling,
-            transform=rasterio.transform.Affine.from_gdal(*transform),
-            width=width,
-        ) as scaled_vrt,
-        tempfile.NamedTemporaryFile(delete=False, suffix=".warped.vrt") as scaled_fp,
-    ):
-        assert unscaled_fp.crs.to_epsg() == epsg
-        logger.debug(f"Writing warped VRT to {scaled_fp.name=:s}")
-        rasterio.shutil.copy(scaled_vrt, scaled_fp.name, driver="VRT")
-    ret = rioxarray.open_rasterio(
-        scaled_fp.name,
-        chunks=get_chunk_size(
-            dtypes=[numpy.dtype("float32")],
-            # 128 kiB ~ 1 GiB x (12 ÷ 4_000 resolution) ÷ 14 bands
-            max_bytes_per_chunk=1 << 17,
-        ),
-        lock=False,
+        columns = get_overlap_weights(
+            coarse_size=width,
+            fine_size=fine_width,
+            fine_start=column_start,
+            fine_stop=column_stop,
+        )
+        valid = numpy.isfinite(block)
+        # For each coarse cell, the sum of the non-missing fine values inside it and how many
+        # there are, with each fine cell counted by the share of it inside the coarse cell
+        partial_sums = numpy.zeros(shape=(1, 1, 2, height, width))
+        partial_sums[0, 0, :, rows.coarse_cells, columns.coarse_cells] = (
+            rows.weights
+            @ numpy.stack([numpy.where(valid, block, 0), valid]).astype(numpy.float64)
+            @ columns.weights.T
+        )
+        return partial_sums
+
+    data = darray.chunk(chunks=1 << 11).data  # 2k
+    numerator, denominator = (
+        data.map_blocks(
+            get_partial_sums,
+            chunks=(
+                (1,) * data.numblocks[0],
+                (1,) * data.numblocks[1],
+                (2,),
+                (height,),
+                (width,),
+            ),
+            dtype=numpy.float64,
+            new_axis=[2, 3, 4],
+        )
+        .sum(axis=(0, 1), split_every=4)
+        .compute()
     )
-    assert isinstance(ret, xarray.DataArray)
-    ret = ret.drop_vars("spatial_ref").isel(band=0, drop=True)
-    return unify_dtype_and_no_data(darray=ret.rename(ret.attrs.pop("long_name")))
+    mean = numpy.full(fill_value=numpy.nan, shape=(height, width))
+    numpy.divide(numerator, denominator, out=mean, where=denominator > 0)
+    return unify_dtype_and_no_data(
+        darray=xarray.DataArray(
+            coords=affine_to_coords(affine=affine, height=height, width=width),
+            data=mean.astype(numpy.float32),
+            dims=("y", "x"),
+            name=darray.name,
+        ).chunk()
+    )

@@ -4,14 +4,19 @@ import pathlib
 import numpy
 import pytest
 import rasterio
+import rasterio.enums
 import rasterio.transform
+import rasterio.warp
 import shapely
 import xarray
+from rioxarray.rioxarray import affine_to_coords
 
 from jdluc.geo import (
     clip_dset,
     convert_vector_to_flatgeobuf,
+    downscale_darray,
     get_chunk_size,
+    get_overlap_weights,
     get_overview_level,
     validate_geotiff,
 )
@@ -130,6 +135,106 @@ def test_clip_dset(geometry: shapely.Polygon, expected: int) -> None:
     )
     result = clip_dset(dset=dset, geometry=geometry)
     assert int(result["var"].count()) == expected
+
+
+@pytest.mark.parametrize(
+    ("fine_start", "fine_stop", "coarse_cells", "weights"),
+    (
+        pytest.param(
+            0,
+            10,
+            slice(0, 3),
+            [
+                [1, 1, 1, 1 / 3, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 2 / 3, 1, 1, 2 / 3, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 1 / 3, 1, 1, 1],
+            ],
+            id="the whole axis",
+        ),
+        pytest.param(
+            3,
+            7,
+            slice(0, 3),
+            [[1 / 3, 0, 0, 0], [2 / 3, 1, 1, 2 / 3], [0, 0, 0, 1 / 3]],
+            id="fine cells cut by two coarse cell edges",
+        ),
+        pytest.param(
+            4, 6, slice(1, 2), [[1, 1]], id="fine cells inside one coarse cell"
+        ),
+    ),
+)
+def test_get_overlap_weights(
+    fine_start: int, fine_stop: int, coarse_cells: slice, weights: list[list[float]]
+) -> None:
+    # 10 fine cells to 3 coarse ones, so each coarse cell covers 3 1/3 fine cells
+    result = get_overlap_weights(
+        coarse_size=3, fine_size=10, fine_start=fine_start, fine_stop=fine_stop
+    )
+    assert result.coarse_cells == coarse_cells
+    numpy.testing.assert_allclose(result.weights, weights)
+    # Each fine cell's shares across the coarse cells add up to the whole cell
+    numpy.testing.assert_allclose(result.weights.sum(axis=0), 1)
+
+
+@pytest.mark.parametrize(
+    ("fine_size", "coarse_size"),
+    (
+        pytest.param(
+            1_000,
+            3,
+            id="coarse cell edges cut through fine cells, as 30 m to 1/12° does",
+        ),
+        pytest.param(900, 3, id="coarse cell edges fall on fine cell edges"),
+    ),
+)
+def test_downscale_darray_matches_a_gdal_average_warp(
+    coarse_size: int, fine_size: int
+) -> None:
+    generator = numpy.random.default_rng(seed=0)
+    values = generator.random(dtype=numpy.float32, size=(fine_size, fine_size))
+    values[generator.random(size=values.shape) < 0.3] = numpy.nan
+    # Every fine cell inside the top-left coarse cell is missing
+    values[: fine_size // 2, : fine_size // 2] = numpy.nan
+    fine_transform = rasterio.transform.from_origin(
+        north=20, west=-90, xsize=10 / fine_size, ysize=10 / fine_size
+    )
+    coarse_transform = rasterio.transform.from_origin(
+        north=20, west=-90, xsize=10 / coarse_size, ysize=10 / coarse_size
+    )
+    darray = xarray.DataArray(
+        coords=affine_to_coords(
+            affine=fine_transform, height=fine_size, width=fine_size
+        ),
+        data=values,
+        dims=("y", "x"),
+        name="var",
+    ).rio.write_crs(4326)
+
+    expected = numpy.full(
+        dtype=numpy.float32, fill_value=numpy.nan, shape=(coarse_size, coarse_size)
+    )
+    rasterio.warp.reproject(
+        destination=expected,
+        dst_crs=4326,
+        dst_nodata=numpy.nan,
+        dst_transform=coarse_transform,
+        resampling=rasterio.enums.Resampling.average,
+        source=values,
+        src_crs=4326,
+        src_nodata=numpy.nan,
+        src_transform=fine_transform,
+    )
+    result = downscale_darray(
+        darray=darray,
+        epsg=4326,
+        height=coarse_size,
+        resampling=rasterio.enums.Resampling.average,
+        transform=coarse_transform.to_gdal(),
+        width=coarse_size,
+    )
+
+    assert numpy.isnan(result.values[0, 0])
+    numpy.testing.assert_array_equal(result.values, expected)
 
 
 def get_dissolved_names(
