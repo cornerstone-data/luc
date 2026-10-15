@@ -18,6 +18,7 @@ from jdluc.geo import (
     get_chunk_size,
     get_overlap_weights,
     get_overview_level,
+    get_weighted_sums,
     validate_geotiff,
 )
 
@@ -138,10 +139,11 @@ def test_clip_dset(geometry: shapely.Polygon, expected: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ("fine_start", "fine_stop", "coarse_cells", "weights"),
+    ("fine_start", "fine_stop", "fine_size", "coarse_cells", "weights"),
     (
         pytest.param(
             0,
+            10,
             10,
             slice(0, 3),
             [
@@ -154,26 +156,64 @@ def test_clip_dset(geometry: shapely.Polygon, expected: int) -> None:
         pytest.param(
             3,
             7,
+            10,
             slice(0, 3),
             [[1 / 3, 0, 0, 0], [2 / 3, 1, 1, 2 / 3], [0, 0, 0, 1 / 3]],
             id="fine cells cut by two coarse cell edges",
         ),
         pytest.param(
-            4, 6, slice(1, 2), [[1, 1]], id="fine cells inside one coarse cell"
+            4, 6, 10, slice(1, 2), [[1, 1]], id="fine cells inside one coarse cell"
         ),
+        pytest.param(
+            0, 4, 12, slice(0, 1), [[1] * 4], id="first coarse cell, ending on its edge"
+        ),
+        pytest.param(
+            4,
+            8,
+            12,
+            slice(1, 2),
+            [[1] * 4],
+            id="middle coarse cell, both ends on edges",
+        ),
+        pytest.param(11, 12, 12, slice(2, 3), [[1]], id="last fine cell"),
     ),
 )
 def test_get_overlap_weights(
-    fine_start: int, fine_stop: int, coarse_cells: slice, weights: list[list[float]]
+    fine_start: int,
+    fine_stop: int,
+    fine_size: int,
+    coarse_cells: slice,
+    weights: list[list[float]],
 ) -> None:
-    # 10 fine cells to 3 coarse ones, so each coarse cell covers 3 1/3 fine cells
     result = get_overlap_weights(
-        coarse_size=3, fine_size=10, fine_start=fine_start, fine_stop=fine_stop
+        coarse_size=3, fine_size=fine_size, fine_start=fine_start, fine_stop=fine_stop
     )
     assert result.coarse_cells == coarse_cells
     numpy.testing.assert_allclose(result.weights, weights)
     # Each fine cell's shares across the coarse cells add up to the whole cell
     numpy.testing.assert_allclose(result.weights.sum(axis=0), 1)
+
+
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    (
+        pytest.param(
+            [[numpy.nan, numpy.nan], [numpy.nan, numpy.nan]], [0, 0], id="all missing"
+        ),
+        pytest.param([[2, 4], [6, 8]], [10.5, 2.25], id="fractional weights"),
+        pytest.param([[2, numpy.nan], [6, 8]], [6.5, 1.25], id="unequal valid counts"),
+    ),
+)
+def test_get_weighted_sums(block: list[list[float]], expected: list[float]) -> None:
+    values = numpy.asarray(block)
+    actual = get_weighted_sums(
+        block=values,
+        column_weights=numpy.array([[0.5, 1.0]]),
+        row_weights=numpy.array([[1.0, 0.5]]),
+        valid=numpy.isfinite(values),
+    )
+    # Assert the weighted sum and count before either is divided.
+    numpy.testing.assert_allclose(actual[:, 0, 0], expected)
 
 
 @pytest.mark.parametrize(
@@ -185,6 +225,7 @@ def test_get_overlap_weights(
             id="coarse cell edges cut through fine cells, as 30 m to 1/12° does",
         ),
         pytest.param(900, 3, id="coarse cell edges fall on fine cell edges"),
+        pytest.param(2_051, 3, id="multiple chunks with short final chunks"),
     ),
 )
 def test_downscale_darray_matches_a_gdal_average_warp(
@@ -195,6 +236,10 @@ def test_downscale_darray_matches_a_gdal_average_warp(
     values[generator.random(size=values.shape) < 0.3] = numpy.nan
     # Every fine cell inside the top-left coarse cell is missing
     values[: fine_size // 2, : fine_size // 2] = numpy.nan
+    # Set the short last chunks apart, so a chunk that is dropped or put in the wrong place
+    # changes the result (a no-op when the grid fits in one 2048-cell chunk)
+    values[2_048:, :] = 1_000
+    values[:, 2_048:] = 2_000
     fine_transform = rasterio.transform.from_origin(
         north=20, west=-90, xsize=10 / fine_size, ysize=10 / fine_size
     )
@@ -235,6 +280,36 @@ def test_downscale_darray_matches_a_gdal_average_warp(
 
     assert numpy.isnan(result.values[0, 0])
     numpy.testing.assert_array_equal(result.values, expected)
+
+
+@pytest.mark.parametrize("nodata", [numpy.nan, -9999.0])
+def test_downscale_darray_respects_source_nodata(nodata: float) -> None:
+    values = numpy.array(
+        [
+            [nodata, nodata, 1, 3],
+            [nodata, nodata, 5, 7],
+            [2, nodata, 10, 20],
+            [4, 6, 30, 40],
+        ],
+        dtype=numpy.float32,
+    )
+    source = (
+        xarray.DataArray(values, dims=("y", "x"), name="var")
+        .rio.write_crs(4326)
+        .rio.write_transform(rasterio.transform.from_origin(0, 4, 1, 1))
+        .rio.write_nodata(nodata)
+    )
+    result = downscale_darray(
+        darray=source,
+        epsg=4326,
+        height=2,
+        resampling=rasterio.enums.Resampling.average,
+        transform=rasterio.transform.from_origin(0, 4, 2, 2).to_gdal(),
+        width=2,
+    )
+    numpy.testing.assert_allclose(
+        result.values, [[numpy.nan, 4.0], [4.0, 25.0]], equal_nan=True
+    )
 
 
 def get_dissolved_names(

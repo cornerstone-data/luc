@@ -197,6 +197,8 @@ def get_overlap_weights(
     it lies outside, and a fraction when the coarse cell's edge cuts through it.
     """
     first = fine_start * coarse_size // fine_size
+    # fine_stop is exclusive, so when the last fine cell ends exactly on a coarse cell edge, the
+    # coarse cell that starts at that edge isn't included
     last = (fine_stop * coarse_size - 1) // fine_size
     edges = numpy.arange(first, last + 2) * (fine_size / coarse_size)
     fine = numpy.arange(fine_start, fine_stop)[numpy.newaxis, :]
@@ -206,6 +208,21 @@ def get_overlap_weights(
     return AxisOverlaps(
         coarse_cells=slice(first, last + 1), weights=overlaps.clip(min=0)
     )
+
+
+def get_weighted_sums(
+    block: numpy.ndarray,
+    column_weights: numpy.ndarray,
+    row_weights: numpy.ndarray,
+    valid: numpy.ndarray,
+) -> numpy.ndarray:
+    """The weighted sum of the valid values in `block` and the weighted count of them, as a
+    (2, coarse rows, coarse columns) array, each fine cell counted by its share of the coarse cell.
+    """
+    values_and_counts = numpy.stack([numpy.where(valid, block, 0), valid]).astype(
+        numpy.float64
+    )
+    return row_weights @ values_and_counts @ column_weights.T
 
 
 def downscale_darray(
@@ -233,6 +250,8 @@ def downscale_darray(
     assert darray.rio.crs.to_epsg() == epsg
     assert darray.dims == ("y", "x")
     affine = rasterio.transform.Affine.from_gdal(*transform)
+    # Weights by row and column index need both grids to run north to south and west to east.
+    assert all(grid.a > 0 and grid.e < 0 for grid in (darray.rio.transform(), affine))
     assert numpy.allclose(
         darray.rio.bounds(),
         rasterio.transform.array_bounds(height=height, transform=affine, width=width),
@@ -240,6 +259,7 @@ def downscale_darray(
 
     logger.info(f"Downscaling {darray.name=:s}")
     fine_height, fine_width = darray.shape
+    source_nodata = darray.rio.nodata
 
     def get_partial_sums(
         block: numpy.ndarray, block_info: dict[int | None, typing.Any]
@@ -260,13 +280,16 @@ def downscale_darray(
             fine_stop=column_stop,
         )
         valid = numpy.isfinite(block)
-        # For each coarse cell, the sum of the non-missing fine values inside it and how many
-        # there are, with each fine cell counted by the share of it inside the coarse cell
+        if source_nodata is not None:
+            valid &= block != source_nodata
         partial_sums = numpy.zeros(shape=(1, 1, 2, height, width))
         partial_sums[0, 0, :, rows.coarse_cells, columns.coarse_cells] = (
-            rows.weights
-            @ numpy.stack([numpy.where(valid, block, 0), valid]).astype(numpy.float64)
-            @ columns.weights.T
+            get_weighted_sums(
+                block=block,
+                column_weights=columns.weights,
+                row_weights=rows.weights,
+                valid=valid,
+            )
         )
         return partial_sums
 
