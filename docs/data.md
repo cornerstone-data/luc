@@ -33,7 +33,7 @@ Emission quantities use two unit conventions: `t CO₂e/ha` (tonnes CO₂e per h
 
 Written by the `harmonize` stage; a pipeline output, not a published artifact (see [Access](#access)).
 
-Every source raster reprojected and warped onto the common grid — the input to the emissions core. One variable per fully-qualified source band, named `{source}:{product}:{band}`.
+Every source raster resampled onto the common grid — the input to the emissions core. Every source is ingested in `EPSG:4326`, so nothing is reprojected. One variable per fully-qualified source band, named `{source}:{product}:{band}`.
 
 | Variable                                                        | Type    | Units            | Description                                                                         |
 | --------------------------------------------------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------- |

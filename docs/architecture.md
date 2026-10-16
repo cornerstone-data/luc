@@ -48,7 +48,7 @@ flowchart LR
 
 ## Compute platform and libraries
 
-Raster computation is expressed as lazy `xarray.Dataset` / `dask.array` graphs built with rioxarray and rasterio; GDAL VRTs do the grid alignment and resampling. Nothing materializes until a stage writes its result, at which point dask streams the computation tile-by-tile into the output store.
+Raster computation is expressed as lazy `xarray.Dataset` / `dask.array` graphs built with rioxarray and rasterio. GDAL VRTs align and resample every source onto the common grid; the statistical leg's step down to the MapSPAM grid is an overlap-weighted mean computed in dask (`geo.downscale_darray`). Nothing materializes until a stage writes its result, at which point dask streams the computation tile-by-tile into the output store.
 
 Each library earns its place:
 
@@ -130,20 +130,22 @@ Tests live in `jdluc/__tests__/` for the pipeline and `validation/__tests__/` fo
 
 The pipeline runs on a single dask-capable host — no distributed cluster. We started on a single host because it is the simplest thing that works, and the tooling choices above mean the pipeline is not *stuck* there: much of the computation is parallelizable, and the same code is portable to a cloud VM or any of a number of data orchestrators (which would also bring their own versioning, metadata, caching, and monitoring). Staying local keeps that option open rather than closing it. Because the entire pipeline is chunkable end to end, there is no known ceiling: the working set is a single 10° tile no matter how many tiles are requested, so scaling up is a question of wall-clock time and where it is run — not of whether the host can hold the data.
 
-The benchmark below is a global backfill, covering all 280 ten-degree tiles and the 220 countries the pipeline produces factors for. Harmonize and emit were measured on an **`n2-standard-16` in `us-central1`** at 16 dask workers; attribute and trace on an **M4 MacBook (48 GB RAM)**, which is faster per core:
+The benchmark below is a global backfill, covering all 280 ten-degree tiles and the 221 countries the pipeline produces factors for. Each stage was timed on one of two hosts, an **`n2-standard-16` in `us-central1`** (the VM) or an **M4 MacBook (48 GB RAM)**, which is faster per core, in the v202609 or the v202610 backfill:
 
-| Stage                             | Wall-clock | Cached output                       | Output size |
-| --------------------------------- | ---------- | ----------------------------------- | ----------- |
-| Ingest                            | ~1 h       | source tiles (COG)                  | 305 GiB     |
-| Harmonize                         | ~53 h      | common-grid `xarray.Dataset` (zarr) | 1.2 TiB     |
-| Emit                              | ~21 h      | per-pixel emissions (zarr)          | 101 GiB     |
-| Attribute (Statistical)           | ~21 h      | downscale (zarr), rollup (parquet)  | 36 MiB      |
-| Attribute (Jurisdictional Direct) | ~40 m      | rollup (parquet)                    | < 1 MiB     |
-| Trace                             | ~3 m       | EF table (parquet)                  | < 1 MiB     |
+| Stage                             | Wall-clock | Measured                                | Cached output                       | Output size |
+| --------------------------------- | ---------- | --------------------------------------- | ----------------------------------- | ----------- |
+| Ingest                            | ~1 h       | VM, v202609                             | source tiles (COG)                  | 305 GiB     |
+| Harmonize                         | ~53 h      | VM, v202609, 16 dask workers            | common-grid `xarray.Dataset` (zarr) | 1.2 TiB     |
+| Emit                              | ~24 h      | VM, v202610, two processes of 8 workers | per-pixel emissions (zarr)          | 101 GiB     |
+| Attribute (Statistical)           | ~14 h      | M4, v202610, from per-tile rates        | downscale (zarr), rollup (parquet)  | 36 MiB      |
+| Attribute (Jurisdictional Direct) | ~30 m      | M4, v202610                             | rollup (parquet)                    | < 1 MiB     |
+| Trace                             | ~3 m       | VM, v202610                             | EF table (parquet)                  | ~5 MiB      |
+
+Emit ran at about 10.5 minutes a tile in each of its two processes. The statistical figure is built from rates rather than one end-to-end run: about 2 minutes a tile for the downscale and 3–4 seconds a province for the rollup. It leaves out the statistical MapSPAM stack, which each tile builds once and caches (about 2.5 minutes a tile). On Linux, `jdluc` pins OpenBLAS, numpy's matrix library, to one thread when it is imported (`jdluc/__init__.py`); at OpenBLAS's default of a thread per core, the statistical downscale ran about 2.4 times slower on the VM.
 
 End-to-end ≈ **4 days** on a single host, or about a day and a half across three — harmonize and emit split into disjoint `--modulus` shards, attribute into disjoint country sets. Harmonize dominates.
 
-Storage is dominated by harmonize, whose common-grid `xarray.Dataset` is 92% of the cache: it carries 56 bands of a dense 40,000-square grid per tile regardless of what that tile contains. Emit's per-pixel grid is an order of magnitude smaller, and the downscaled layers three orders smaller again — those are masked to cropland, so most chunks are entirely fill and are never written at all. Every parquet the pipeline produces, across both legs and all 220 countries, comes to 80 MiB.
+Storage is dominated by harmonize, whose common-grid `xarray.Dataset` is 92% of the cache: it carries 56 bands of a dense 40,000-square grid per tile regardless of what that tile contains. Emit's per-pixel grid is an order of magnitude smaller, and the downscaled layers three orders smaller again — those are masked to cropland, so most chunks are entirely fill and are never written at all. Every parquet the pipeline produced in the v202609 backfill, across both legs and its 220 countries, came to 80 MiB.
 
 The zarr figures are a stratified sample rather than a sweep: summing every chunk object means listing millions of them, so twelve stores per stage were sized across land-fraction bands and scaled by the number present, which leaves harmonize with an interval of roughly ±20%.
 
