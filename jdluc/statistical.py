@@ -665,6 +665,9 @@ def workflow(
             },
         )
     )
+    # NB: usually we avoid dumping to local mmemory, but since this xarray is small there is no
+    # OOM risk.  Doing so speeds up the many downstream reads for each jurisdiction
+    merged = merged.load()
 
     # National carcass weight per standing head. A year FAOSTAT reports no meat for gets a rate of
     # 0, which is what `attribute` would make of a missing production anyway.
