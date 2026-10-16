@@ -9,7 +9,8 @@ partitioning, so the tile set only bounds tiled datasets.
 
 The tile set comes from the positional ISO 3166 alpha-3 codes -- or, with `--backfill`,
 from `tiling.GLOBAL_NATURE_WATCH_TILE_IDS`. Tiles are ingested one at a time unless
-`--concurrency` raises the bound.
+`--concurrency` raises the bound. `--modulus` and `--residues` restrict a run to a shard of
+the sorted tiles; like the tile set, the shard only bounds tiled datasets.
 
 Example invocations:
   uv run python -m jdluc.ingest IPCC_CLIMATE_ZONES USA
@@ -26,7 +27,7 @@ import collections.abc
 import concurrent.futures
 import logging
 
-from jdluc import config, datasets, tiling
+from jdluc import config, datasets, tiling, utils
 from jdluc.datasets import base, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,19 @@ def main() -> int:
     )
     parser.add_argument("--backfill", action="store_true", help="cover all GNW tiles")
     parser.add_argument("--concurrency", default=1, type=int)
+    parser.add_argument(
+        "--modulus",
+        default=1,
+        type=int,
+        help="split the tiles into this many disjoint shards",
+    )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--residues",
+        action="append",
+        type=int,
+        help="ingest only these shards, each in [0, --modulus); repeatable, all by default",
+    )
     args = parser.parse_args()
     assert bool(args.iso_3166s) ^ bool(args.backfill), (
         "pass either one-or-more iso_3166s or --backfill"
@@ -100,11 +113,17 @@ def main() -> int:
         dataset=dataset,
         overwrite=args.overwrite,
         root=config.Config.from_dot_env().ingest_root,
-        tile_ids=(
-            tiling.GLOBAL_NATURE_WATCH_TILE_IDS
-            if args.backfill
-            else worldbank_jurisdictions.get_ten_degree_tile_ids_for_iso_3166s(
-                iso_3166s=args.iso_3166s
+        tile_ids=tuple(
+            utils.iter_sharded(
+                modulus=int(args.modulus),
+                residues=args.residues,
+                values=(
+                    tiling.GLOBAL_NATURE_WATCH_TILE_IDS
+                    if args.backfill
+                    else worldbank_jurisdictions.get_ten_degree_tile_ids_for_iso_3166s(
+                        iso_3166s=args.iso_3166s
+                    )
+                ),
             )
         ),
     )
