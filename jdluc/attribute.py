@@ -8,7 +8,9 @@ Dispatches each ten-degree tile to a per-methodology workflow once per overlappi
 Both clip to provincial (World Bank admin-1) polygons and sum commodity area, peatland
 commodity area, peatland-occupation emissions, and total emissions. Returns a pandas.DataFrame indexed by
 (admin_level, admin_id, commodity_name, methodology); the per-(country, tile) sub-workflows are
-cached and `--concurrency` bounds how many tiles are in flight at once.
+cached and `--concurrency` bounds how many tiles are in flight at once. `--modulus` and
+`--residues` restrict a run to a shard of the countries' sorted tiles, as in harmonize, emit and
+ingest, so one tile's partials can be computed apart from the others.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -29,6 +31,7 @@ import pandas
 from jdluc import (
     jurisdictional_direct,
     statistical,
+    utils,
 )
 from jdluc.datasets import worldbank_jurisdictions
 
@@ -58,6 +61,8 @@ def workflow(
     commodity_names: tuple[str, ...],
     iso_3166s: collections.abc.Iterable[str],
     methodology: Methodology,
+    modulus: int = 1,
+    residues: collections.abc.Collection[int] | None = None,
 ) -> pandas.DataFrame:
     workflow_for_tile = (
         jurisdictional_direct.workflow
@@ -75,6 +80,12 @@ def workflow(
             )
         ):
             tile_id_to_iso_3166s[tile_id].append(iso_3166)
+    tile_id_to_iso_3166s = {
+        tile_id: tile_id_to_iso_3166s[tile_id]
+        for tile_id in utils.iter_sharded(
+            modulus=modulus, residues=residues, values=tile_id_to_iso_3166s
+        )
+    }
 
     def workflow_for_tile_id(tile_id: str) -> list[pandas.DataFrame]:
         return [
@@ -160,6 +171,18 @@ def main() -> int:
         choices=sorted(e.name for e in Methodology),
         default=Methodology.STATISTICAL.name,
     )
+    parser.add_argument(
+        "--modulus",
+        default=1,
+        type=int,
+        help="split the tiles into this many disjoint shards",
+    )
+    parser.add_argument(
+        "--residues",
+        action="append",
+        type=int,
+        help="attribute only these shards, each in [0, --modulus); repeatable, all by default",
+    )
     args = parser.parse_args()
     assert bool(args.iso_3166s) ^ bool(args.backfill), (
         "pass either one-or-more iso_3166s or --backfill"
@@ -175,6 +198,8 @@ def main() -> int:
             else args.iso_3166s
         ),
         methodology=methodology,
+        modulus=int(args.modulus),
+        residues=args.residues,
     )
     if args.display_results:
         print(df.to_string())
