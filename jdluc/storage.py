@@ -38,6 +38,14 @@ def to_gdal_path(uri: str) -> str:
         return uri
 
 
+def get_file(uri: str, local_path: str) -> None:
+    import fsspec  # type: ignore[import-untyped]
+
+    logger.info(f"Reading file {uri=:s} to {local_path=:s}")
+    fs, path = fsspec.url_to_fs(url=uri)
+    fs.get_file(path, local_path)
+
+
 def join_uri(root: str, prefix: str) -> str:
     return f"{root.rstrip('/'):s}/{prefix:s}"
 
