@@ -78,6 +78,7 @@ def get_path_to_archive_for_low_longitude(low_longitude: int) -> str:
     # NB: deliberately not a TemporaryDirectory, so that the archive outlives this call
     path_to_archive = os.path.join(tempfile.mkdtemp(), name)
     utils.save_remote_url_to_local_path(
+        immutable=True,
         local_path=path_to_archive,
         params={},
         remote_url=f"https://zenodo.org/api/records/18199675/files/{name:s}/content",
