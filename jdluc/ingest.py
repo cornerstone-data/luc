@@ -19,6 +19,7 @@ Example invocations:
   uv run python -m jdluc.ingest LIAO_GACED30 IDN
   uv run python -m jdluc.ingest GPW_GRASSLAND BRA
   uv run python -m jdluc.ingest DESCALS_OIL_PALM IDN MYS
+  uv run python -m jdluc.ingest FDAP_COCOA CIV GHA
 """
 
 import argparse

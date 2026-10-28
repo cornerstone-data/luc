@@ -4,6 +4,7 @@ from jdluc.datasets import (
     base,
     descals_oil_palm,
     faostat,
+    fdap,
     glad_glcluc,
     gnw_global_peatlands,
     gnw_harris_agb,
@@ -33,6 +34,7 @@ class DatasetName(enum.StrEnum):
     FAOSTAT_LIVESTOCK_PATTERNS = enum.auto()
     FAOSTAT_PRODUCTION_CROPS = enum.auto()
     FAOSTAT_PRODUCTION_LIVESTOCK = enum.auto()
+    FDAP_COCOA = enum.auto()
     GLAD_GLCLUC = enum.auto()
     GNW_GLOBAL_PEATLANDS = enum.auto()
     GNW_HARRIS_AGB = enum.auto()
@@ -65,6 +67,7 @@ NAME_TO_CLS: dict[
     DatasetName.FAOSTAT_LIVESTOCK_PATTERNS: faostat.LIVESTOCK_PATTERNS_DATASET,
     DatasetName.FAOSTAT_PRODUCTION_CROPS: faostat.CROP_DATASET,
     DatasetName.FAOSTAT_PRODUCTION_LIVESTOCK: faostat.LIVESTOCK_DATASET,
+    DatasetName.FDAP_COCOA: fdap.COCOA_DATASET,
     DatasetName.GLAD_GLCLUC: glad_glcluc.DATASET,
     DatasetName.GNW_GLOBAL_PEATLANDS: gnw_global_peatlands.DATASET,
     DatasetName.GNW_HARRIS_AGB: gnw_harris_agb.DATASET,
