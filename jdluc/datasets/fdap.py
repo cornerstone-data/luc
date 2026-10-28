@@ -218,6 +218,7 @@ def get_raster_dataset(
                 interleave="band",
                 mode="w",
                 nodata=NO_DATA,
+                photometric="MINISBLACK",
                 tiled=True,
                 transform=rasterio.transform.from_origin(
                     columns.start * PIXEL_DEGREES,

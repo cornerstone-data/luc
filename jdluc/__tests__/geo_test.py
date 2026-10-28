@@ -55,6 +55,35 @@ def test_validate_geotiff_holds_a_dataset_to_its_declared_dtype(
 
 
 @pytest.mark.parametrize(
+    ("photometric", "fails"),
+    (
+        pytest.param(None, True, id="four-uint8-bands-default-to-rgba"),
+        pytest.param("MINISBLACK", False, id="minisblack-has-no-alpha"),
+    ),
+)
+def test_validate_geotiff_rejects_an_alpha_band(
+    tmp_path: pathlib.Path, photometric: str | None, fails: bool
+) -> None:
+    path_to_geotiff = str(tmp_path / "geotiff.tif")
+    with rasterio.open(
+        path_to_geotiff,
+        "w",
+        count=4,
+        crs=4326,
+        driver="GTiff",
+        dtype="uint8",
+        height=4,
+        transform=rasterio.transform.from_origin(0, 10, 0.1, 0.1),
+        width=4,
+        **({} if photometric is None else {"photometric": photometric}),
+    ) as dataset:
+        dataset.write(numpy.zeros((4, 4, 4), dtype="uint8"))
+
+    with pytest.raises(AssertionError) if fails else contextlib.nullcontext():
+        validate_geotiff(dtype="uint8", path_to_geotiff=path_to_geotiff)
+
+
+@pytest.mark.parametrize(
     ("height", "width", "minimum_pixels", "expected"),
     (
         (1024, 1024, 1024, 0),
