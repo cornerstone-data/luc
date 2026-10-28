@@ -22,9 +22,10 @@ https://bulks-faostat.fao.org/production/
 
 Two bulk archives, read into three tables:
 
-- `CROP_DATASET`: area harvested and production of each MapSPAM crop FAOSTAT names one-for-one.
-  Yield is not carried, since a MapSPAM group's yield is not its members'; area and production are
-  additive, so a consumer sums the items it wants and divides
+- `CROP_DATASET`: area harvested and production of each MapSPAM crop FAOSTAT names one-for-one,
+  plus coffee as one item, COFF, which MapSPAM splits into arabica and robusta. Yield is not
+  carried, since a MapSPAM group's yield is not its members'; area and production are additive, so
+  a consumer sums the items it wants and divides
 - `LIVESTOCK_DATASET`: stocks (live animals) and meat production (carcass weight, with the bone) of
   five grazers
 - `LIVESTOCK_PATTERNS_DATASET`: stocks in livestock units of the same five grazers, from Livestock
@@ -152,6 +153,9 @@ SPLIT_CROP_NAMES = {
     ifpri_mapspam.CANONICAL_CROP_CLS.PMIL.name,  # both are 79, Millet
     ifpri_mapspam.CANONICAL_CROP_CLS.SMIL.name,
 }
+COMBINED_CROP_NAME_TO_ITEM_CODE = {
+    ifpri_mapspam.Crop2000.COFF.name: 656,
+}
 # MapSPAM groups that aggregate many FAOSTAT items, by a member list that is MapSPAM's.
 SPAM_GROUP_CROP_NAMES = {
     ifpri_mapspam.CANONICAL_CROP_CLS.OCER.name,
@@ -170,7 +174,13 @@ assert {crop.name for crop in Crop} | SPLIT_CROP_NAMES | SPAM_GROUP_CROP_NAMES =
 }
 assert not {crop.name for crop in Crop} & (SPLIT_CROP_NAMES | SPAM_GROUP_CROP_NAMES)
 assert set(CROP_TO_ITEM_CODE) == set(Crop)
-assert len(set(CROP_TO_ITEM_CODE.values())) == len(CROP_TO_ITEM_CODE)
+assert all(
+    ifpri_mapspam.GROUP_TO_CONSTITUENT_NAMES[combined_crop_name] <= SPLIT_CROP_NAMES
+    for combined_crop_name in COMBINED_CROP_NAME_TO_ITEM_CODE
+)
+assert len(
+    set(CROP_TO_ITEM_CODE.values()) | set(COMBINED_CROP_NAME_TO_ITEM_CODE.values())
+) == len(CROP_TO_ITEM_CODE) + len(COMBINED_CROP_NAME_TO_ITEM_CODE)
 
 
 class Species(enum.StrEnum):
@@ -225,7 +235,8 @@ CROP_ELEMENT_COLUMNS = {
         column_name="area_hectares",
         commodity_name_to_item_code={
             crop.name: item_code for crop, item_code in CROP_TO_ITEM_CODE.items()
-        },
+        }
+        | COMBINED_CROP_NAME_TO_ITEM_CODE,
         required=True,
         scale=1,
     ),
@@ -233,7 +244,8 @@ CROP_ELEMENT_COLUMNS = {
         column_name="production_kg",
         commodity_name_to_item_code={
             crop.name: item_code for crop, item_code in CROP_TO_ITEM_CODE.items()
-        },
+        }
+        | COMBINED_CROP_NAME_TO_ITEM_CODE,
         required=True,
         scale=KG_PER_TONNE,
     ),
@@ -409,7 +421,8 @@ CROP_DATASET = base.TabularDataset(
     product_name="production-crops",
     source_name="faostat",
     # v1: crop_name -> commodity_name
-    version="v1",
+    # v2: coffee as COFF
+    version="v2",
 )
 LIVESTOCK_DATASET = base.TabularDataset(
     get_records_for_tile_id=functools.partial(
