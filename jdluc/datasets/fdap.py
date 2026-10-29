@@ -314,7 +314,25 @@ COCOA_DATASET = get_raster_dataset(
     commodity=Commodity.COCOA,
     excluded_admin_ids={
         worldbank_jurisdictions.AdminLevel.NATIONAL: set(),
-        worldbank_jurisdictions.AdminLevel.PROVINCIAL: set(),
+        worldbank_jurisdictions.AdminLevel.PROVINCIAL: {
+            # Semi-arid, and agronomically unsuitable for cocoa
+            "BRA002",  # Alagoas
+            "BRA006",  # Ceará
+            "BRA019",  # Paraíba
+            "BRA021",  # Pernambuco
+            "BRA022",  # Piauí
+            "BRA024",  # Rio Grande do Norte
+            # The detected signal is consistent with babaçu palm
+            "BRA010",  # Maranhão
+            # Young oil palm and rubber
+            "IDN004",  # Riau
+            "IDN005",  # Jambi
+            "IDN009",  # Kepulauan Bangka Belitung
+            "IDN022",  # Kalimantan Selatan
+            "IDN024",  # Kalimantan Utara
+            # No cocoa production
+            "ECU020",  # Galápagos
+        },
         worldbank_jurisdictions.AdminLevel.DISTRICT: set(),
     },
     floor=0.54,
@@ -387,7 +405,19 @@ COFFEE_DATASET = get_raster_dataset(
     commodity=Commodity.COFFEE,
     excluded_admin_ids={
         worldbank_jurisdictions.AdminLevel.NATIONAL: set(),
-        worldbank_jurisdictions.AdminLevel.PROVINCIAL: set(),
+        worldbank_jurisdictions.AdminLevel.PROVINCIAL: {
+            # Likely confused with other cropland or natural grassland
+            "BRA010",  # Maranhão
+            "BRA011",  # Mato Grosso
+            "BRA012",  # Mato Grosso do Sul
+            "BRA018",  # Pará
+            "BRA022",  # Piauí
+            "BRA031",  # Tocantins
+            # Confused with tea
+            "IDN012",  # Jawa Barat
+            # Confused with natural ecosystems
+            "PER014",  # Lambayeque
+        },
         worldbank_jurisdictions.AdminLevel.DISTRICT: set(),
     },
     floor=0.33,
