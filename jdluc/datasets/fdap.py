@@ -229,7 +229,11 @@ def get_raster_dataset(
                 width=len(columns),
             ) as dataset,
         ):
-            for latitude, longitude in lat_lons:
+            for cell_idx, (latitude, longitude) in enumerate(lat_lons, start=1):
+                logger.info(
+                    f"Thresholding source cell {cell_idx:d} of {len(lat_lons):d} "
+                    f"({latitude=:d}, {longitude=:d}) onto {tile_id=:s}"
+                )
                 source_columns = get_pixel_range(
                     start_degrees=longitude, stop_degrees=longitude + 1
                 )
