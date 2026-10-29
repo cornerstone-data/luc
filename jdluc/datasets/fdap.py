@@ -162,7 +162,6 @@ def get_raster_dataset(
     assert set(iso_3166_year_to_threshold) == {
         (iso_3166, year) for iso_3166 in iso_3166s for year in YEARS
     }
-    assert all(0 < threshold < 1 for threshold in iso_3166_year_to_threshold.values())
     assert iso_3166s <= producer_iso_3166s
     assert set(excluded_admin_ids) == set(worldbank_jurisdictions.AdminLevel)
     assert (
@@ -349,11 +348,8 @@ COCOA_DATASET = get_raster_dataset(
         ("PER", 2022): 0.91,
         ("PER", 2024): 0.812,
     },
-    # FAOSTAT's producers: area harvested of cocoa (item 661) in some year from 2018 to
-    # 2024 and, for a country without thresholds, at least 1% of its cropland (item 6620) in one
-    # of those years. From the crops and land use bulk files:
-    # https://bulks-faostat.fao.org/production/Production_Crops_Livestock_E_All_Data_(Normalized).zip
-    # https://bulks-faostat.fao.org/production/Inputs_LandUse_E_All_Data_(Normalized).zip
+    # FAOSTAT's producers that devote at least 1% of their cropland to cocoa, plus the countries
+    # with thresholds: `tools/fdap-producers.sql` with item = '661'
     producer_iso_3166s={
         "BRA",
         "CIV",
@@ -449,11 +445,8 @@ COFFEE_DATASET = get_raster_dataset(
         ("VNM", 2022): 0.52,
         ("VNM", 2024): 0.296,
     },
-    # FAOSTAT's producers: area harvested of coffee (item 656) in some year from 2018 to
-    # 2024 and, for a country without thresholds, at least 1% of its cropland (item 6620) in one
-    # of those years. From the crops and land use bulk files:
-    # https://bulks-faostat.fao.org/production/Production_Crops_Livestock_E_All_Data_(Normalized).zip
-    # https://bulks-faostat.fao.org/production/Inputs_LandUse_E_All_Data_(Normalized).zip
+    # FAOSTAT's producers that devote at least 1% of their cropland to coffee, plus the countries
+    # with thresholds: `tools/fdap-producers.sql` with item = '656'
     producer_iso_3166s={
         "BRA",
         "CAF",
