@@ -198,6 +198,7 @@ def get_raster_dataset(
             rasterio.Env(
                 CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif",
                 GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
+                GDAL_NUM_THREADS="ALL_CPUS",
                 GS_USER_PROJECT=get_billing_project(),
             ),
             # Blocks no source writes are zeros when the file closes
