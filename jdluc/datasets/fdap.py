@@ -162,10 +162,7 @@ def get_raster_dataset(
     assert set(iso_3166_year_to_threshold) == {
         (iso_3166, year) for iso_3166 in iso_3166s for year in YEARS
     }
-    assert all(
-        LOWEST_THRESHOLD <= threshold <= HIGHEST_THRESHOLD
-        for threshold in iso_3166_year_to_threshold.values()
-    )
+    assert all(0 < threshold < 1 for threshold in iso_3166_year_to_threshold.values())
     assert iso_3166s <= producer_iso_3166s
     assert set(excluded_admin_ids) == set(worldbank_jurisdictions.AdminLevel)
     assert (
@@ -469,7 +466,7 @@ COFFEE_DATASET = get_raster_dataset(
         ("BRA", 2020): 0.658,
         ("BRA", 2022): 0.763,
         ("BRA", 2024): 0.593,
-        ("CIV", 2018): LOWEST_THRESHOLD,
+        ("CIV", 2018): 0.002,
         ("CIV", 2020): 0.005,
         ("CIV", 2022): 0.007,
         ("CIV", 2024): 0.008,
@@ -497,14 +494,6 @@ COFFEE_DATASET = get_raster_dataset(
         ("IND", 2020): 0.191,
         ("IND", 2022): 0.316,
         ("IND", 2024): 0.131,
-        ("KEN", 2018): 0.472,
-        ("KEN", 2020): 0.669,
-        ("KEN", 2022): HIGHEST_THRESHOLD,
-        ("KEN", 2024): 0.989,
-        ("MEX", 2018): 0.322,
-        ("MEX", 2020): 0.196,
-        ("MEX", 2022): 0.341,
-        ("MEX", 2024): 0.136,
         ("NIC", 2018): 0.317,
         ("NIC", 2020): 0.172,
         ("NIC", 2022): 0.223,
@@ -513,12 +502,8 @@ COFFEE_DATASET = get_raster_dataset(
         ("PER", 2020): 0.081,
         ("PER", 2022): 0.337,
         ("PER", 2024): 0.063,
-        ("PNG", 2018): 0.03,
-        ("PNG", 2020): 0.092,
-        ("PNG", 2022): 0.783,
-        ("PNG", 2024): 0.309,
         ("SLV", 2018): 0.005,
-        ("SLV", 2020): LOWEST_THRESHOLD,
+        ("SLV", 2020): 0.002,
         ("SLV", 2022): 0.024,
         ("SLV", 2024): 0.006,
         ("UGA", 2018): 0.751,
