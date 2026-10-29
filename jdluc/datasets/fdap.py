@@ -23,8 +23,8 @@ We don't keep the probabilities. Ingest turns them into a binary mask for each y
    resolution, without resampling. Neighbouring files overlap by one pixel, which is taken from
    the file it falls in
 2. Threshold: a pixel is in the mask when its probability is above its country's threshold for
-   that year, or above the commodity's floor if that is higher. A country without thresholds uses
-   the floor if FAOSTAT says it grows the commodity, and is left out otherwise
+   that year. A country without thresholds uses the commodity's floor if FAOSTAT says it grows the
+   commodity, and is left out otherwise
 3. Exclude: pixels in the excluded areas are left out
 4. Smooth: a pixel missing from the 2020 or 2022 mask is added back when it is in the masks of both
    the year before and the year after. 2018 and 2024 are not smoothed
@@ -95,7 +95,7 @@ def get_mask(
         if national[iso_3166].intersects(box)
     ]
     fitted = [
-        (national[iso_3166], max(threshold, floor))
+        (national[iso_3166], threshold)
         for (iso_3166, the_year), threshold in sorted(
             iso_3166_year_to_threshold.items()
         )
