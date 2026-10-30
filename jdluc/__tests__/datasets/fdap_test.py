@@ -138,3 +138,23 @@ def test_get_smoothed_masks_fills_one_year_gaps_in_the_inner_years(
         }
     )
     assert tuple(int(smoothed[year][0, 0]) for year in fdap.YEARS) == expected
+
+
+@pytest.mark.parametrize(
+    ("latitude", "longitude", "read"),
+    [
+        pytest.param(0, 0, True, id="a-cell-inside-a-producer"),
+        pytest.param(0, 2, True, id="a-cell-touching-a-producer-at-its-edge"),
+        pytest.param(0, 3, False, id="a-cell-touching-only-a-non-producer"),
+        pytest.param(5, 5, False, id="a-cell-touching-no-country"),
+    ],
+)
+def test_touches_a_producer(latitude: int, longitude: int, read: bool) -> None:
+    assert (
+        fdap.touches_a_producer(
+            lat_lon=(latitude, longitude),
+            national=FDAP_NATIONAL,
+            producer_iso_3166s={"AAA", "BBB"},
+        )
+        is read
+    )

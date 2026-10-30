@@ -31,6 +31,7 @@ We don't keep the probabilities. Ingest turns them into a binary mask for each y
 """
 
 import enum
+import functools
 import logging
 import math
 import typing
@@ -136,6 +137,19 @@ def get_smoothed_masks(
     }
 
 
+def touches_a_producer(
+    lat_lon: tuple[int, int],
+    national: geopandas.GeoSeries,
+    producer_iso_3166s: set[str],
+) -> bool:
+    """Whether the one-degree cell touches a producer; every other cell's masks are 0."""
+    latitude, longitude = lat_lon
+    box = shapely.box(longitude, latitude, longitude + 1, latitude + 1)
+    return any(
+        national[iso_3166].intersects(box) for iso_3166 in sorted(producer_iso_3166s)
+    )
+
+
 @utils.threadsafe_cache
 def get_billing_project() -> str:
     _, project = google.auth.default()
@@ -191,10 +205,26 @@ def get_raster_dataset(
             & (index["lat"] >= max_latitude - 10)
             & (index["lat"] < max_latitude)
         ]
-        lat_lons = sorted(
-            set(zip(sources["lat"].tolist(), sources["lng"].tolist(), strict=True))
+        all_lat_lons = set(
+            zip(sources["lat"].tolist(), sources["lng"].tolist(), strict=True)
         )
-        logger.info(f"Thresholding {len(lat_lons):d} source cells onto {tile_id=:s}")
+        # The rest read 0 in every year, which the zero-filled file already holds
+        lat_lons = sorted(
+            filter(
+                functools.partial(
+                    touches_a_producer,
+                    national=admin_level_to_geometries[
+                        worldbank_jurisdictions.AdminLevel.NATIONAL
+                    ],
+                    producer_iso_3166s=producer_iso_3166s,
+                ),
+                all_lat_lons,
+            )
+        )
+        logger.info(
+            f"Thresholding {len(lat_lons):d} of {len(all_lat_lons):d} source cells, the ones "
+            f"touching a producer, onto {tile_id=:s}"
+        )
         with (
             rasterio.Env(
                 CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif",
