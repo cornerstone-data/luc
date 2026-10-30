@@ -5,7 +5,7 @@ license: CC BY 4.0
 year: 2018, 2020, 2022, 2024
 
 Google, for the Forest Data Partnership (2026). Commodity probabilities, release 2026a [Data set]. gs://earth-engine-public-requester-pays/forestdatapartnership/2026a -- the record ingested here, whose licence asks for the attribution "Produced by Google for the Forest Data Partnership"
-TODO: add reference for the thresholds
+TODO: add reference for the thresholds and exclusions
 
 https://github.com/google/forest-data-partnership
 
@@ -23,8 +23,8 @@ We don't keep the probabilities. Ingest turns them into a binary mask for each y
    resolution, without resampling. Neighbouring files overlap by one pixel, which is taken from
    the file it falls in
 2. Threshold: a pixel is in the mask when its probability is above its country's threshold for
-   that year. A country without thresholds uses the commodity's floor if FAOSTAT says it grows the
-   commodity, and is left out otherwise
+   that year, or above the commodity's floor if that is higher. A country without thresholds uses
+   the floor if FAOSTAT says it grows the commodity, and is left out otherwise
 3. Exclude: pixels in the excluded areas are left out
 4. Smooth: a pixel missing from the 2020 or 2022 mask is added back when it is in the masks of both
    the year before and the year after. 2018 and 2024 are not smoothed
@@ -54,7 +54,8 @@ RELEASE = "2026a"
 YEARS: typing.Final[tuple[int, ...]] = (2018, 2020, 2022, 2024)
 # 10 m on the equator of the WGS 84 ellipsoid, whose semi-major axis is 6,378,137 m
 PIXEL_DEGREES = 10 / (math.pi * 6_378_137 / 180)
-LOWEST_THRESHOLD = 0.0025
+# NB: The sweep for thresholds stopped here; a more precise value could be pursued but that would
+# likely overfit within a region of the CDF that was quite steep
 HIGHEST_THRESHOLD = 0.99
 NO_DATA = None
 
@@ -95,7 +96,7 @@ def get_mask(
         if national[iso_3166].intersects(box)
     ]
     fitted = [
-        (national[iso_3166], threshold)
+        (national[iso_3166], max(threshold, floor))
         for (iso_3166, the_year), threshold in sorted(
             iso_3166_year_to_threshold.items()
         )
@@ -311,6 +312,8 @@ def get_raster_dataset(
     )
 
 
+# https://github.com/google/forest-data-partnership/tree/4d0fb3b8ec24f4788b9d46289cb19ad07f466ae0/models/model_2026a#model-selection-set
+COCOA_PRECISION_RECALL_CROSSOVER = 0.54
 COCOA_DATASET = get_raster_dataset(
     commodity=Commodity.COCOA,
     excluded_admin_ids={
@@ -336,7 +339,7 @@ COCOA_DATASET = get_raster_dataset(
         },
         worldbank_jurisdictions.AdminLevel.DISTRICT: set(),
     },
-    floor=0.54,
+    floor=COCOA_PRECISION_RECALL_CROSSOVER,
     iso_3166_year_to_threshold={
         ("BRA", 2018): 0.923,
         ("BRA", 2020): 0.946,
@@ -358,10 +361,10 @@ COCOA_DATASET = get_raster_dataset(
         ("GHA", 2020): HIGHEST_THRESHOLD,
         ("GHA", 2022): HIGHEST_THRESHOLD,
         ("GHA", 2024): HIGHEST_THRESHOLD,
-        ("IDN", 2018): 0.540,
-        ("IDN", 2020): 0.540,
-        ("IDN", 2022): 0.540,
-        ("IDN", 2024): 0.540,
+        ("IDN", 2018): COCOA_PRECISION_RECALL_CROSSOVER,
+        ("IDN", 2020): COCOA_PRECISION_RECALL_CROSSOVER,
+        ("IDN", 2022): COCOA_PRECISION_RECALL_CROSSOVER,
+        ("IDN", 2024): COCOA_PRECISION_RECALL_CROSSOVER,
         ("PER", 2018): 0.558,
         ("PER", 2020): 0.866,
         ("PER", 2022): 0.91,
@@ -402,6 +405,8 @@ COCOA_DATASET = get_raster_dataset(
     version="v0",
 )
 
+# https://github.com/google/forest-data-partnership/tree/4d0fb3b8ec24f4788b9d46289cb19ad07f466ae0/models/model_2026a#model-selection-set
+COFFEE_PRECISION_RECALL_CROSSOVER = 0.33
 COFFEE_DATASET = get_raster_dataset(
     commodity=Commodity.COFFEE,
     excluded_admin_ids={
@@ -421,7 +426,7 @@ COFFEE_DATASET = get_raster_dataset(
         },
         worldbank_jurisdictions.AdminLevel.DISTRICT: set(),
     },
-    floor=0.33,
+    floor=COFFEE_PRECISION_RECALL_CROSSOVER,
     iso_3166_year_to_threshold={
         ("BRA", 2018): 0.554,
         ("BRA", 2020): 0.658,

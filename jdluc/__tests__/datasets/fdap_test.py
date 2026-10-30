@@ -72,7 +72,7 @@ def get_fdap_mask(fill_probability: float, year: int) -> numpy.ndarray:
             ("AAA", 2018): 0.2,
             ("AAA", 2020): 0.8,
             ("AAA", 2022): fdap.HIGHEST_THRESHOLD,
-            ("AAA", 2024): fdap.LOWEST_THRESHOLD,
+            ("AAA", 2024): 0.1,
         },
         probability=numpy.full(
             dtype="float32", fill_value=fill_probability, shape=FDAP_SHAPE
@@ -95,13 +95,13 @@ def test_get_mask_leaves_out_exclusions_and_non_producers_even_at_1(
 @pytest.mark.parametrize(
     ("iso_3166", "year", "threshold"),
     [
-        pytest.param("AAA", 2018, 0.2, id="fitted-below-the-floor"),
+        pytest.param("AAA", 2018, FDAP_FLOOR, id="fitted-below-the-floor"),
         pytest.param("AAA", 2020, 0.8, id="fitted-above-the-floor"),
         pytest.param(
             "AAA", 2022, fdap.HIGHEST_THRESHOLD, id="the-upper-end-of-the-sweep"
         ),
         pytest.param(
-            "AAA", 2024, fdap.LOWEST_THRESHOLD, id="the-lower-end-of-the-sweep"
+            "AAA", 2024, FDAP_FLOOR, id="the-lower-end-of-the-sweep-below-the-floor"
         ),
         pytest.param(
             "BBB", 2018, FDAP_FLOOR, id="a-producer-without-fitted-thresholds"
