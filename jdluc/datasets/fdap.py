@@ -23,9 +23,10 @@ We don't keep the probabilities. Ingest turns them into a binary mask for each y
    resolution, without resampling. Neighbouring files overlap by one pixel, which is taken from
    the file it falls in
 2. Threshold: a pixel is in the mask when its probability is above its country's threshold for
-   that year, or above the commodity's floor if that is higher. A country without thresholds uses
-   the floor if FAOSTAT says it grows the commodity, and is left out otherwise
-3. Exclude: pixels in the excluded areas are left out
+   that year, or above the commodity's floor, the model's precision-recall crossover, if that is
+   higher. A country without thresholds uses the floor if FAOSTAT says it grows the commodity, and
+   is left out otherwise
+3. Exclude: pixels in the excluded jurisdictions are left out
 4. Smooth: a pixel missing from the 2020 or 2022 mask is added back when it is in the masks of both
    the year before and the year after. 2018 and 2024 are not smoothed
 """
@@ -91,12 +92,12 @@ def get_mask(
         *rasterio.transform.array_bounds(*probability.shape, transform=transform)
     )
     national = admin_level_to_geometries[worldbank_jurisdictions.AdminLevel.NATIONAL]
-    defaults = [
+    floors = [
         (national[iso_3166], floor)
         for iso_3166 in sorted(producer_iso_3166s)
         if national[iso_3166].intersects(box)
     ]
-    fitted = [
+    country_thresholds = [
         (national[iso_3166], max(threshold, floor))
         for (iso_3166, the_year), threshold in sorted(
             iso_3166_year_to_threshold.items()
@@ -114,7 +115,7 @@ def get_mask(
         dtype="float32",
         fill=1,
         out_shape=probability.shape,
-        shapes=defaults + fitted + exclusions,
+        shapes=floors + country_thresholds + exclusions,
         transform=transform,
     )
     return (probability > threshold).astype("uint8")

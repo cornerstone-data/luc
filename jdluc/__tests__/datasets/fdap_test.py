@@ -38,7 +38,7 @@ def test_get_pixel_range_reads_each_source_inside_its_file(start_degrees: int) -
     assert pixels.stop <= first_pixel + 11_133
 
 
-# Three countries side by side, one degree each: AAA has fitted thresholds, BBB is a producer
+# Three countries side by side, one degree each: AAA has country thresholds, BBB is a producer
 # without them, and CCC is not a producer. AAA's western half is an excluded province.
 FDAP_NATIONAL = geopandas.GeoSeries(
     crs=4326,
@@ -95,8 +95,8 @@ def test_get_mask_leaves_out_exclusions_and_non_producers_even_at_1(
 @pytest.mark.parametrize(
     ("iso_3166", "year", "threshold"),
     [
-        pytest.param("AAA", 2018, FDAP_FLOOR, id="fitted-below-the-floor"),
-        pytest.param("AAA", 2020, 0.8, id="fitted-above-the-floor"),
+        pytest.param("AAA", 2018, FDAP_FLOOR, id="a-country-threshold-below-the-floor"),
+        pytest.param("AAA", 2020, 0.8, id="a-country-threshold-above-the-floor"),
         pytest.param(
             "AAA", 2022, fdap.HIGHEST_THRESHOLD, id="the-upper-end-of-the-sweep"
         ),
@@ -104,7 +104,7 @@ def test_get_mask_leaves_out_exclusions_and_non_producers_even_at_1(
             "AAA", 2024, FDAP_FLOOR, id="the-lower-end-of-the-sweep-below-the-floor"
         ),
         pytest.param(
-            "BBB", 2018, FDAP_FLOOR, id="a-producer-without-fitted-thresholds"
+            "BBB", 2018, FDAP_FLOOR, id="a-producer-without-country-thresholds"
         ),
     ],
 )
