@@ -123,6 +123,7 @@ def validate_geotiff(dtype: str, path_to_geotiff: str) -> None:
         assert dataset.width > 0
         assert dataset.transform.a > 0
         assert dataset.transform.e < 0
+        assert rasterio.enums.ColorInterp.alpha not in dataset.colorinterp
 
 
 def get_chunk_size(

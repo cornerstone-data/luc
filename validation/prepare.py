@@ -1509,6 +1509,10 @@ def read_faostat_production() -> pandas.DataFrame:
     frame = pandas.read_parquet(FAOSTAT_CACHE)
     if frame.index.names != [None]:
         frame = frame.reset_index()
+    # WRI's COFF is arabica only
+    frame = frame[
+        ~frame["commodity_name"].isin(faostat.COMBINED_CROP_NAME_TO_ITEM_CODE)
+    ]
     return frame.rename(columns={"admin_id": "iso_3166", "commodity_name": "crop_name"})
 
 

@@ -315,8 +315,8 @@ def get_renamed_crop_name(canonical_crop_name: str, year: int) -> str:
     """`canonical_crop_name` as `year`'s taxonomy spells it, matched on the shared crop label.
 
     The rename alone -- it cannot see groups, so it is wrong for a constituent in the decompose
-    year.  `get_reported_crop_name` is the one to call; this stays separate because `datasets_test`
-    checks that function against it.
+    year.  `get_reported_crop_name` is the one to call; this stays separate because
+    `ifpri_mapspam_test` checks that function against it.
     """
     return YEAR_TO_CROP_CLS[year](CANONICAL_CROP_CLS[canonical_crop_name].value).name
 
@@ -605,7 +605,7 @@ def get_band_name(quantity: Quantity, reported_crop_name: str, year: int) -> str
     renames or groups is a `KeyError`.  Resolve with `get_reported_crop_name` first.
 
     Positional: the band list is built from the same enum in the same order, so a crop's index in
-    the taxonomy is its index among the bands.  `datasets_test` pins that for every year and
+    the taxonomy is its index among the bands.  `ifpri_mapspam_test` pins that for every year and
     quantity, since nothing in the band names themselves would reveal a reordering.
     """
     crop_cls = YEAR_TO_CROP_CLS[year]
