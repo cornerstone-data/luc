@@ -59,7 +59,7 @@ follow_imports = "skip"
 implicit_reexport = true
 
 [tool.importlinter]
-root_packages = ["jdluc", "validation"]
+root_packages = ["jdluc", "orchestration", "validation"]
 
 [[tool.importlinter.contracts]]
 name = "The pipeline never imports the validator"
@@ -69,6 +69,16 @@ source_modules = [
 ]
 forbidden_modules = [
     "validation",
+]
+
+[[tool.importlinter.contracts]]
+name = "The pipeline never imports its orchestration"
+type = "forbidden"
+source_modules = [
+    "jdluc",
+]
+forbidden_modules = [
+    "orchestration",
 ]
 
 [[tool.importlinter.contracts]]
@@ -88,6 +98,7 @@ name = "Utilities are foundational"
 type = "forbidden"
 source_modules = [
     "jdluc.config",
+    "jdluc.export",
     "jdluc.geo",
     "jdluc.storage",
     "jdluc.tiling",
