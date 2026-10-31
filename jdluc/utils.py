@@ -75,6 +75,9 @@ def save_remote_url_to_local_path(
 @functools.cache
 def get_git_version(default_branch_name: str = "main") -> str:
     repo = git.Repo(__file__, search_parent_directories=True)
+    # NB: a detached HEAD, as CI checks out a pull request, has no branch to name
+    if repo.head.is_detached:
+        return repo.head.commit.hexsha[:8]
     if (branch_name := repo.active_branch.name) == default_branch_name:
         return f"{branch_name:s}-{repo.head.commit.hexsha[:8]:s}"
     else:

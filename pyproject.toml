@@ -59,7 +59,7 @@ follow_imports = "skip"
 implicit_reexport = true
 
 [tool.importlinter]
-root_packages = ["jdluc", "validation"]
+root_packages = ["jdluc", "orchestration", "validation"]
 
 [[tool.importlinter.contracts]]
 name = "The pipeline never imports the validator"
@@ -72,12 +72,23 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "The pipeline never imports its orchestration"
+type = "forbidden"
+source_modules = [
+    "jdluc",
+]
+forbidden_modules = [
+    "orchestration",
+]
+
+[[tool.importlinter.contracts]]
 name = "ETL"
 type = "layers"
 layers = [
     "jdluc.trace",
     "jdluc.attribute",
     "jdluc.jurisdictional_direct | jdluc.statistical",
+    "jdluc.derive",
     "jdluc.emit",
     "jdluc.harmonize",
     "jdluc.ingest",
@@ -88,6 +99,7 @@ name = "Utilities are foundational"
 type = "forbidden"
 source_modules = [
     "jdluc.config",
+    "jdluc.export",
     "jdluc.geo",
     "jdluc.storage",
     "jdluc.tiling",
@@ -95,6 +107,7 @@ source_modules = [
 ]
 forbidden_modules = [
     "jdluc.attribute",
+    "jdluc.derive",
     "jdluc.emit",
     "jdluc.harmonize",
     "jdluc.ingest",
@@ -112,6 +125,7 @@ source_modules = [
 ]
 forbidden_modules = [
     "jdluc.attribute",
+    "jdluc.derive",
     "jdluc.emit",
     "jdluc.harmonize",
     "jdluc.ingest",
