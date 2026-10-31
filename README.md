@@ -45,6 +45,7 @@ Once you're ready to look under the hood:
 - `docs/data.md` — how to get the data products, grids, and full schemas for the harmonized inputs, per-pixel emissions, and emissions-factor table.
 - `docs/coverage.md` — the full list of countries and crops the pipeline produces emissions factors for, by ISO 3166-1 alpha-3 code.
 - `docs/validation.md` — how the pipeline is measured against external datasets: how the (country, crop) targets are chosen, which relationships are held as regression controls, and what such a comparison can and cannot conclude. The tooling lives in `validation/` and reports against the gaps in `docs/further_research.md`.
+- `docs/orchestration.md` — an optional way to run the pipeline on Kubernetes with Argo Workflows, one tile per pod, for country runs and global backfills in hours rather than days.
 
 ## Running and contributing
 

@@ -1,0 +1,238 @@
+# The cornerstone pipeline as an Argo WorkflowTemplate, one DAG per tile: an example with
+# placeholder names. Replace every UPPER-CASE placeholder. docs/orchestration.md describes the
+# setup: the image, the two Secrets and the service account.
+#
+#   argo template create cornerstone.example.yaml
+#   argo submit --from workflowtemplate/cornerstone -p scope=HND --generate-name cornerstone-hnd-
+#   argo submit --from workflowtemplate/cornerstone -p scope=world --generate-name cornerstone-world-
+#
+# Each tile runs its own ingest -> compute, so a failed (dataset, tile) ingest stops only its
+# own tile, and every other tile goes on to compute. trace needs every tile, so with any tile
+# failed it doesn't run, and the run ends Failed. `argo retry` resumes from the cache.
+#
+# `plan` writes, as `tile-units`, one item per tile listing its ingests, which the tile's own
+# DAG loops over. A tile's tasks start once the whole-world datasets are in.
+#
+#   plan ─┬─ ingest-world ─┐
+#         └────────────────┴─ tile[tile] ── trace
+#
+#   tile:  ingest ──────────────────┐
+#          ingest-allowed-failures ─┴─ compute
+#
+# Each task template is reusable on its own. A workflow that adds tasks of its own (say, a
+# per-tile export after compute) calls them by `templateRef: {name: cornerstone, template: ...}`
+# from DAGs of its own, rather than copying this file.
+#
+# Sizing: compute requests 56 GiB, with peaks near 40 GiB observed; the other tasks fit in
+# 24 GiB. Every pod writes its temp files to a volume of its own at /localtmp: on a cloud
+# node's boot disk, GDAL's temp files can throttle the whole node.
+
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: cornerstone
+spec:
+  entrypoint: cornerstone
+  # Needs read/write access to INGEST_ROOT, SCRATCH_ROOT and EXPORT_ROOT, for instance through
+  # workload identity rather than keys
+  serviceAccountName: SERVICE-ACCOUNT
+  # Backstops against a runaway fan-out: at most 25 pods at once, and 6 hours for the whole run.
+  # Sized for one country: raise both for a scope=world run
+  parallelism: 25
+  activeDeadlineSeconds: 21600
+  arguments:
+    parameters:
+      # The run's country, as one ISO 3166 alpha-3 code, or world for every country and GNW tile
+      - name: scope
+      # STATISTICAL or JURISDICTIONAL_DIRECT (the latter is US-only)
+      - name: methodology
+        value: STATISTICAL
+      # Ten-degree datasets whose failed tiles must not stop the run, comma-separated. Descals
+      # is published only where there is oil palm, and its ingest fails on tiles without any.
+      - name: allow-failures
+        value: DESCALS_OIL_PALM
+
+  # To run on preemptible (spot) nodes, add a nodeSelector and tolerations here. A reclaimed
+  # node fails its pod; `argo retry` resumes from the cache, as a zarr counts only once written.
+  # templateDefaults:
+  #   nodeSelector: { NODE-POOL-LABEL: NODE-POOL }
+  #   tolerations: [{ key: NODE-POOL-TAINT, operator: Equal, value: "true", effect: NoSchedule }]
+
+  templates:
+    - name: cornerstone
+      dag:
+        # A failed task must not stop the scheduling of tasks that wait on its failure, nor a
+        # failed tile the other tiles
+        failFast: false
+        tasks:
+          - name: plan
+            template: plan
+
+          - name: ingest-world
+            template: ingest-world
+            depends: plan
+            withParam: "{{tasks.plan.outputs.parameters.ingest-world}}"
+            arguments: { parameters: [{ name: dataset, value: "{{item}}" }] }
+
+          # Each list in an item reaches the tile's DAG as a JSON string, for it to loop over
+          - name: tile
+            template: tile
+            depends: plan && ingest-world
+            withParam: "{{tasks.plan.outputs.parameters.tile-units}}"
+            arguments:
+              parameters:
+                - { name: tile-id, value: "{{item.tile_id}}" }
+                - { name: ingests, value: "{{item.ingests}}" }
+                - { name: ingests-allowed-failures, value: "{{item.ingests_allowed_failures}}" }
+
+          # Runs only if every tile succeeded: a table missing tiles would pass for a whole one
+          - name: trace
+            template: trace
+            depends: tile
+
+    # One tile's ingest -> compute. A failed required ingest leaves compute unscheduled, which
+    # fails this tile alone
+    - name: tile
+      inputs:
+        parameters:
+          - name: tile-id
+          - name: ingests
+          - name: ingests-allowed-failures
+      dag:
+        failFast: false
+        tasks:
+          # Ingest exits non-zero if its tile fails, which fails the task, and so the tile
+          - name: ingest
+            template: ingest-tile
+            withParam: "{{inputs.parameters.ingests}}"
+            arguments: &ingest-tile-arguments
+              parameters:
+                - { name: dataset, value: "{{item}}" }
+                - { name: tile-id, value: "{{inputs.parameters.tile-id}}" }
+
+          # Failed tiles here stay visible as failed pods, but compute runs regardless
+          - name: ingest-allowed-failures
+            template: ingest-tile
+            withParam: "{{inputs.parameters.ingests-allowed-failures}}"
+            arguments: *ingest-tile-arguments
+
+          - name: compute
+            template: compute
+            depends: ingest && (ingest-allowed-failures || ingest-allowed-failures.Failed)
+            arguments: { parameters: [{ name: tile-id, value: "{{inputs.parameters.tile-id}}" }] }
+
+    # Ingests the boundaries if absent, then writes one JSON list per fan-out, and the per-tile list
+    - name: plan
+      activeDeadlineSeconds: 1800
+      container:
+        image: &image IMAGE-REGISTRY/cornerstone:COMMIT-SHA
+        command: [python, -m, orchestration, plan]
+        args:
+          - "{{workflow.parameters.scope}}"
+          - "--methodology={{workflow.parameters.methodology}}"
+          - --output-dir=/plan
+          - "--allow-failures={{workflow.parameters.allow-failures}}"
+        env: &tmpdir-env
+          - { name: TMPDIR, value: /localtmp }
+          - { name: CPL_TMPDIR, value: /localtmp }
+        resources: &light-resources
+          requests: { cpu: "2", memory: 24Gi, ephemeral-storage: 2Gi }
+          limits: { cpu: "4", memory: 24Gi, ephemeral-storage: 8Gi }
+        volumeMounts: &mounts
+          - { name: cloud-env, mountPath: /app/.env, subPath: .env }
+          - { name: localtmp, mountPath: /localtmp }
+      volumes:
+        - &nokeys { name: cloud-env, secret: { secretName: cornerstone-env-nokeys } }
+        - &localtmp-20
+          name: localtmp
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                # An SSD-backed class: throughput scales with size, so don't shrink these
+                storageClassName: SSD-STORAGE-CLASS
+                resources: { requests: { storage: 20Gi } }
+      outputs:
+        parameters:
+          - { name: ingest-world, valueFrom: { path: /plan/ingest-world.json } }
+          - { name: tile-units, valueFrom: { path: /plan/tile-units.json } }
+
+    # One whole-world dataset, with jdluc's own CLI
+    - name: ingest-world
+      inputs: { parameters: [{ name: dataset }] }
+      activeDeadlineSeconds: 5400
+      container:
+        image: *image
+        command: [python, jdluc/ingest.py]
+        args: ["{{inputs.parameters.dataset}}", --backfill]
+        env: *tmpdir-env
+        resources: *light-resources
+        volumeMounts: *mounts
+      volumes:
+        - &keys { name: cloud-env, secret: { secretName: cornerstone-env } }
+        - name: localtmp
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: SSD-STORAGE-CLASS
+                resources: { requests: { storage: 100Gi } }
+
+    # One dataset on one tile. Room for a global source download (GPW livestock, ~5 GB) plus
+    # one tile staged uncompressed for its COG (Liao, ~55 GB)
+    - name: ingest-tile
+      inputs: { parameters: [{ name: dataset }, { name: tile-id }] }
+      activeDeadlineSeconds: 10800
+      container:
+        image: *image
+        command: [python, -m, orchestration, ingest-tile]
+        args:
+          - "--dataset={{inputs.parameters.dataset}}"
+          - "--tile-id={{inputs.parameters.tile-id}}"
+        env: *tmpdir-env
+        resources: *light-resources
+        volumeMounts: *mounts
+      volumes:
+        - *keys
+        - name: localtmp
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: SSD-STORAGE-CLASS
+                resources: { requests: { storage: 150Gi } }
+
+    # harmonize -> emit -> attribute for one tile, from the warm ingest cache, without keys
+    - name: compute
+      inputs: { parameters: [{ name: tile-id }] }
+      activeDeadlineSeconds: 14400
+      container:
+        image: *image
+        command: [python, -m, orchestration, compute]
+        args:
+          - "{{workflow.parameters.scope}}"
+          - "--methodology={{workflow.parameters.methodology}}"
+          - "--tile-id={{inputs.parameters.tile-id}}"
+          # A second line of defence: harmonize would read a missing ingest as nodata
+          - --check-ingests
+          - "--allow-failures={{workflow.parameters.allow-failures}}"
+        env: *tmpdir-env
+        resources:
+          requests: { cpu: "6", memory: 56Gi, ephemeral-storage: 2Gi }
+          limits: { cpu: "8", memory: 56Gi, ephemeral-storage: 8Gi }
+        volumeMounts: *mounts
+      volumes: [*nokeys, *localtmp-20]
+
+    # The cross-tile merge over the scope; writes emissions-factors/{scope}-{methodology}.parquet
+    - name: trace
+      activeDeadlineSeconds: 3600
+      container:
+        image: *image
+        command: [python, -m, orchestration, trace]
+        args:
+          - "{{workflow.parameters.scope}}"
+          - "--methodology={{workflow.parameters.methodology}}"
+        env: *tmpdir-env
+        resources: *light-resources
+        volumeMounts: *mounts
+      volumes: [*nokeys, *localtmp-20]
