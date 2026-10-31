@@ -1,10 +1,10 @@
 {
   "faostat": {
-    "faostat_production.parquet": {
-      "bytes": 1377894,
-      "origin": "gs://cornerstone-ingest-us-central1/tabular/faostat/production-crops/v1/whole-world/world.parquet",
-      "path": "faostat_production.parquet",
-      "sha256": "bb608eb3af8a9bda1da884f0ec59d53813fb17461a0d867509c5fdcbcf0562fd"
+    "faostat.parquet": {
+      "bytes": 1416755,
+      "origin": "tabular/faostat/production-crops/v2/whole-world/world.parquet",
+      "path": "faostat.parquet",
+      "sha256": "22d11e597a4b3d611cedc88f75834bb546d6d97dd7b0793c111cc3de01bdae67"
     }
   },
   "orbae": {
