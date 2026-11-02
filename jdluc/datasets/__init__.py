@@ -16,6 +16,7 @@ from jdluc.datasets import (
     ipcc_climate_zones,
     liao_gaced30,
     soilgrids_ocs,
+    tang_cropgrids,
     usda_nass_cdl,
     usda_nass_quickstats,
     worldbank_jurisdictions,
@@ -54,6 +55,7 @@ class DatasetName(enum.StrEnum):
     IPCC_CLIMATE_ZONES = enum.auto()
     LIAO_GACED30 = enum.auto()
     SOILGRIDS_OCS = enum.auto()
+    TANG_CROPGRIDS_CROP_AREA = enum.auto()
     USDA_NASS_CDL = enum.auto()
     USDA_NASS_QUICKSTATS = enum.auto()
     WORLD_BANK_ADMIN_0 = enum.auto()
@@ -88,6 +90,7 @@ NAME_TO_CLS: dict[
     DatasetName.IPCC_CLIMATE_ZONES: ipcc_climate_zones.DATASET,
     DatasetName.LIAO_GACED30: liao_gaced30.DATASET,
     DatasetName.SOILGRIDS_OCS: soilgrids_ocs.DATASET,
+    DatasetName.TANG_CROPGRIDS_CROP_AREA: tang_cropgrids.DATASET,
     DatasetName.USDA_NASS_CDL: usda_nass_cdl.DATASET,
     DatasetName.USDA_NASS_QUICKSTATS: usda_nass_quickstats.DATASET,
     DatasetName.WORLD_BANK_ADMIN_0: worldbank_jurisdictions.ADMIN_0_DATASET,
