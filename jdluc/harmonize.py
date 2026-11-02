@@ -1,8 +1,8 @@
 """Place one ingested source tile per dataset onto a common grid and harmonize them.
 
-For a single ten-degree tile, each raster dataset's tile becomes a per-band GDAL VRT on the
-shared grid, returned as an xarray.Dataset with one variable per source band. Whole-world
-datasets are windowed onto the same grid. The result is cached.
+For a single ten-degree tile, each raster dataset's tile becomes one GDAL VRT on the shared
+grid, with all of its bands, returned as an xarray.Dataset with one variable per source band.
+Whole-world datasets are windowed onto the same grid. The result is cached.
 
 The tile set comes from the positional ISO 3166 alpha-3 codes -- or, with `--backfill`,
 from `tiling.GLOBAL_NATURE_WATCH_TILE_IDS`; `--stack` narrows which dataset stacks are built,
@@ -74,9 +74,9 @@ class Tile:
 
 
 def iter_vrt_band_header(
-    band_name: str, dtype: str, no_data: int | float | None
+    band_idx: int, band_name: str, dtype: str, no_data: int | float | None
 ) -> collections.abc.Iterator[str]:
-    yield f'  <VRTRasterBand dataType="{dtype:s}" band="1">'
+    yield f'  <VRTRasterBand dataType="{dtype:s}" band="{band_idx:d}">'
     yield f"    <Description>{band_name:s}</Description>"
     if no_data is not None:
         yield f"    <NoDataValue>{no_data}</NoDataValue>"
@@ -189,9 +189,7 @@ class Grid:
                     raise ValueError(band_type)
 
 
-def get_vrt_for_dataset_band_tile_id(
-    band_idx: int,
-    band_name: str,
+def get_vrt_for_dataset_tile_id(
     dataset: base.RasterDataset,
     grid: Grid,
     ignore_missing_tiles: bool,
@@ -200,7 +198,7 @@ def get_vrt_for_dataset_band_tile_id(
 ) -> str:
     lines = list(grid.iter_preamble)
 
-    logger.info(f"Processing {dataset=} and {band_name=:s}")
+    logger.info(f"Processing {dataset=}")
     if dataset.partitioning == tiling.Partitioning.TEN_DEGREE_TILE:
         uri = storage.join_uri(prefix=dataset.get_prefix(tile_id=tile_id), root=root)
         if storage.path_exists(uri=uri):
@@ -209,8 +207,76 @@ def get_vrt_for_dataset_band_tile_id(
                 root=root,
                 tile_id=tile_id,
             )
+            resampling = grid.get_resampling_for_band_type(
+                band_type=tile.band_type,
+                dest_resolution=grid.resolution,
+                src_resolution=tile.resolution,
+            )
+            for band_idx, band_name in enumerate(
+                dataset.fully_qualified_band_names, start=1
+            ):
+                lines.extend(
+                    iter_vrt_band_header(
+                        band_idx=band_idx,
+                        band_name=band_name,
+                        dtype=tile.dtype,
+                        no_data=tile.no_data,
+                    )
+                )
+                lines.extend(
+                    iter_vrt_band_content(
+                        band_idx=band_idx,
+                        dest_resolution=grid.resolution,
+                        path_to_tile=tile.gdal_path,
+                        resampling=resampling,
+                        src_offset=tiling.XY(x=0, y=0),
+                        src_resolution=tile.resolution,
+                    )
+                )
+                lines.append("  </VRTRasterBand>")
+        elif ignore_missing_tiles:
+            logger.warning(
+                f"{tile_id=:s} is missing for {dataset=} but due to {ignore_missing_tiles=} we are emitting all-no-data bands"
+            )
+            # Bands with no source read as no-data everywhere
+            for band_idx, band_name in enumerate(
+                dataset.fully_qualified_band_names, start=1
+            ):
+                lines.extend(
+                    iter_vrt_band_header(
+                        band_idx=band_idx,
+                        band_name=band_name,
+                        dtype="Float32",
+                        no_data=dataset.no_data,
+                    )
+                )
+                lines.append("  </VRTRasterBand>")
+        else:
+            raise FileNotFoundError(uri)
+    elif dataset.partitioning == tiling.Partitioning.WHOLE_WORLD:
+        tile = Tile.from_dataset_tile_id(
+            dataset=dataset,
+            root=root,
+            tile_id=tiling.WHOLE_WORLD_TILE_ID,
+        )
+        world_span = tiling.XY(x=360, y=180)
+        src_offset = grid.get_offset_for_world(
+            resolution=tile.resolution, span=world_span
+        )
+        src_resolution = grid.get_resolution_for_world(
+            resolution=tile.resolution, span=world_span
+        )
+        resampling = grid.get_resampling_for_band_type(
+            band_type=tile.band_type,
+            dest_resolution=grid.resolution,
+            src_resolution=src_resolution,
+        )
+        for band_idx, band_name in enumerate(
+            dataset.fully_qualified_band_names, start=1
+        ):
             lines.extend(
                 iter_vrt_band_header(
+                    band_idx=band_idx,
                     band_name=band_name,
                     dtype=tile.dtype,
                     no_data=tile.no_data,
@@ -221,64 +287,14 @@ def get_vrt_for_dataset_band_tile_id(
                     band_idx=band_idx,
                     dest_resolution=grid.resolution,
                     path_to_tile=tile.gdal_path,
-                    resampling=grid.get_resampling_for_band_type(
-                        band_type=tile.band_type,
-                        dest_resolution=grid.resolution,
-                        src_resolution=tile.resolution,
-                    ),
-                    src_offset=tiling.XY(x=0, y=0),
-                    src_resolution=tile.resolution,
-                )
-            )
-        elif ignore_missing_tiles:
-            logger.warning(
-                f"{tile_id=:s} is missing for {dataset=} but due to {ignore_missing_tiles=} we are emitting an all-no-data band"
-            )
-            # Yield an empty tile band
-            lines.extend(
-                iter_vrt_band_header(
-                    band_name=band_name, dtype="Float32", no_data=dataset.no_data
-                )
-            )
-        else:
-            raise FileNotFoundError(uri)
-    elif dataset.partitioning == tiling.Partitioning.WHOLE_WORLD:
-        tile = Tile.from_dataset_tile_id(
-            dataset=dataset,
-            root=root,
-            tile_id=tiling.WHOLE_WORLD_TILE_ID,
-        )
-        lines.extend(
-            iter_vrt_band_header(
-                band_name=band_name,
-                dtype=tile.dtype,
-                no_data=tile.no_data,
-            )
-        )
-        world_span = tiling.XY(x=360, y=180)
-        src_offset = grid.get_offset_for_world(
-            resolution=tile.resolution, span=world_span
-        )
-        src_resolution = grid.get_resolution_for_world(
-            resolution=tile.resolution, span=world_span
-        )
-        lines.extend(
-            iter_vrt_band_content(
-                band_idx=band_idx,
-                dest_resolution=grid.resolution,
-                path_to_tile=tile.gdal_path,
-                resampling=grid.get_resampling_for_band_type(
-                    band_type=tile.band_type,
-                    dest_resolution=grid.resolution,
+                    resampling=resampling,
+                    src_offset=src_offset,
                     src_resolution=src_resolution,
-                ),
-                src_offset=src_offset,
-                src_resolution=src_resolution,
+                )
             )
-        )
+            lines.append("  </VRTRasterBand>")
     else:
         raise ValueError(dataset.partitioning)
-    lines.append("  </VRTRasterBand>")
     lines.append("</VRTDataset>")
 
     with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".vrt") as fp:
@@ -288,23 +304,32 @@ def get_vrt_for_dataset_band_tile_id(
     return path_to_vrt
 
 
-def get_dset_for_output(path_to_vrts: collections.abc.Sequence[str]) -> xarray.Dataset:
+def get_dset_for_output(
+    path_to_vrt_to_band_names: dict[str, list[str]],
+) -> xarray.Dataset:
     darrays: list[xarray.DataArray] = []
-    chunk_size = geo.get_chunk_size(dtypes=[numpy.dtype("float32")] * len(path_to_vrts))
-    for path_to_vrt in path_to_vrts:
+    chunk_size = geo.get_chunk_size(
+        dtypes=[numpy.dtype("float32")]
+        * sum(map(len, path_to_vrt_to_band_names.values()))
+    )
+    for path_to_vrt, band_names in path_to_vrt_to_band_names.items():
         logger.debug(f"Opening {path_to_vrt=:s} with {chunk_size=:d}")
+        # NB: every band in each chunk, because a pixel-interleaved source decompresses all of
+        # its bands to read any one of them
         darray = rioxarray.open_rasterio(
-            chunks=chunk_size,
+            chunks={"band": -1, "x": chunk_size, "y": chunk_size},
             filename=path_to_vrt,
             lock=False,
         )
         assert isinstance(darray, xarray.DataArray)
-        darray = darray.isel(band=0, drop=True)
-        darrays.append(
-            geo.unify_dtype_and_no_data(
-                darray=darray.rename(darray.attrs.pop("long_name"))
+        assert darray.sizes["band"] == len(band_names)
+        darray.attrs.pop("long_name")
+        for band_idx, band_name in enumerate(band_names):
+            darrays.append(
+                geo.unify_dtype_and_no_data(
+                    darray=darray.isel(band=band_idx, drop=True).rename(band_name)
+                )
             )
-        )
 
     return xarray.Dataset({darray.name: darray for darray in darrays})
 
@@ -335,23 +360,18 @@ def workflow(
 
     logger.info(f"Constructing common grid for {tile_resolution=:}")
     grid = Grid.from_tile_id_resolution(resolution=tile_resolution, tile_id=tile_id)
-    path_to_vrts = [
-        get_vrt_for_dataset_band_tile_id(
-            band_idx=band_idx,
-            band_name=band_name,
+    path_to_vrt_to_band_names = {
+        get_vrt_for_dataset_tile_id(
             dataset=dataset,
             grid=grid,
             ignore_missing_tiles=ignore_missing_tiles,
             root=cfg.ingest_root,
             tile_id=tile_id,
-        )
+        ): dataset.fully_qualified_band_names
         for dataset in datasets
         if isinstance(dataset, base.RasterDataset)
-        for band_idx, band_name in enumerate(
-            dataset.fully_qualified_band_names, start=1
-        )
-    ]
-    return get_dset_for_output(path_to_vrts=path_to_vrts)
+    }
+    return get_dset_for_output(path_to_vrt_to_band_names=path_to_vrt_to_band_names)
 
 
 @enum.unique
