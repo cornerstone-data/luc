@@ -1,4 +1,5 @@
 import contextlib
+import math
 import pathlib
 
 import numpy
@@ -13,6 +14,7 @@ from rioxarray.rioxarray import affine_to_coords
 
 from jdluc.geo import (
     clip_dset,
+    convert_geotiff_to_cog,
     convert_vector_to_flatgeobuf,
     downscale_darray,
     get_chunk_size,
@@ -99,6 +101,98 @@ def test_get_overview_level(
         get_overview_level(height=height, minimum_pixels=minimum_pixels, width=width)
         == expected
     )
+
+
+# NB: 450 is not a whole multiple of the coarsest overview factor, 4
+FOUR_BAND_SIZE = 450
+
+
+def get_four_band_data() -> numpy.ndarray:
+    data = numpy.random.default_rng(seed=0).integers(
+        0, 100, dtype="uint8", size=(4, FOUR_BAND_SIZE, FOUR_BAND_SIZE)
+    )
+    # Band 4 is all zero, which an RGBA reading would take for a transparent alpha band
+    data[3] = 0
+    # A pixel missing from band 1 only
+    data[0, 0, 0] = 255
+    return data
+
+
+def convert_four_band_geotiff(
+    data: numpy.ndarray, interleave: str, tmp_path: pathlib.Path
+) -> str:
+    path_to_geotiff = str(tmp_path / f"{interleave:s}-geotiff.tif")
+    with rasterio.open(
+        path_to_geotiff,
+        "w",
+        count=4,
+        crs=4326,
+        driver="GTiff",
+        dtype="uint8",
+        height=FOUR_BAND_SIZE,
+        interleave=interleave,
+        photometric="MINISBLACK",
+        tiled=True,
+        transform=rasterio.transform.from_origin(0, 10, 0.01, 0.01),
+        width=FOUR_BAND_SIZE,
+    ) as dataset:
+        dataset.write(data)
+    path_to_cog = str(tmp_path / f"{interleave:s}-cog.tif")
+    convert_geotiff_to_cog(
+        metadata={"cornerstone-source-name": "test"},
+        no_data=255,
+        path_to_cog=path_to_cog,
+        path_to_geotiff=path_to_geotiff,
+    )
+    return path_to_cog
+
+
+@pytest.mark.parametrize(
+    "interleave",
+    (
+        pytest.param("band", id="band-interleaved"),
+        pytest.param("pixel", id="pixel-interleaved"),
+    ),
+)
+def test_convert_geotiff_to_cog_keeps_bands_values_and_metadata(
+    interleave: str, tmp_path: pathlib.Path
+) -> None:
+    data = get_four_band_data()
+    path_to_cog = convert_four_band_geotiff(
+        data=data, interleave=interleave, tmp_path=tmp_path
+    )
+
+    with rasterio.open(path_to_cog) as dataset:
+        assert rasterio.enums.ColorInterp.alpha not in dataset.colorinterp
+        assert dataset.nodata == 255
+        assert dataset.tags()["cornerstone-source-name"] == "test"
+        assert dataset.tags(ns="IMAGE_STRUCTURE")["LAYOUT"] == "COG"
+        assert [dataset.overviews(idx) for idx in dataset.indexes] == [[2, 4]] * 4
+        numpy.testing.assert_array_equal(dataset.read(), data)
+    with rasterio.open(path_to_cog, overview_level=0) as dataset:
+        numpy.testing.assert_array_equal(dataset.read(), data[:, ::2, ::2])
+    # Each level rounds its size up from the full resolution, rather than down from the level
+    # before it
+    with rasterio.open(path_to_cog, overview_level=1) as dataset:
+        assert dataset.shape == (math.ceil(FOUR_BAND_SIZE / 4),) * 2
+
+
+def test_convert_geotiff_to_cog_samples_overviews_alike_for_either_interleave(
+    tmp_path: pathlib.Path,
+) -> None:
+    data = get_four_band_data()
+    path_to_band_cog = convert_four_band_geotiff(
+        data=data, interleave="band", tmp_path=tmp_path
+    )
+    path_to_pixel_cog = convert_four_band_geotiff(
+        data=data, interleave="pixel", tmp_path=tmp_path
+    )
+
+    with (
+        rasterio.open(path_to_band_cog, overview_level=1) as band,
+        rasterio.open(path_to_pixel_cog, overview_level=1) as pixel,
+    ):
+        numpy.testing.assert_array_equal(band.read(), pixel.read())
 
 
 @pytest.mark.parametrize(
