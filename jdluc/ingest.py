@@ -29,6 +29,8 @@ import collections.abc
 import concurrent.futures
 import logging
 
+import rasterio
+
 from jdluc import config, datasets, tiling, utils
 from jdluc.datasets import base, worldbank_jurisdictions
 
@@ -51,7 +53,12 @@ def workflow(
     if not all(map(tile_id_is_valid_func, tile_ids)):
         raise ValueError(f"{tile_ids=:} are not valid for {dataset=:}")
     results: dict[str, str | Exception] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+    with (
+        # NB: Each process has its own cache and can OOM; reducing the cache size hasn't
+        # shown any slowdowns
+        rasterio.Env(GDAL_CACHEMAX=1 << 29),  # 512 MiB
+        concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor,
+    ):
         futures: dict[concurrent.futures.Future[str], str] = {}
         for tile_id in sorted(tile_ids):
             futures[
