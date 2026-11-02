@@ -7,6 +7,7 @@ import typing
 import numpy
 import rasterio
 import rasterio.enums
+import rasterio.shutil
 import rasterio.transform
 import shapely
 import xarray
@@ -36,30 +37,39 @@ def convert_geotiff_to_cog(
     path_to_cog: str,
     path_to_geotiff: str,
 ) -> None:
-    import rio_cogeo.cogeo
-    import rio_cogeo.profiles
-
-    logger.info(f"Getting overview level from {path_to_geotiff=:s}")
-    with rasterio.open(fp=path_to_geotiff) as dataset:
-        overview_level = get_overview_level(
-            height=dataset.height,
-            width=dataset.width,
+    logger.info(f"Setting {no_data=:} and {metadata=:} for {path_to_geotiff=:s}")
+    # NB: build the overviews in a separate file that stores the bands pixel by pixel.  Inside a
+    # GeoTIFF that stores each band on its own, as FDaP's does, GDAL picks different pixels for
+    # an overview whose size does not divide the tile's evenly, so the same values would get
+    # different overviews depending on how their GeoTIFF was written
+    with (
+        rasterio.Env(
+            COMPRESS_OVERVIEW="DEFLATE",
+            GDAL_NUM_THREADS="ALL_CPUS",
+            INTERLEAVE_OVERVIEW="PIXEL",
+            TIFF_USE_OVR=True,
+        ),
+        rasterio.open(fp=path_to_geotiff, mode="r+") as dataset,
+    ):
+        if no_data is not None:
+            dataset.nodata = no_data
+        dataset.update_tags(OVERVIEW_RESAMPLING="NEAREST", **metadata)
+        overview_level = get_overview_level(height=dataset.height, width=dataset.width)
+        logger.info(f"Building {overview_level=:d} overviews for {path_to_geotiff=:s}")
+        dataset.build_overviews(
+            factors=[1 << level for level in range(1, overview_level + 1)],
+            resampling=rasterio.enums.Resampling.nearest,
         )
     logger.info(f"Converting from {path_to_geotiff=:s} to {path_to_cog=:s}")
-    rio_cogeo.cogeo.cog_translate(
-        additional_cog_metadata=metadata,
-        config={
-            "GDAL_NUM_THREADS": "ALL_CPUS",
-            "GDAL_TIFF_INTERNAL_MASK": True,
-        },
-        dst_kwargs=dict(rio_cogeo.profiles.DEFLATEProfile()) | {"BIGTIFF": "IF_SAFER"},
-        dst_path=path_to_cog,
-        in_memory=False,
-        nodata=no_data,
-        overview_level=overview_level,
-        quiet=False,
-        source=path_to_geotiff,
-        use_cog_driver=True,
+    rasterio.shutil.copy(
+        path_to_geotiff,
+        path_to_cog,
+        BIGTIFF="IF_SAFER",
+        BLOCKSIZE=512,
+        COMPRESS="DEFLATE",
+        NUM_THREADS="ALL_CPUS",
+        OVERVIEWS="FORCE_USE_EXISTING",
+        driver="COG",
     )
 
 
