@@ -805,7 +805,9 @@ def main() -> int:
         level=logging.INFO,
     )
 
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "iso_3166s",
         help="cover exactly the tiles these countries' boundaries touch",

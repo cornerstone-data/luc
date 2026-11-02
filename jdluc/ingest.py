@@ -86,9 +86,19 @@ def main() -> int:
         level=logging.INFO,
     )
 
-    parser = argparse.ArgumentParser(description=__doc__)
+    dataset_names = sorted(e.name for e in datasets.DatasetName)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog="\n".join(
+            ("dataset names:", *(f"  {name:s}" for name in dataset_names))
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
-        "dataset_name", choices=sorted(e.name for e in datasets.DatasetName)
+        "dataset_name",
+        choices=dataset_names,
+        help="one of the dataset names listed below",
+        metavar="dataset_name",
     )
     parser.add_argument(
         "iso_3166s",
@@ -97,14 +107,23 @@ def main() -> int:
         type=worldbank_jurisdictions.iso_3166_str,
     )
     parser.add_argument("--backfill", action="store_true", help="cover all GNW tiles")
-    parser.add_argument("--concurrency", default=1, type=int)
+    parser.add_argument(
+        "--concurrency",
+        default=1,
+        help="ingest up to this many tiles at once (default 1)",
+        type=int,
+    )
     parser.add_argument(
         "--modulus",
         default=1,
         help="split the tiles into this many disjoint shards",
         type=int,
     )
-    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="re-ingest tiles that already exist under INGEST_ROOT",
+    )
     parser.add_argument(
         "--residues",
         action="append",
