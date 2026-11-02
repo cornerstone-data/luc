@@ -136,6 +136,9 @@ def main() -> int:
     )
 
     dataset = datasets.NAME_TO_CLS[datasets.DatasetName[str(args.dataset_name)]]
+    assert not (
+        dataset.partitioning == tiling.Partitioning.WHOLE_WORLD and args.modulus > 1
+    ), f"{args.dataset_name:s} is whole-world, so it cannot be split with --modulus"
     tile_id_to_path_or_exc: dict[str, str | Exception] = workflow(
         concurrency=int(args.concurrency),
         dataset=dataset,
