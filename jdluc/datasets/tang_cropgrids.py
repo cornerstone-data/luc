@@ -213,6 +213,7 @@ class Crop(enum.StrEnum):
 
 
 RESOLUTION = tiling.XY(x=7_200, y=3_600)
+YEAR = 2020
 
 
 def save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
