@@ -389,7 +389,11 @@ class Stack(enum.Enum):
         DatasetName.LIAO_GACED30,
         DatasetName.SOILGRIDS_OCS,
     )
-    CROP_SUPPLEMENT = (DatasetName.DESCALS_OIL_PALM,)
+    CROP_SUPPLEMENT = (
+        DatasetName.DESCALS_OIL_PALM,
+        DatasetName.FDAP_COCOA,
+        DatasetName.FDAP_COFFEE,
+    )
 
 
 def all_unique(it: collections.abc.Iterable[str]) -> bool:

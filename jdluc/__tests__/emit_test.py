@@ -6,6 +6,9 @@ import pytest
 import xarray
 
 from jdluc.datasets.descals_oil_palm import DATASET as OIL_PALM
+from jdluc.datasets.fdap import COCOA_DATASET as COCOA
+from jdluc.datasets.fdap import COFFEE_DATASET as COFFEE
+from jdluc.datasets.fdap import YEARS as FDAP_YEARS
 from jdluc.datasets.gnw_global_peatlands import DATASET as PEATLANDS
 from jdluc.datasets.gnw_tcl import DATASET as TREE_COVER_LOSS
 from jdluc.datasets.gnw_tcl import LOSS_YEAR_OFFSET
@@ -639,6 +642,8 @@ NO_GRASSLAND = [float(Grassland.OTHER)] * len(LOOKBACK_YEARS_RANGE)
 
 def get_dset_for_one_pixel(
     grassland_by_year: list[float],
+    is_cocoa: bool,
+    is_coffee: bool,
     is_cropland: bool,
     loss_year: float | None,
     planting_year: float,
@@ -656,6 +661,12 @@ def get_dset_for_one_pixel(
             ]: get_darray_for_data(
                 data=[[Cropland.CROPLAND if is_cropland else Cropland.NOT_CROPLAND]]
             ),
+            COCOA.fully_qualified_band_names[
+                FDAP_YEARS.index(ASSESSMENT_YEAR)
+            ]: get_darray_for_data(data=[[int(is_cocoa)]]),
+            COFFEE.fully_qualified_band_names[
+                FDAP_YEARS.index(ASSESSMENT_YEAR)
+            ]: get_darray_for_data(data=[[int(is_coffee)]]),
             OIL_PALM.fully_qualified_band_name: get_darray_for_data(
                 data=[[planting_year]]
             ),
@@ -893,6 +904,8 @@ def test_get_conversion_record(
     result = get_conversion_record(
         dset=get_dset_for_one_pixel(
             grassland_by_year=grassland_by_year,
+            is_cocoa=False,
+            is_coffee=False,
             is_cropland=is_cropland,
             loss_year=loss_year,
             planting_year=0,
@@ -904,6 +917,8 @@ def test_get_conversion_record(
 
 @pytest.mark.parametrize(
     (
+        "is_cocoa",
+        "is_coffee",
         "is_cropland",
         "is_cultivated",
         "planting_year",
@@ -913,6 +928,8 @@ def test_get_conversion_record(
     ),
     (
         pytest.param(
+            False,
+            False,
             True,
             False,
             0,
@@ -923,6 +940,8 @@ def test_get_conversion_record(
         ),
         pytest.param(
             False,
+            False,
+            False,
             True,
             0,
             DestinationDataset.GPW_GRASSLAND,
@@ -931,6 +950,8 @@ def test_get_conversion_record(
             id="GPW alone claims it",
         ),
         pytest.param(
+            False,
+            False,
             True,
             True,
             0,
@@ -939,8 +960,12 @@ def test_get_conversion_record(
             False,
             id="both claim it, and the earlier member resolves it",
         ),
-        pytest.param(False, False, 0, 0, False, False, id="neither claims it"),
         pytest.param(
+            False, False, False, False, 0, 0, False, False, id="neither claims it"
+        ),
+        pytest.param(
+            False,
+            False,
             False,
             False,
             2012,
@@ -950,6 +975,8 @@ def test_get_conversion_record(
             id="oil palm claims what no other layer sees",
         ),
         pytest.param(
+            False,
+            False,
             False,
             True,
             2012,
@@ -961,6 +988,8 @@ def test_get_conversion_record(
         pytest.param(
             False,
             False,
+            False,
+            False,
             ASSESSMENT_YEAR,
             DestinationDataset.DESCALS_OIL_PALM,
             True,
@@ -970,15 +999,54 @@ def test_get_conversion_record(
         pytest.param(
             False,
             False,
+            False,
+            False,
             ASSESSMENT_YEAR + 1,
             0,
             False,
             False,
             id="a plantation established after it does not",
         ),
+        pytest.param(
+            True,
+            False,
+            False,
+            False,
+            0,
+            DestinationDataset.FDAP_COCOA,
+            True,
+            False,
+            id="cocoa claims what no other layer sees",
+        ),
+        pytest.param(
+            False,
+            True,
+            False,
+            True,
+            0,
+            DestinationDataset.FDAP_COFFEE | DestinationDataset.GPW_GRASSLAND,
+            True,
+            False,
+            id="coffee outranks pasture on a pixel both claim",
+        ),
+        pytest.param(
+            True,
+            True,
+            True,
+            False,
+            0,
+            DestinationDataset.FDAP_COCOA
+            | DestinationDataset.FDAP_COFFEE
+            | DestinationDataset.LIAO_GACED30,
+            True,
+            False,
+            id="cocoa, coffee and GACED30 all keep their bits",
+        ),
     ),
 )
 def test_get_conversion_record_destination(
+    is_cocoa: bool,
+    is_coffee: bool,
     is_cropland: bool,
     is_cultivated: bool,
     planting_year: float,
@@ -993,6 +1061,8 @@ def test_get_conversion_record_destination(
                 *NO_GRASSLAND[:-1],
                 float(Grassland.CULTIVATED if is_cultivated else Grassland.OTHER),
             ],
+            is_cocoa=is_cocoa,
+            is_coffee=is_coffee,
             is_cropland=is_cropland,
             loss_year=2012,
             planting_year=planting_year,
@@ -1108,6 +1178,8 @@ def test_the_halves_a_conversion_record_resolves(
     result = get_conversion_record(
         dset=get_dset_for_one_pixel(
             grassland_by_year=grassland_by_year,
+            is_cocoa=False,
+            is_coffee=False,
             is_cropland=is_cropland,
             loss_year=loss_year,
             planting_year=0,
@@ -1152,6 +1224,8 @@ def test_a_conversion_record_tells_pasture_from_rangeland_sources(
     result = get_conversion_record(
         dset=get_dset_for_one_pixel(
             grassland_by_year=grassland_by_year,
+            is_cocoa=False,
+            is_coffee=False,
             is_cropland=True,
             loss_year=loss_year,
             planting_year=0,
