@@ -2,7 +2,7 @@
 
 This repo contains an experimental methodology and data pipeline for estimating the land use change (LUC) related emissions associated with agricultural commodities. This methodology allocates LUC emissions to crops in proportion to their displacement of natural ecosystems, based on high-resolution satellite imagery. It's primarily intended for use in corporate GHG inventories, and follows the new GHGP Land Sector and Removals Standard. It supports two attribution methodologies over a shared per-pixel emissions core: the high-resolution "jurisdictional direct land use change" (jdLUC) calculation where detailed crop maps exist, and a coarser-resolution statistical approach for regions where they don't.
 
-As a proof of concept, the jurisdictional-direct leg covers eleven crops grown in the United States (barley, dry beans, cotton, maize, potato, rice, sorghum, soybean, sugarbeet, sugarcane and wheat). Although U.S. land use change emissions are relatively modest contributors to global totals, the U.S. agricultural sector is well studied and has strong data infrastructure, which makes it a good place to start testing methods. The statistical leg extends the same per-pixel emissions core to global crop coverage, using coarser sub-national statistics (IFPRI MapSPAM) where high-resolution crop maps aren't available.
+As a proof of concept, the jurisdictional-direct leg covers eleven crops grown in the United States (barley, dry beans, cotton, maize, potato, rice, sorghum, soybean, sugarbeet, sugarcane and wheat). Although U.S. land use change emissions are relatively modest contributors to global totals, the U.S. agricultural sector is well studied and has strong data infrastructure, which makes it a good place to start testing methods. The statistical leg extends the same per-pixel emissions core to global crop coverage, using coarser sub-national statistics (IFPRI MapSPAM) where high-resolution crop maps aren't available. A third leg attributes by CROPGRIDS crop area, and reports no production yet.
 
 > **Assessing LSRS conformance?** The [executive summary](docs/executive_summary.md) gives a concise account of how this methodology maps to the GHGP Land Sector and Removals Standard — which requirements it meets, the key modeling choices behind them, and where it deviates or remains a work in progress.
 
@@ -40,7 +40,7 @@ The data is licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). 
 Once you're ready to look under the hood:
 
 - `docs/executive_summary.md` — the short, non-technical overview: what jdLUC is, why LUC emissions matter, and the headline takeaways. Start here if you're new.
-- `docs/methodology.md` — the high-level overview of the methodology: the datasets behind it, how we quantify per-pixel emissions, and how the jurisdictional-direct and statistical attribution legs produce emissions factors. The *what* we compute and *why*, from a scientific standpoint.
+- `docs/methodology.md` — the high-level overview of the methodology: the datasets behind it, how we quantify per-pixel emissions, and how the attribution legs produce emissions factors. The *what* we compute and *why*, from a scientific standpoint.
 - `docs/architecture.md` — the system architecture and the rationale behind it: why we build on the [Pangeo](https://pangeo.io/) stack, how the five-stage pipeline is structured, and the tooling, storage, and caching choices that make it reproducible on a single host. The *how* it's built and *why those choices*.
 - `docs/data.md` — how to get the data products, grids, and full schemas for the harmonized inputs, per-pixel emissions, and emissions-factor table.
 - `docs/coverage.md` — the full list of countries and crops the pipeline produces emissions factors for, by ISO 3166-1 alpha-3 code.
@@ -81,7 +81,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="${HOME}/.config/gcloud/application_defaul
 
 ### Running the pipeline
 
-Every stage is scoped by one or more **ISO 3166 alpha-3 country codes**, or by `--backfill` for a global run. Stages 4–5 additionally take a `--methodology-name` (`STATISTICAL` or `JURISDICTIONAL_DIRECT`). The example below reproduces Honduras via the statistical leg. Honduras is the cheapest end-to-end run in the corpus: the unit of work is a 10° tile, and it falls inside a single one (`20N_090W`). Swap in `USA` for the jurisdictional-direct leg, which needs the US-only CDL and NASS inputs:
+Every stage is scoped by one or more **ISO 3166 alpha-3 country codes**, or by `--backfill` for a global run. Stage 4 additionally takes a `--methodology-name` (`STATISTICAL`, `JURISDICTIONAL_DIRECT` or `JURISDICTIONAL_DIRECT_PROXY`), and stage 5 takes the first two. The example below reproduces Honduras via the statistical leg. Honduras is the cheapest end-to-end run in the corpus: the unit of work is a 10° tile, and it falls inside a single one (`20N_090W`). Swap in `USA` for the jurisdictional-direct leg, which needs the US-only CDL and NASS inputs:
 
 ```bash
 # 1. Ingest each source dataset for the countries (positional: dataset, then ISO codes).

@@ -36,19 +36,19 @@ The pipeline is a linear chain of five stages, each consuming the previous stage
 flowchart LR
   ingest["ingest<br/><i>sources</i>"] --> harmonize["harmonize<br/><i>common grid</i>"]
   harmonize --> emit["emit<br/><i>per-pixel LUC</i>"]
-  emit --> attribute["attribute<br/><i>per-crop rollup;<br/>JD or statistical</i>"]
+  emit --> attribute["attribute<br/><i>per-crop rollup;<br/>JD, JD proxy or statistical</i>"]
   attribute --> trace["trace<br/><i>emissions factors</i>"]
 ```
 
 - **Ingest** — download every external source dataset into `INGEST_ROOT` as tiled Cloud-Optimized GeoTIFFs (COGs, raster), FlatGeobuf (vector), or parquet (tabular), tagged with provenance metadata, and with minimal changes.
 - **Harmonize** — align the ingested sources onto a common grid, one 10° tile at a time, yielding one lazy `xarray.Dataset` per tile backed by a zarr.
 - **Emit** — compute per-pixel land conversion events and emissions as a lazy dask/xarray graph and persist to zarr.
-- **Attribute** — clip per-pixel emissions to jurisdiction polygons and crop masks, rolling up to per-(jurisdiction, crop) totals via the jurisdictional-direct or statistical leg.
-- **Trace** — join the attribution rollups to production (NASS yields for the direct leg, MapSPAM for the statistical leg) to produce the final emissions-factor table.
+- **Attribute** — clip per-pixel emissions to jurisdiction polygons and crop masks, rolling up to per-(jurisdiction, crop) totals via the jurisdictional-direct, statistical or jurisdictional-direct proxy leg.
+- **Trace** — join the attribution rollups to production (NASS yields for the direct leg, MapSPAM for the statistical leg) to produce the final emissions-factor table. The proxy leg has no production yet.
 
 ## Compute platform and libraries
 
-Raster computation is expressed as lazy `xarray.Dataset` / `dask.array` graphs built with rioxarray and rasterio. GDAL VRTs align and resample every source onto the common grid; the statistical leg's step down to the MapSPAM grid is an overlap-weighted mean computed in dask (`geo.downscale_darray`). Nothing materializes until a stage writes its result, at which point dask streams the computation tile-by-tile into the output store.
+Raster computation is expressed as lazy `xarray.Dataset` / `dask.array` graphs built with rioxarray and rasterio. GDAL VRTs align and resample every source onto the common grid; the statistical and proxy legs' steps down to the MapSPAM and CROPGRIDS grids are overlap-weighted means computed in dask (`geo.downscale_darray`). Nothing materializes until a stage writes its result, at which point dask streams the computation tile-by-tile into the output store.
 
 Each library earns its place:
 
@@ -80,7 +80,7 @@ The unifying theme is **chunked formats** — every store can be read and writte
 
 All rasters are harmonized onto the **GLAD tile grid**: global `EPSG:4326` at 0.00025° (~30 m), tiled on the 10° graticule. We chose it because most of the source datasets are already published on it — tree-cover loss and the grassland class are native to it exactly — so warping *to* it leaves the layers that decide a conversion unresampled. It is also an intuitive grid and compatible with a tiled processing approach: the unit of work is a single 10° tile, and every grid is anchored on the absolute 10° graticule rather than on the extent of whatever was requested.
 
-A second, coarser grid (the ~10 km MapSPAM resolution) exists for the statistical attribution leg, which downsamples per-pixel emissions to match the resolution of the MapSPAM crop statistics rather than implying a precision the crop data does not have.
+Two coarser grids exist for attribution, the ~10 km MapSPAM resolution for the statistical leg and CROPGRIDS' 0.05° for the proxy leg, each matching its crop data rather than implying a precision that data does not have.
 
 ### One VRT per dataset per tile — chunked end to end
 
@@ -95,13 +95,13 @@ There is no reprojection step and no mosaic step:
 
 A tile whose source was never published is tolerated when the caller opts in: each of the dataset's bands is emitted with a header and no source, which GDAL reads as all-nodata. A minority of tiles need this for the core inputs, and the emissions core coerces those nodatas to zero, so that "no data here" does not propagate as NaN. For a dataset whose publisher maps one crop rather than the whole land surface it is the majority case — Descals oil palm covers 48 of the 280 tiles — and there the band header carries no `NoDataValue` at all, because 0 is a mapped class, so the sourceless band reads back as zero directly.
 
-The emissions core harmonizes **two dataset lists and merges the results**: the primary stack that every conversion depends on, and the per-crop masks that widen its destination evidence (`emit.CROP_SUPPLEMENT_DATASET_NAMES`). They are kept apart because `harmonize.workflow` hashes its `dataset_names` into the cache key, so a single list would re-materialize every primary band across every tile each time a mask is admitted; separated, admitting one costs only its own cache. Both are harmonized onto the same tile grid, so the merge is an exact join.
+The emissions core harmonizes **two dataset lists and merges the results**: the primary stack that every conversion depends on, and the per-crop masks that widen its destination evidence (`harmonize.Stack.CROP_SUPPLEMENT`). They are kept apart because `harmonize.workflow` hashes its `dataset_names` into the cache key, so a single list would re-materialize every primary band across every tile each time a mask is admitted; separated, admitting one costs only its own cache. Both are harmonized onto the same tile grid, so the merge is an exact join.
 
 Using VRTs rather than materializing intermediates is central to the design: the pipeline must be **fully chunked from end to end**, so that at no point is an entire raster dumped into RAM — doing so would cause massive slowdowns and out-of-memory failures. The VRTs are opened with rioxarray and assembled into one `xarray.Dataset`, one variable per fully-qualified source band (`{source}:{product}:{band}`).
 
 ### Per-dataset nodata, dtype, and resampling
 
-Resampling is a per-dataset property: nearest-neighbor/mode for categorical layers (GLAD land classes, CDL, peatland mask, climate zones, GACED30 cropland, GPW grassland class, and Descals oil palm planting year) and bilinear/average for intensive layers (SoilGrids, Huang BGB, Harris AGB, and GPW livestock density). Extensive layers would be summed when downsampling, but this functionality isn't currently implemented. The nodata, dtype, and resampling conventions vary across the external datasets and must be **manually specified and validated** per dataset — these details matter, and getting them wrong silently corrupts downstream results, which is another reason ingestion is isolated and independently inspectable.
+Resampling is a per-dataset property: nearest-neighbor for categorical layers (GLAD land classes, CDL, peatland mask, climate zones, GACED30 cropland, GPW grassland class, Descals oil palm planting year, and the FDaP masks) and bilinear/average for intensive layers (SoilGrids, Huang BGB, Harris AGB, and GPW livestock density). Nearest applies when downsampling too, since a regular subsample keeps each class's area where mode would shrink minority classes. Extensive layers would be summed when downsampling, but this functionality isn't currently implemented. The nodata, dtype, and resampling conventions vary across the external datasets and must be **manually specified and validated** per dataset — these details matter, and getting them wrong silently corrupts downstream results, which is another reason ingestion is isolated and independently inspectable.
 
 ## Caching, versioning, and provenance
 
