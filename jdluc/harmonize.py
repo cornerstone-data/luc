@@ -168,7 +168,10 @@ class Grid:
         ):
             match band_type:
                 case base.BandType.CATEGORICAL:
-                    return rasterio.enums.Resampling.mode
+                    # Although mode is the natural choice, we choose nearest because
+                    # it is an unbiased estimate over area -- mode systematically shrinks
+                    # the minority class
+                    return rasterio.enums.Resampling.nearest
                 case base.BandType.EXTENSIVE:
                     raise NotImplementedError("GDAL doesn't implement sum resampling")
                 case base.BandType.INTENSIVE:
