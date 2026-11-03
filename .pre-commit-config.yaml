@@ -18,7 +18,7 @@ repos:
       - id: mypy
         name: mypy
         language: system
-        entry: uv run mypy jdluc validation
+        entry: uv run mypy jdluc orchestration validation
         pass_filenames: false
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.12.7
