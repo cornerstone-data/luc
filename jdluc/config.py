@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 @dataclasses.dataclass
 class Config:
+    export_root: str
     harvard_dataverse_guestbook_json: str
     ingest_root: str
     number_of_dask_workers: int
