@@ -113,7 +113,7 @@ assert set(POOLED_COMPONENTS) == set(emit.EmissionComponent) - {
 }
 
 
-@storage.cache_to_zarr(version=0)
+@storage.cache_to_zarr(version=2)
 def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
     logger.info("Computing emissions on the GLAD grid")
     luc_and_emissions = geo.exact_merge(
@@ -621,7 +621,7 @@ SCHEMA = {
 }
 
 
-@storage.cache_to_parquet(version=0)
+@storage.cache_to_parquet(version=2)
 def workflow(
     commodity_names: tuple[str, ...],
     iso_3166: str,
