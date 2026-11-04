@@ -206,26 +206,28 @@ def get_commodity_name_to_totals(
         dset["dropped-emissions:tco2e-per-ha"] * hectares
     )
 
+    # The whole charge each component carries, as a commodity holding every share would take it
+    component_to_charged = {
+        component: land_class_to_component_to_emissions[emit.CROPLAND][component]
+        + land_class_to_component_to_emissions[emit.PASTURELAND][component]
+        for component in emit.EmissionComponent
+    }
     unattributed = commodity_to_totals[emit.NonCommodity.UNATTRIBUTED]
     unattributed |= {
-        component.column: sum(
-            (
-                component_to_emissions[component]
-                for component_to_emissions in land_class_to_component_to_emissions.values()
-            ),
-            start=xarray.DataArray(numpy.float32(0)),
-        )
+        component.column: component_to_charged[component]
         - sum(
             commodity_to_totals[commodity][component.column]
             for commodity in commodities
         )
         for component in emit.EmissionComponent
     }
-    unattributed["peatland_occupation_emissions_mt"] = sum(
-        land_class_to_occupation.values(), start=xarray.DataArray(numpy.float32(0))
-    ) - sum(
-        commodity_to_totals[commodity]["peatland_occupation_emissions_mt"]
-        for commodity in commodities
+    unattributed["peatland_occupation_emissions_mt"] = (
+        land_class_to_occupation[emit.CROPLAND]
+        + land_class_to_occupation[emit.PASTURELAND]
+        - sum(
+            commodity_to_totals[commodity]["peatland_occupation_emissions_mt"]
+            for commodity in commodities
+        )
     )
     unattributed["emissions_mt"] = sum(
         (unattributed[component.column] for component in emit.EmissionComponent),
