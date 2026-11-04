@@ -100,7 +100,7 @@ Every input is ingested from its upstream publisher into cloud storage as tiled 
 | **FAOSTAT Production, crops**      | National crop production and harvested area (validation yardstick)                                                                  | FAO bulk download                           | tabular |
 | **GLAD GLCLUC v2**                 | Land cover / land-use time series (2000–2020) — ingestable, not read by the emissions core                                          | GLAD/Hansen GeoTIFFs                        | raster  |
 | **GPW livestock headcount**        | Annual livestock heads per hectare, 2000/2005/2010/2020 (statistical and proxy legs)                                                | Zenodo (doi:10.5281/zenodo.17491242)        | raster  |
-| **CROPGRIDS crop area**            | Crop area of 173 crops in 2020, at 0.05° (jurisdictional-direct proxy leg)                                                          | Figshare (doi:10.6084/m9.figshare.22491997) | raster  |
+| **CROPGRIDS crop area**            | Physical area (not harvested area) of 173 crops in 2020, at 0.05° (jurisdictional-direct proxy leg)                                 | Figshare (doi:10.6084/m9.figshare.22491997) | raster  |
 
 The first ten rasters feed the per-pixel emissions core. CDL, MapSPAM and CROPGRIDS feed the jurisdictional-direct, statistical and proxy legs respectively, and the statistical and proxy legs also read GPW livestock and FAOSTAT's livestock tables for their livestock commodities. NASS yields and World Bank boundaries are joined downstream when building emissions factors.
 

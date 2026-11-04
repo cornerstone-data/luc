@@ -58,9 +58,9 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
         | {
             name: dset[name]
             for name in (
-                f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha",
+                f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
                 "dropped-emissions:tco2e-per-ha",
-                f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
+                f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
             )
         }
         | {
@@ -116,7 +116,8 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
 def get_crop_hectares(
     crop: tang_cropgrids.Crop, dset: xarray.Dataset
 ) -> xarray.DataArray:
-    # NB: the ocean is missing rather than zero
+    """`crop`'s physical area in each cell, in hectares; zero over the ocean, which CROPGRIDS
+    leaves missing."""
     return dset[
         tang_cropgrids.DATASET.fully_qualified_band_names[
             list(tang_cropgrids.Crop).index(crop)
@@ -163,7 +164,8 @@ def get_commodity_name_to_totals(
         for land_class in (emit.CROPLAND, emit.PASTURELAND)
     }
     land_class_to_occupation = {
-        land_class: dset[f"{land_class:s}-peatland-occupation:tco2e-per-ha"] * hectares
+        land_class: dset[f"{land_class:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"]
+        * hectares
         for land_class in (emit.CROPLAND, emit.PASTURELAND)
     }
 
