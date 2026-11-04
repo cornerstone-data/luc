@@ -34,6 +34,7 @@ import xarray
 from jdluc import geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
     descals_oil_palm,
+    fdap,
     gnw_global_peatlands,
     gnw_harris_agb,
     gnw_tcl,
@@ -289,6 +290,8 @@ class DestinationDataset(enum.IntFlag):
     """Which datasets (the can superpose) claim a pixel's land class at the assessment year."""
 
     DESCALS_OIL_PALM = enum.auto()
+    FDAP_COCOA = enum.auto()
+    FDAP_COFFEE = enum.auto()
     LIAO_GACED30 = enum.auto()
     GPW_GRASSLAND = enum.auto()
 
@@ -303,6 +306,22 @@ DESTINATION_DATASET_TO_PREDICATE: dict[
             > 0
         )
         & (planting_year <= ASSESSMENT_YEAR)
+    ),
+    DestinationDataset.FDAP_COCOA: lambda dset: (
+        dset[
+            fdap.COCOA_DATASET.fully_qualified_band_names[
+                fdap.YEARS.index(ASSESSMENT_YEAR)
+            ]
+        ]
+        == 1
+    ),
+    DestinationDataset.FDAP_COFFEE: lambda dset: (
+        dset[
+            fdap.COFFEE_DATASET.fully_qualified_band_names[
+                fdap.YEARS.index(ASSESSMENT_YEAR)
+            ]
+        ]
+        == 1
     ),
     DestinationDataset.LIAO_GACED30: lambda dset: (
         dset[
@@ -324,7 +343,10 @@ DESTINATION_DATASET_TO_PREDICATE: dict[
 assert set(DestinationDataset) == set(DESTINATION_DATASET_TO_PREDICATE)
 
 CROPLAND_DATASETS = (
-    DestinationDataset.DESCALS_OIL_PALM | DestinationDataset.LIAO_GACED30
+    DestinationDataset.DESCALS_OIL_PALM
+    | DestinationDataset.FDAP_COCOA
+    | DestinationDataset.FDAP_COFFEE
+    | DestinationDataset.LIAO_GACED30
 )
 PASTURE_DATASETS = DestinationDataset.GPW_GRASSLAND
 # Each member belongs to one group, and the cropland members come first -- so a cropland bit
@@ -334,6 +356,7 @@ assert tuple(DestinationDataset) == (*CROPLAND_DATASETS, *PASTURE_DATASETS)
 # How band names spell each destination's land class
 CROPLAND = "cropland"
 PASTURELAND = "pastureland"
+PEATLAND_OCCUPATION = "peatland-occupation"
 
 
 def get_last_departure_year(is_source: xarray.DataArray) -> xarray.DataArray:
@@ -675,7 +698,7 @@ def get_dset_for_output(name_to_darray: dict[str, xarray.DataArray]) -> xarray.D
     )
 
 
-@storage.cache_to_zarr(version=1)
+@storage.cache_to_zarr(version=2)
 def workflow(tile_id: str) -> xarray.Dataset:
     logger.info(f"Running the land conversion and emissions worflow for {tile_id=:s}")
     dset = geo.exact_merge(
@@ -789,12 +812,12 @@ def workflow(tile_id: str) -> xarray.Dataset:
             for (before, after), darray in span_to_vegetation_emissions.items()
         }
         | {
-            f"{CROPLAND:s}-peatland-occupation": cropland_occupation_emissions,
+            f"{CROPLAND:s}-{PEATLAND_OCCUPATION:s}": cropland_occupation_emissions,
             # NB: charged to nobody, so it is reported beside the total rather than inside it
             "dropped-emissions": dropped_emissions,
             "emissions-per-hectare": emissions_per_hectare,
             "hectares-per-pixel": get_hectares_per_pixel(darray=emissions_per_hectare),
-            f"{PASTURELAND:s}-peatland-occupation": pastureland_occupation_emissions,
+            f"{PASTURELAND:s}-{PEATLAND_OCCUPATION:s}": pastureland_occupation_emissions,
         }
     )
 

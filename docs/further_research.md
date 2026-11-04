@@ -8,9 +8,9 @@ The tooling described in [`validation.md`](validation.md) measures the entries b
 
 ## Woody perennial crops resolve to no destination
 
-**Status**: oil palm is resolved. Descals et al. (2024) is admitted as a per-crop destination layer, so forest cleared for oil palm and standing as oil palm at the assessment year now resolves to cropland, takes its conversion emissions, and carries the peat pulse and occupation that ride on it. That is 352 Mt of the 1,071 Mt in the gap below. Against WRI, Indonesian oil palm now reads 0.429 where the country's other crops read 0.32-0.33, so it sits above its siblings rather than below them: the expansion-share rule is not biased against woody perennials, and what is left for Indonesia is a country-level shortfall every crop shares. The entry stands for the rest.
+**Status**: oil palm is resolved. Descals et al. (2024) is admitted as a per-crop destination layer, so forest cleared for oil palm and standing as oil palm at the assessment year now resolves to cropland, takes its conversion emissions, and carries the peat pulse and occupation that ride on it. That is 352 Mt of the 1,071 Mt in the gap below. Against WRI, Indonesian oil palm now reads 0.429 where the country's other crops read 0.32-0.33, so it sits above its siblings rather than below them: the expansion-share rule is not biased against woody perennials, and what is left for Indonesia is a country-level shortfall every crop shares. Cocoa and coffee have the FDaP masks between 24°S and 24°N, not yet measured. The entry stands for the rest.
 
-**Issue**: apart from oil palm, the conversion matrix names cropland and pasture as destinations and nothing else, so forest cleared for cocoa, coconut, rubber, coffee, tea or plantation timber resolves to no destination at all. Tree-cover loss identifies the clearance and dates it; GACED30 and Global Pasture Watch are then asked what stands there at the assessment year, and neither recognises a young plantation. The pixel's source carbon is charged to nobody and reported in `dropped-emissions` — bucket 4 of the six in `methodology.md`, the one LSRS Requirement 11 names explicitly.
+**Issue**: apart from oil palm, cocoa and coffee, the conversion matrix names cropland and pasture as destinations and nothing else, so forest cleared for coconut, rubber, tea or plantation timber resolves to no destination at all. Tree-cover loss identifies the clearance and dates it; GACED30 and Global Pasture Watch are then asked what stands there at the assessment year, and neither recognises a young plantation. The pixel's source carbon is charged to nobody and reported in `dropped-emissions` — bucket 4 of the six in `methodology.md`, the one LSRS Requirement 11 names explicitly.
 
 Two things follow, and the second is what makes this worth a commodity-level entry rather than a line in the conformance table:
 
@@ -33,13 +33,13 @@ Sampled over 1°×1° windows at 30 m on GLAD's land-cover map, not on GACED30, 
 
 ## FDaP masks match FAOSTAT's national area, not where it lies
 
-**Status**: open. No stage reads the masks yet, so this bounds what they can carry once one does.
+**Status**: open. The masks are `emit`'s cocoa and coffee destinations, so this bounds what they carry.
 
 The masks threshold FDaP's per-pixel probabilities per country and year (`jdluc/datasets/fdap.py`). Each commodity has a floor, the model's precision/recall crossover, and no threshold goes below it. Where a country's fitted threshold is above the floor, it is set so the masked area meets FAOSTAT's area harvested; that matches the national total and says nothing about which pixels carry it. Where the fit is below the floor, the floor applies and the mask maps less than FAOSTAT's area: 34 coffee entries across 11 countries, from Colombia to Vietnam, and Venezuela's cocoa in 2020. Other producers use the floor alone, so their area is not matched to FAOSTAT's at all, and countries with no FAOSTAT production mask nothing. The 2024 masks are fitted to FAOSTAT's 2023 area.
 
 Where even the highest threshold maps more than FAOSTAT's area harvested, the mask stays larger than FAOSTAT's figure: cocoa in Ghana (2020–2024), Liberia (2018), Fiji (2020 and 2022), Guyana (2022 and 2024) and Suriname, and coffee in Burundi (2018, 2022 and 2024), Kenya (2022), Malawi, Paraguay and Zimbabwe. Mozambique's coffee is excluded nationally instead, since its mask stays over 100 times FAOSTAT's area even at that threshold.
 
-**Potential impact:** Once the masks are a destination, an over-mapped country attributes more of its clearance to cocoa or coffee than FAOSTAT's area supports, and a producer whose mask maps less than FAOSTAT's area leaves the rest in `dropped-emissions`.
+**Potential impact:** An over-mapped country claims more clearance as cropland than FAOSTAT's cocoa or coffee area supports, and a producer whose mask maps less than FAOSTAT's area leaves the rest in `dropped-emissions`.
 
 **Potential improvement path:** `tools/fit-fdap-thresholds.py` refits any country against the current FAOSTAT release: the 2024 masks against FAOSTAT's 2024 area, and the thresholds fitted to earlier FAOSTAT figures. Where the pixels lie needs an independent check against field plots, which a fit to national totals cannot provide.
 
@@ -51,7 +51,7 @@ Where even the highest threshold maps more than FAOSTAT's area harvested, the ma
 
 Two consequences follow, and the first is why this entry is separate from the one above:
 
-1. **No crop mask closes it.** Every candidate on the register — FDaP, Descals coconut, the forest-management map — maps a woody perennial. The fallow rule is a definitional exclusion rather than a detection failure, so the fix is a cropland definition that admits long-fallow rotation, not another crop.
+1. **No crop mask closes it.** Every per-crop mask, admitted or candidate — FDaP, Descals coconut, the forest-management map — maps a woody perennial. The fallow rule is a definitional exclusion rather than a detection failure, so the fix is a cropland definition that admits long-fallow rotation, not another crop.
 2. **A low anchor ratio here is not a detection failure.** PNG's sLUC/WRI for oil palm is 0.074 against 0.429 for Indonesia and 0.664 for Malaysia. PNG's tree-cover loss is dominated by selective logging and subsistence rotation rather than plantation conversion, so most of it should not be charged to any commodity. Reading that figure as a palm-detection gap sends the next reader after the wrong layer.
 
 **Potential impact:** Unquantified globally. PNG is one measured instance; the 43.0 Mha figure above is the 5-arcmin upper bound across all countries, and the crops carrying it are staples rather than traded commodities, so the exposure is concentrated in jurisdictional totals rather than in any export factor.

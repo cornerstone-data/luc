@@ -27,6 +27,7 @@ class TileResolution(XY, enum.Enum):
     # The dataset is provided in ESRI:54052, so no EPSG:4326 grid fits exactly; this is
     # the coarsest one which is finer than the source grid and tiles into MAPSPAM
     GPW_LIVESTOCK = 1_200, 1_200
+    CROPGRIDS = 200, 200
     MAPSPAM = 120, 120
 
     @property

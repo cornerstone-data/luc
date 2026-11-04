@@ -38,9 +38,12 @@ def test_methodology_names_match_the_enum() -> None:
 
 
 def test_every_methodology_is_named_here() -> None:
-    """A third leg would otherwise be silently absent from every comparison."""
+    """A new leg would otherwise be silently absent from every comparison."""
     assert {schema.STATISTICAL, schema.JURISDICTIONAL_DIRECT} == {
-        methodology.name for methodology in attribute.Methodology
+        methodology.name
+        for methodology in attribute.Methodology
+        # Reports no production, so it has no emissions factor to compare
+        if methodology != attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
     }
 
 

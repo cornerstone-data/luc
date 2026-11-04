@@ -168,7 +168,10 @@ class Grid:
         ):
             match band_type:
                 case base.BandType.CATEGORICAL:
-                    return rasterio.enums.Resampling.mode
+                    # Although mode is the natural choice, we choose nearest because
+                    # it is an unbiased estimate over area -- mode systematically shrinks
+                    # the minority class
+                    return rasterio.enums.Resampling.nearest
                 case base.BandType.EXTENSIVE:
                     raise NotImplementedError("GDAL doesn't implement sum resampling")
                 case base.BandType.INTENSIVE:
@@ -386,7 +389,11 @@ class Stack(enum.Enum):
         DatasetName.LIAO_GACED30,
         DatasetName.SOILGRIDS_OCS,
     )
-    CROP_SUPPLEMENT = (DatasetName.DESCALS_OIL_PALM,)
+    CROP_SUPPLEMENT = (
+        DatasetName.DESCALS_OIL_PALM,
+        DatasetName.FDAP_COCOA,
+        DatasetName.FDAP_COFFEE,
+    )
 
 
 def all_unique(it: collections.abc.Iterable[str]) -> bool:

@@ -5,7 +5,10 @@ Dispatches each ten-degree tile to a per-methodology workflow once per overlappi
   - STATISTICAL (default): downscales the per-pixel emissions to the MAPSPAM grid and
     attributes them across commodities by their shares of each cell's expansion.
   - JURISDICTIONAL_DIRECT: masks the per-pixel emissions to each crop's CDL codes.
-Both clip to provincial (World Bank admin-1) polygons and sum commodity area, peatland
+  - JURISDICTIONAL_DIRECT_PROXY: downscales the per-pixel emissions to the CROPGRIDS grid, split
+    by whether each pixel became cropland or pasture, and divides cropland's part among CROPGRIDS'
+    crops by their 2020 crop-area shares and pasture's part among grazers.
+All three clip to provincial (World Bank admin-1) polygons and sum commodity area, peatland
 commodity area, peatland-occupation emissions, and total emissions. Returns a pandas.DataFrame indexed by
 (admin_level, admin_id, commodity_name, methodology); the per-(country, tile) sub-workflows are
 cached and `--concurrency` bounds how many tiles are in flight at once.
@@ -28,15 +31,17 @@ import pandas
 
 from jdluc import (
     jurisdictional_direct,
+    jurisdictional_direct_proxy,
     statistical,
 )
-from jdluc.datasets import worldbank_jurisdictions
+from jdluc.datasets import tang_cropgrids, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
 
 class Methodology(enum.IntEnum):
     JURISDICTIONAL_DIRECT = enum.auto()
+    JURISDICTIONAL_DIRECT_PROXY = enum.auto()
     STATISTICAL = enum.auto()
 
 
@@ -59,11 +64,15 @@ def workflow(
     iso_3166s: collections.abc.Iterable[str],
     methodology: Methodology,
 ) -> pandas.DataFrame:
-    workflow_for_tile = (
-        jurisdictional_direct.workflow
-        if methodology == Methodology.JURISDICTIONAL_DIRECT
-        else statistical.workflow
-    )
+    match methodology:
+        case Methodology.JURISDICTIONAL_DIRECT:
+            workflow_for_tile = jurisdictional_direct.workflow
+        case Methodology.JURISDICTIONAL_DIRECT_PROXY:
+            workflow_for_tile = jurisdictional_direct_proxy.workflow
+        case Methodology.STATISTICAL:
+            workflow_for_tile = statistical.workflow
+        case _:
+            raise ValueError(methodology)
 
     # NB: have each thread handle a tile, to avoid races in harmonize, emit, or downscale
     tile_id_to_iso_3166s: dict[str, list[str]] = collections.defaultdict(list)
@@ -124,13 +133,19 @@ def workflow(
 
 
 def get_commodity_names(methodology: Methodology) -> tuple[str, ...]:
-    if methodology == Methodology.STATISTICAL:
-        return tuple(
-            sorted(e.name for e in (*statistical.Crop, *statistical.Livestock))
-        )
-    else:
-        assert methodology == Methodology.JURISDICTIONAL_DIRECT
-        return tuple(sorted(e.name for e in jurisdictional_direct.Crop))
+    match methodology:
+        case Methodology.JURISDICTIONAL_DIRECT:
+            return tuple(sorted(e.name for e in jurisdictional_direct.Crop))
+        case Methodology.JURISDICTIONAL_DIRECT_PROXY:
+            return tuple(
+                sorted(e.name for e in (*tang_cropgrids.Crop, *statistical.Livestock))
+            )
+        case Methodology.STATISTICAL:
+            return tuple(
+                sorted(e.name for e in (*statistical.Crop, *statistical.Livestock))
+            )
+        case _:
+            raise ValueError(methodology)
 
 
 DEFAULT_CONCURRENCY = 4

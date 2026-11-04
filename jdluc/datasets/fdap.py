@@ -331,8 +331,7 @@ def get_raster_dataset(
 
     return base.RasterDataset(
         band_names=[f"{year=:d}" for year in YEARS],
-        # Averaged rather than taken by mode, so each harmonized pixel keeps the share of it masked
-        band_type=base.BandType.INTENSIVE,
+        band_type=base.BandType.CATEGORICAL,
         dtype="uint8",
         no_data=NO_DATA,
         partitioning=tiling.Partitioning.TEN_DEGREE_TILE,

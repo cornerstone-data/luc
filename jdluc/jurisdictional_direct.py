@@ -44,11 +44,11 @@ EMISSIONS_AND_CROP_VARIABLE_NAMES = [
     # Harmonized
     gnw_global_peatlands.DATASET.fully_qualified_band_name,
     # Emissions
-    f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha",
+    f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     "dropped-emissions:tco2e-per-ha",
     "emissions-per-hectare:tco2e-per-ha",
     "hectares-per-pixel:ha",
-    f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
+    f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     *(f"{component!s}-emissions:tco2e-per-ha" for component in emit.EmissionComponent),
     # Crop
     usda_nass_cdl.DATASET.fully_qualified_band_name,
@@ -137,7 +137,7 @@ SCHEMA = {
 }
 
 
-@storage.cache_to_parquet(version=0)
+@storage.cache_to_parquet(version=2)
 def workflow(
     commodity_names: tuple[str, ...],
     iso_3166: str,
@@ -217,10 +217,10 @@ def workflow(
                     ]
                     == 1,
                     pastureland_occupation_per_hectare=clipped[
-                        f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha"
+                        f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
                     ],
                     peatland_occupation_per_hectare=clipped[
-                        f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
+                        f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
                     ],
                 )
                 for commodity_name, totals in commodity_name_to_totals.items():

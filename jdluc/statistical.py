@@ -100,9 +100,9 @@ DATASET_NAMES = (
 
 
 EMIT_VARIABLE_NAMES = [
-    f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha",
+    f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     "dropped-emissions:tco2e-per-ha",
-    f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
+    f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
 ]
 
 # Components divided by the pooled expansion share. The peat pulse is not one of them: it is stored
@@ -113,7 +113,7 @@ assert set(POOLED_COMPONENTS) == set(emit.EmissionComponent) - {
 }
 
 
-@storage.cache_to_zarr(version=0)
+@storage.cache_to_zarr(version=2)
 def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
     logger.info("Computing emissions on the GLAD grid")
     luc_and_emissions = geo.exact_merge(
@@ -144,9 +144,7 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
             (emit.CROPLAND, emit.TO_CROPLAND),
             (emit.PASTURELAND, emit.TO_PASTURE),
         ):
-            name = (
-                f"{land_class:s}-peatland-conversion:tco2e-per-ha:{before:d}-{after:d}"
-            )
+            name = f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}:tco2e-per-ha:{before:d}-{after:d}"
             luc_and_emissions[name] = component_to_darray[
                 emit.EmissionComponent.PEATLAND_CONVERSION
             ].where(luc_and_emissions["conversion"].isin(conversions), other=0)
@@ -405,12 +403,13 @@ def get_commodity_name_to_totals(
     pasture expanded, and the cropland peat pulse where no crop expanded.
     """
     cropland_occupation_per_hectare = dset[
-        f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha"
+        f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
     ]
     hectares = emit.get_hectares_per_pixel(darray=cropland_occupation_per_hectare)
     cropland_occupation = cropland_occupation_per_hectare * hectares
     pastureland_occupation = (
-        dset[f"{emit.PASTURELAND:s}-peatland-occupation:tco2e-per-ha"] * hectares
+        dset[f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"]
+        * hectares
     )
 
     commodity_to_totals: dict[
@@ -439,7 +438,7 @@ def get_commodity_name_to_totals(
             emit.EmissionComponent.PEATLAND_CONVERSION: emit.get_linear_discounted_total(
                 span_to_value={
                     (before, after): dset[
-                        f"{land_class:s}-peatland-conversion:tco2e-per-ha:{before:d}-{after:d}"
+                        f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}:tco2e-per-ha:{before:d}-{after:d}"
                     ]
                     * hectares
                     * span_to_commodity_to_peatland_conversion_share[
@@ -532,7 +531,7 @@ def get_commodity_name_to_totals(
             span_to_value={
                 (before, after): sum(
                     dset[
-                        f"{land_class:s}-peatland-conversion:tco2e-per-ha:{before:d}-{after:d}"
+                        f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}:tco2e-per-ha:{before:d}-{after:d}"
                     ]
                     for land_class in (emit.CROPLAND, emit.PASTURELAND)
                 )
@@ -621,7 +620,7 @@ SCHEMA = {
 }
 
 
-@storage.cache_to_parquet(version=0)
+@storage.cache_to_parquet(version=2)
 def workflow(
     commodity_names: tuple[str, ...],
     iso_3166: str,

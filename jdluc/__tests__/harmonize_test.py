@@ -92,7 +92,7 @@ def test_grid_get_resolution_for_world() -> None:
     (
         (BandType.CATEGORICAL, tiling.XY(1, 1), "nearest"),
         (BandType.CATEGORICAL, tiling.XY(2, 2), "nearest"),
-        (BandType.CATEGORICAL, tiling.XY(3, 3), "mode"),
+        (BandType.CATEGORICAL, tiling.XY(3, 3), "nearest"),
         (BandType.INTENSIVE, tiling.XY(1, 1), "bilinear"),
         (BandType.INTENSIVE, tiling.XY(2, 2), "nearest"),
         (BandType.INTENSIVE, tiling.XY(3, 3), "average"),
