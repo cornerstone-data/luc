@@ -30,7 +30,7 @@ import zipfile
 import iso3166
 import pandas
 
-from jdluc import statistical
+from jdluc import attribute, statistical, taxonomy
 from jdluc.datasets import faostat, ifpri_mapspam
 from validation import pull, schema, targets
 
@@ -756,8 +756,58 @@ def read_efs() -> pandas.DataFrame | None:
     return pandas.read_parquet(pull.EFS)
 
 
-def keep_crop_rows(frame: pandas.DataFrame) -> pandas.DataFrame:
-    """Only the crop rows, kept before anything indexes `statistical.Crop`.
+# The MapSPAM code each captured crop row is compared under. The capture keys on FAOSTAT items, and
+# FAOSTAT has one item each for coffee and millet where MapSPAM 2005 onward has two, so those two
+# take MapSPAM 2000's combined codes.
+COMMODITY_ID_TO_CROP_CODE = {
+    taxonomy.CommodityId.BANANAS: statistical.Crop.BANANA.value,
+    taxonomy.CommodityId.BARLEY: statistical.Crop.BARLEY.value,
+    taxonomy.CommodityId.BEANS_DRY: statistical.Crop.BEAN.value,
+    taxonomy.CommodityId.CASSAVA: statistical.Crop.CASSAVA.value,
+    taxonomy.CommodityId.CHICK_PEAS: statistical.Crop.CHICKPEA.value,
+    taxonomy.CommodityId.COCONUTS: statistical.Crop.COCONUT.value,
+    taxonomy.CommodityId.COFFEE_GREEN: ifpri_mapspam.Crop2000.COFF.name,
+    taxonomy.CommodityId.COW_PEAS: statistical.Crop.COWPEA.value,
+    taxonomy.CommodityId.GROUNDNUTS: statistical.Crop.GROUNDNUT.value,
+    taxonomy.CommodityId.LENTILS: statistical.Crop.LENTIL.value,
+    taxonomy.CommodityId.MAIZE: statistical.Crop.MAIZE.value,
+    taxonomy.CommodityId.MILLET: ifpri_mapspam.Crop2000.MILL.name,
+    taxonomy.CommodityId.OIL_PALM_FRUIT: statistical.Crop.OILPALM.value,
+    taxonomy.CommodityId.OTHER_OILCROPS: statistical.Crop.OTHER_OILCROPS.value,
+    taxonomy.CommodityId.OTHER_PULSES: statistical.Crop.OTHER_PULSES.value,
+    taxonomy.CommodityId.PIGEON_PEAS: statistical.Crop.PIGEONPEA.value,
+    taxonomy.CommodityId.PLANTAINS: statistical.Crop.PLANTAIN.value,
+    taxonomy.CommodityId.POTATOES: statistical.Crop.POTATO.value,
+    taxonomy.CommodityId.RAPE_OR_COLZA_SEED: statistical.Crop.RAPESEED.value,
+    taxonomy.CommodityId.RICE: statistical.Crop.RICE.value,
+    taxonomy.CommodityId.SEED_COTTON: statistical.Crop.COTTON.value,
+    taxonomy.CommodityId.SESAME_SEED: statistical.Crop.SESAME_SEED.value,
+    taxonomy.CommodityId.SORGHUM: statistical.Crop.SORGHUM.value,
+    taxonomy.CommodityId.SOYA_BEANS: statistical.Crop.SOYBEAN.value,
+    taxonomy.CommodityId.SUGAR_BEET: statistical.Crop.SUGARBEET.value,
+    taxonomy.CommodityId.SUGAR_CANE: statistical.Crop.SUGARCANE.value,
+    taxonomy.CommodityId.SUNFLOWER_SEED: statistical.Crop.SUNFLOWER.value,
+    taxonomy.CommodityId.SWEET_POTATOES: statistical.Crop.SWEET_POTATO.value,
+    taxonomy.CommodityId.WHEAT: statistical.Crop.WHEAT.value,
+    taxonomy.CommodityId.YAMS: statistical.Crop.YAM.value,
+}
+assert set(COMMODITY_ID_TO_CROP_CODE) == {
+    taxonomy.METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
+        attribute.Methodology.STATISTICAL
+    ][crop.name]
+    for crop in statistical.Crop
+}
+# WRI publishes the two coffees and the two millets apart, as MapSPAM 2005 onward does
+SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE = {
+    statistical.Crop.ARABICA_COFFEE.value: ifpri_mapspam.Crop2000.COFF.name,
+    statistical.Crop.PEARL_MILLET.value: ifpri_mapspam.Crop2000.MILL.name,
+    statistical.Crop.ROBUSTA_COFFEE.value: ifpri_mapspam.Crop2000.COFF.name,
+    statistical.Crop.SMALL_MILLET.value: ifpri_mapspam.Crop2000.MILL.name,
+}
+
+
+def with_crop_codes(frame: pandas.DataFrame) -> pandas.DataFrame:
+    """Only the crop rows, each with the MapSPAM code it is compared under in `crop_code`.
 
     Some rows are not crops: the livestock rows, and the dropped and unattributed rows (see
     `emit.NonCommodity`). None has a MapSPAM code to key a join on, and neither WRI nor Orbae
@@ -766,7 +816,12 @@ def keep_crop_rows(frame: pandas.DataFrame) -> pandas.DataFrame:
     stated as what is kept rather than what is removed, so a row added later is excluded by
     default rather than by being remembered here.
     """
-    return frame[frame["commodity_name"].isin({crop.name for crop in statistical.Crop})]
+    crops = frame[frame["commodity_id"].isin(COMMODITY_ID_TO_CROP_CODE)].copy()
+    crops["crop_code"] = [
+        COMMODITY_ID_TO_CROP_CODE[taxonomy.CommodityId(commodity_id)]
+        for commodity_id in crops["commodity_id"]
+    ]
+    return crops
 
 
 def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]:
@@ -786,12 +841,14 @@ def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]
     efs = read_efs()
     if efs is None:
         return
-    national = efs[
-        efs.index.get_level_values("admin_level") == schema.NATIONAL
-    ].reset_index()
+    national = with_crop_codes(
+        frame=efs[
+            efs.index.get_level_values("admin_level") == schema.NATIONAL
+        ].reset_index()
+    )
     by_methodology = national.pivot_table(
         columns="methodology",
-        index=["admin_id", "commodity_name"],
+        index=["admin_id", "crop_code"],
         values="emissions_factor_kgco2e_per_kg",
     )
     # NB: the jurisdictional-direct leg is US-only, so a capture scoped to countries it does not
@@ -816,7 +873,7 @@ def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]
         yield {
             "iso_3166": str(row["admin_id"]),
             # The MapSPAM code, because `get_comparisons` renames back to the canonical name once.
-            "crop_name": statistical.Crop[str(row["commodity_name"])].value,
+            "crop_name": str(row["crop_code"]),
             "emission_pool": schema.EmissionPool.TOTAL,
             "measure": targets.Measure.SLUC_OVER_JDLUC,
             "statistic": schema.Statistic.RATIO,
@@ -865,21 +922,25 @@ def iter_sluc_wri_comparisons() -> collections.abc.Iterator[dict[str, object]]:
     efs = read_efs()
     if efs is None:
         return
-    deforestation = {
-        (row["iso_3166"], row["crop_name"]): float(row["deforestation_tonnes"])
-        for row in read_wri_national_emissions(gas_scope="CO2e").to_dict("records")
-        if row["year"] == REFERENCE_YEAR and row["deforestation_tonnes"] > 0
-    }
+    wri = read_wri_national_emissions(gas_scope="CO2e")
+    wri = wri[(wri["year"] == REFERENCE_YEAR) & (wri["deforestation_tonnes"] > 0)]
+    # Tonnes add, so WRI's two coffees and two millets sum to the one FAOSTAT item each that our
+    # rows carry
+    deforestation = (
+        wri.assign(
+            crop_name=wri["crop_name"].replace(SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE)
+        )
+        .groupby(["iso_3166", "crop_name"])["deforestation_tonnes"]
+        .sum()
+        .to_dict()
+    )
     levels = efs.index.get_level_values
-    national = keep_crop_rows(
+    national = with_crop_codes(
         frame=efs[
             (levels("admin_level") == schema.NATIONAL)
             & (levels("methodology") == schema.STATISTICAL)
         ].reset_index()
-    ).copy()
-    national["crop_code"] = [
-        statistical.Crop[name].value for name in national["commodity_name"]
-    ]
+    )
     for row in sorted(
         national.to_dict("records"),
         key=lambda record: (record["admin_id"], record["crop_code"]),
@@ -948,12 +1009,9 @@ def iter_orbae_capture_comparisons() -> collections.abc.Iterator[dict[str, objec
     orbae = orbae.dropna(subset=["admin_id"])
 
     levels = efs.index.get_level_values
-    provincial = keep_crop_rows(
+    provincial = with_crop_codes(
         frame=efs[levels("admin_level") == schema.PROVINCIAL].reset_index()
-    ).copy()
-    provincial["crop_code"] = [
-        statistical.Crop[name].value for name in provincial["commodity_name"]
-    ]
+    )
     # `admin_id` leads with the ISO, which is the only place the country appears on our rows.
     provincial["iso_3166"] = provincial["admin_id"].str[:3]
     provincial["luc_only_kg_per_kg"] = (
