@@ -3,8 +3,8 @@
 Starting from the per-(admin, commodity) attribution rollup (`attribute.workflow`), determines
 each commodity's total production — the only step that depends on methodology:
   - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield (4-year mean).
-  - STATISTICAL: production = MAPSPAM production for crops, and GPW heads x FAOSTAT carcass
-    weight per head for livestock, carried straight through the attribute.
+  - STATISTICAL: production = MAPSPAM production for crops, carried straight through the
+    attribute, and the attribute's GPW heads x FAOSTAT carcass weight per head for livestock.
 
 It then derives, identically for both, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
@@ -24,8 +24,8 @@ import logging
 
 import pandas
 
-from jdluc import attribute, emit, storage
-from jdluc.datasets import usda_nass_quickstats, worldbank_jurisdictions
+from jdluc import attribute, emit, statistical, storage
+from jdluc.datasets import faostat, usda_nass_quickstats, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +66,47 @@ def derive_jurisdictional_production_kg(
     )
 
 
-def derive_statistical_production_kg(emissions: pandas.DataFrame) -> pandas.DataFrame:
+def derive_statistical_production_kg(
+    emissions: pandas.DataFrame, stocks: pandas.DataFrame
+) -> pandas.DataFrame:
+    """A crop's production is MapSPAM's, carried through `attribute`. A herd's is its heads at
+    each snapshot times FAOSTAT's national carcass weight per standing head that year, reduced
+    over the window with the weights `statistical.get_discounted_snapshot_mean` gives a crop's.
+    """
+    livestock = stocks.reset_index()
+    # No meat in a year, or no herd in FAOSTAT, prices at 0
+    kg_per_head = (
+        (livestock["production_kg"] / livestock["stocks_head"])
+        .fillna(0)
+        .set_axis(
+            pandas.MultiIndex.from_frame(
+                livestock[["admin_id", "commodity_name", "year"]]
+            )
+        )
+    )
     ret = emissions.copy()
     ret["production_kg"] = ret["production_mt"] * KG_PER_TONNE
-    return ret.drop(columns="production_mt")
+    for livestock_commodity, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+        is_herd = (
+            ret.index.get_level_values("commodity_name") == livestock_commodity.name
+        )
+        iso_3166s = ret.index.get_level_values("admin_id")[is_herd].str[:3]
+        ret.loc[is_herd, "production_kg"] = sum(
+            weight
+            * ret.loc[is_herd, statistical.get_herd_heads_column(year=year)]
+            * kg_per_head.reindex(
+                fill_value=0,
+                index=pandas.MultiIndex.from_arrays(
+                    [
+                        iso_3166s,
+                        [species.name] * len(iso_3166s),
+                        [year] * len(iso_3166s),
+                    ]
+                ),
+            ).to_numpy()
+            for year, weight in statistical.SNAPSHOT_YEAR_TO_WEIGHT.items()
+        )
+    return ret.drop(columns=["production_mt", *statistical.HERD_HEADS_COLUMNS])
 
 
 def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
@@ -135,7 +172,10 @@ def workflow(
             emissions=emissions, raw_yields=usda_nass_quickstats.load()
         )
         if methodology == attribute.Methodology.JURISDICTIONAL_DIRECT
-        else derive_statistical_production_kg(emissions=emissions)
+        else derive_statistical_production_kg(
+            emissions=emissions,
+            stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
+        )
     )
     provincials = attach_ratios(df=emissions_and_yields)
     assert all(
