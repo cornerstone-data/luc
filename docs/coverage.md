@@ -240,66 +240,66 @@ Taiwan is its own country, `TWN`, following CEDA's convention. The World Bank la
 
 ### sLUC (statistical)
 
-The statistical pipeline covers the following 32 crops, identified by IFPRI MapSPAM crop code.
+The statistical pipeline covers the following 32 crops, identified by IFPRI MapSPAM crop code. "Published as" is the `commodity_id` and `commodity_name` each crop's rows carry in the emissions-factors table (see [`data.md`](data.md#3-emissions-factors-parquet)): a FAOSTAT item, or a negative code of our own where FAOSTAT has none. The two coffees share 656 and the two millets share 79, so each pair is published as one row.
 
-| Crop           | MapSPAM code |
-| -------------- | ------------ |
-| ARABICA_COFFEE | ACOF         |
-| BANANA         | BANA         |
-| BARLEY         | BARL         |
-| BEAN           | BEAN         |
-| CASSAVA        | CASS         |
-| CHICKPEA       | CHIC         |
-| COCONUT        | CNUT         |
-| COTTON         | COTT         |
-| COWPEA         | COWP         |
-| GROUNDNUT      | GROU         |
-| LENTIL         | LENT         |
-| MAIZE          | MAIZ         |
-| OILPALM        | OILP         |
-| OTHER_OILCROPS | OOIL         |
-| OTHER_PULSES   | OPUL         |
-| PEARL_MILLET   | PMIL         |
-| PIGEONPEA      | PIGE         |
-| PLANTAIN       | PLNT         |
-| POTATO         | POTA         |
-| RAPESEED       | RAPE         |
-| RICE           | RICE         |
-| ROBUSTA_COFFEE | RCOF         |
-| SESAME_SEED    | SESA         |
-| SMALL_MILLET   | SMIL         |
-| SORGHUM        | SORG         |
-| SOYBEAN        | SOYB         |
-| SUGARBEET      | SUGB         |
-| SUGARCANE      | SUGC         |
-| SUNFLOWER      | SUNF         |
-| SWEET_POTATO   | SWPO         |
-| WHEAT          | WHEA         |
-| YAM            | YAMS         |
+| Crop           | MapSPAM code | Published as                        |
+| -------------- | ------------ | ----------------------------------- |
+| ARABICA_COFFEE | ACOF         | 656 (Coffee, green)                 |
+| BANANA         | BANA         | 486 (Bananas)                       |
+| BARLEY         | BARL         | 44 (Barley)                         |
+| BEAN           | BEAN         | 176 (Beans, dry)                    |
+| CASSAVA        | CASS         | 125 (Cassava, fresh)                |
+| CHICKPEA       | CHIC         | 191 (Chick peas, dry)               |
+| COCONUT        | CNUT         | 249 (Coconuts, in shell)            |
+| COTTON         | COTT         | 328 (Seed cotton, unginned)         |
+| COWPEA         | COWP         | 195 (Cow peas, dry)                 |
+| GROUNDNUT      | GROU         | 242 (Groundnuts, excluding shelled) |
+| LENTIL         | LENT         | 201 (Lentils, dry)                  |
+| MAIZE          | MAIZ         | 56 (Maize (corn))                   |
+| OILPALM        | OILP         | 254 (Oil palm fruit)                |
+| OTHER_OILCROPS | OOIL         | -201 (OTHER_OILCROPS)               |
+| OTHER_PULSES   | OPUL         | -202 (OTHER_PULSES)                 |
+| PEARL_MILLET   | PMIL         | 79 (Millet)                         |
+| PIGEONPEA      | PIGE         | 197 (Pigeon peas, dry)              |
+| PLANTAIN       | PLNT         | 489 (Plantains and cooking bananas) |
+| POTATO         | POTA         | 116 (Potatoes)                      |
+| RAPESEED       | RAPE         | 270 (Rape or colza seed)            |
+| RICE           | RICE         | 27 (Rice)                           |
+| ROBUSTA_COFFEE | RCOF         | 656 (Coffee, green)                 |
+| SESAME_SEED    | SESA         | 289 (Sesame seed)                   |
+| SMALL_MILLET   | SMIL         | 79 (Millet)                         |
+| SORGHUM        | SORG         | 83 (Sorghum)                        |
+| SOYBEAN        | SOYB         | 236 (Soya beans)                    |
+| SUGARBEET      | SUGB         | 157 (Sugar beet)                    |
+| SUGARCANE      | SUGC         | 156 (Sugar cane)                    |
+| SUNFLOWER      | SUNF         | 267 (Sunflower seed)                |
+| SWEET_POTATO   | SWPO         | 122 (Sweet potatoes)                |
+| WHEAT          | WHEA         | 15 (Wheat)                          |
+| YAM            | YAMS         | 137 (Yams)                          |
 
 ### sLUC livestock (statistical)
 
-The statistical pipeline also divides pasture's share of each cell among livestock commodities, by livestock units from Global Pasture Watch's headcounts.
+The statistical pipeline also divides pasture's share of each cell among livestock commodities, by livestock units from Global Pasture Watch's headcounts. "Published as" is as for the crops.
 
-| Commodity   | Grazers                                                                            |
-| ----------- | ---------------------------------------------------------------------------------- |
-| BEEF_CATTLE | Cattle                                                                             |
-| PASTURE     | The residual: buffalo, goats, horses and sheep, and pasture no grazer is mapped on |
+| Commodity   | Grazers                                                                            | Published as                                         |
+| ----------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| BEEF_CATTLE | Cattle                                                                             | 867 (Meat of cattle with the bone, fresh or chilled) |
+| PASTURE     | The residual: buffalo, goats, horses and sheep, and pasture no grazer is mapped on | -3 (PASTURE)                                         |
 
 ### jdLUC (jurisdictional-direct)
 
-The jurisdictional-direct pipeline (USA only) covers the following 11 crops, mapped to USDA NASS CDL crop classes.
+The jurisdictional-direct pipeline (USA only) covers the following 11 crops, mapped to USDA NASS CDL crop classes. "Published as" is as for the statistical crops, and each code is the one the statistical crop of the same name publishes under.
 
-| Crop      | USDA NASS CDL class(es)                 |
-| --------- | --------------------------------------- |
-| BARLEY    | BARLEY                                  |
-| BEAN      | DRY_BEANS                               |
-| COTTON    | COTTON                                  |
-| MAIZE     | CORN                                    |
-| POTATO    | POTATOES                                |
-| RICE      | RICE                                    |
-| SORGHUM   | SORGHUM                                 |
-| SOYBEAN   | SOYBEANS                                |
-| SUGARBEET | SUGARBEETS                              |
-| SUGARCANE | SUGARCANE                               |
-| WHEAT     | DURUM_WHEAT, SPRING_WHEAT, WINTER_WHEAT |
+| Crop      | USDA NASS CDL class(es)                 | Published as                |
+| --------- | --------------------------------------- | --------------------------- |
+| BARLEY    | BARLEY                                  | 44 (Barley)                 |
+| BEAN      | DRY_BEANS                               | 176 (Beans, dry)            |
+| COTTON    | COTTON                                  | 328 (Seed cotton, unginned) |
+| MAIZE     | CORN                                    | 56 (Maize (corn))           |
+| POTATO    | POTATOES                                | 116 (Potatoes)              |
+| RICE      | RICE                                    | 27 (Rice)                   |
+| SORGHUM   | SORGHUM                                 | 83 (Sorghum)                |
+| SOYBEAN   | SOYBEANS                                | 236 (Soya beans)            |
+| SUGARBEET | SUGARBEETS                              | 157 (Sugar beet)            |
+| SUGARCANE | SUGARCANE                               | 156 (Sugar cane)            |
+| WHEAT     | DURUM_WHEAT, SPRING_WHEAT, WINTER_WHEAT | 15 (Wheat)                  |

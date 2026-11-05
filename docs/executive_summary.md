@@ -19,7 +19,7 @@ This document is aimed at readers assessing how the methodology maps to the LSRS
 
 ## Data output
 
-The published deliverable is a single per-(jurisdiction, commodity) table — the **emissions-factors parquet** — indexed by `(admin_level, admin_id, commodity_name, methodology)`, where `admin_level` is `NATIONAL` or `PROVINCIAL`, `admin_id` is the ISO 3166 alpha-3 code nationally and the World Bank admin-1 code provincially, and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Each row carries the headline emissions factor and the quantities behind it; both attribution legs (jdLUC and sLUC) emit the same columns. The full schema is in [`data.md`](data.md#3-emissions-factors-parquet).
+The published deliverable is a single per-(jurisdiction, commodity) table — the **emissions-factors parquet** — indexed by `(admin_level, admin_id, commodity_id, methodology)`, where `admin_level` is `NATIONAL` or `PROVINCIAL`, `admin_id` is the ISO 3166 alpha-3 code nationally and the World Bank admin-1 code provincially, `commodity_id` is the FAOSTAT item code (or a negative code of our own where FAOSTAT has none) with its name in `commodity_name`, and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Each row carries the headline emissions factor and the quantities behind it; both attribution legs (jdLUC and sLUC) emit the same columns. The full schema is in [`data.md`](data.md#3-emissions-factors-parquet).
 
 | Column                           | Units        | What it is                                                                                                 |
 | -------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
