@@ -9,6 +9,7 @@ each commodity's total production — the only step that depends on methodology:
 It then derives, identically for both, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
 pandas.DataFrame indexed by (admin_level, admin_id, commodity_name, methodology).
+`export_workflow` writes that table as the `emissions-factors` deliverable under EXPORT_ROOT.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -24,10 +25,13 @@ import logging
 
 import pandas
 
-from jdluc import attribute, emit, storage
+from jdluc import attribute, emit, export, storage
 from jdluc.datasets import usda_nass_quickstats, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
+
+# Named after the published `emissions-factors.parquet`
+EMISSIONS_FACTORS = "emissions-factors"
 
 
 NASS_YIELD_YEARS = (2017, 2018, 2019, 2020)
@@ -167,6 +171,36 @@ def workflow(
                 provincials.index.names
             ),
         ]
+    )
+
+
+def export_workflow(
+    commodity_names: tuple[str, ...],
+    iso_3166s: tuple[str, ...],
+    methodology: attribute.Methodology,
+    name: str | None = None,
+    output_root: str | None = None,
+) -> str:
+    """Write the countries' table from the cached `workflow` to
+    `{EXPORT_ROOT}/emissions-factors/{name}-{METHODOLOGY}.parquet`; return the URI.
+
+    `name` defaults to the countries' codes joined, `iso[-iso...]`; pass one for a set too large
+    to spell out. The methodology is in the name so the two legs over one set of countries don't
+    overwrite each other.
+    """
+    df = workflow(
+        # NB: not a cache-key argument; with the attribute partials warm, this only reads them
+        concurrency=1,
+        commodity_names=commodity_names,
+        iso_3166s=iso_3166s,
+        methodology=methodology,
+    )
+    return export.write_table(
+        df=df,
+        deliverable_name=EMISSIONS_FACTORS,
+        name=f"{name or '-'.join(iso_3166s):s}-{methodology.name:s}",
+        output_root=output_root,
+        source_name="jdluc-trace",
     )
 
 

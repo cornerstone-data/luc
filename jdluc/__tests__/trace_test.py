@@ -1,6 +1,7 @@
 import numpy
 import pandas
 
+from jdluc import trace
 from jdluc.attribute import Methodology
 from jdluc.datasets.worldbank_jurisdictions import AdminLevel
 from jdluc.trace import (
@@ -314,3 +315,38 @@ def test_methodologies_share_a_schema() -> None:
     assert set(jurisdictional.reset_index().columns) == set(
         statistical.reset_index().columns
     )
+
+
+def test_export_workflow_writes_the_table_by_aoi_and_methodology(
+    tmp_path, monkeypatch
+) -> None:
+    table = attach_ratios(
+        df=derive_statistical_production_kg(emissions=STATISTICAL_EMISSIONS)
+    )
+    monkeypatch.setattr(trace, "workflow", lambda **kwargs: table)
+    uri = trace.export_workflow(
+        commodity_names=("MAIZE",),
+        iso_3166s=("GTM", "HND"),
+        methodology=Methodology.STATISTICAL,
+        output_root=str(tmp_path),
+    )
+    assert uri == str(tmp_path / "emissions-factors" / "GTM-HND-STATISTICAL.parquet")
+    written = pandas.read_parquet(uri)
+    pandas.testing.assert_frame_equal(written, table)
+    assert written.attrs["cornerstone-product-name"] == "emissions-factors"
+    assert written.attrs["cornerstone-source-name"] == "jdluc-trace"
+
+
+def test_export_workflow_takes_a_name_for_its_countries(tmp_path, monkeypatch) -> None:
+    table = attach_ratios(
+        df=derive_statistical_production_kg(emissions=STATISTICAL_EMISSIONS)
+    )
+    monkeypatch.setattr(trace, "workflow", lambda **kwargs: table)
+    uri = trace.export_workflow(
+        commodity_names=("MAIZE",),
+        iso_3166s=("GTM", "HND"),
+        methodology=Methodology.STATISTICAL,
+        name="world",
+        output_root=str(tmp_path),
+    )
+    assert uri == str(tmp_path / "emissions-factors" / "world-STATISTICAL.parquet")

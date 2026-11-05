@@ -10,7 +10,7 @@ Of the three artifacts below, one is published and two are not.
 
 **The emissions-factor table is published as an archived dataset.** Each data version is deposited as `emissions-factors.parquet` in a public data archive that mints a DOI per version, and the matching git tag names the commit behind it. The archive is still being set up; cite a version by its DOI, or follow the fallback in `ATTRIBUTION.md`.
 
-**The two raster artifacts are pipeline outputs.** They are zarr stores far too large to deposit, so they exist only where a run writes them: under the `SCRATCH_ROOT` of whoever ran the pipeline, keyed by the cache hash `storage.py` derives (see [`architecture.md`](architecture.md#caching-versioning-and-provenance)). Sharing the underlying maps in a form that can be read remotely is open work — the schemas below are documented so a run's own output is legible in the meantime.
+**The two raster artifacts are pipeline outputs.** They are zarr stores far too large to deposit, so they exist only where a run writes them: under the `SCRATCH_ROOT` of whoever ran the pipeline, keyed by the cache hash `storage.py` derives (see [`architecture.md`](architecture.md#caching-versioning-and-provenance)). Sharing the underlying maps in a form that can be read remotely is open work — the schemas below are documented so a run's own output is legible in the meantime. A run can also write a step's per-tile output as a COG or a zarr under `EXPORT_ROOT` with `export.write_tile`; that copies the maps out of the cache, but does not by itself publish them.
 
 ## Conventions
 

@@ -3,13 +3,32 @@ import concurrent.futures
 import itertools
 import re
 import time
+import types
 
+import git
 import pytest
 
+from jdluc import utils
 from jdluc.utils import (
     iter_sharded,
     threadsafe_cache,
 )
+
+
+def test_get_git_version_on_a_detached_head_is_the_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    head = types.SimpleNamespace(
+        commit=types.SimpleNamespace(hexsha="0123456789abcdef"), is_detached=True
+    )
+    monkeypatch.setattr(
+        git, "Repo", lambda *args, **kwargs: types.SimpleNamespace(head=head)
+    )
+    utils.get_git_version.cache_clear()
+    try:
+        assert utils.get_git_version() == "01234567"
+    finally:
+        utils.get_git_version.cache_clear()
 
 
 def test_threadsafe_cache_serial() -> None:
