@@ -5,11 +5,13 @@ import pytest
 from jdluc.attribute import Methodology
 from jdluc.datasets.worldbank_jurisdictions import AdminLevel
 from jdluc.statistical import HERD_HEADS_COLUMNS
+from jdluc.taxonomy import CommodityId
 from jdluc.trace import (
     attach_ratios,
     derive_jurisdictional_production_kg,
     derive_statistical_production_kg,
     iter_national_from_provincials,
+    with_commodity_ids,
 )
 
 JURISDICTIONAL_EMISSIONS = pandas.DataFrame.from_records(
@@ -136,7 +138,7 @@ def test_iter_national_from_provincials_single_province() -> None:
         [
             {
                 "commodity_hectares": 1,
-                "commodity_name": "CROP_1",
+                "commodity_id": CommodityId.SOYA_BEANS.value,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -157,7 +159,8 @@ def test_iter_national_from_provincials_single_province() -> None:
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
         "commodity_hectares": 1,
-        "commodity_name": "CROP_1",
+        "commodity_id": CommodityId.SOYA_BEANS.value,
+        "commodity_name": "Soya beans",
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 1,
         "forest_emissions_mt": 1,
@@ -178,7 +181,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
             {
                 "admin_id": "ADM_0",
                 "commodity_hectares": 1,
-                "commodity_name": "CROP_0",
+                "commodity_id": CommodityId.MAIZE.value,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -190,7 +193,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
             {
                 "admin_id": "ADM_0",
                 "commodity_hectares": 1,
-                "commodity_name": "CROP_1",
+                "commodity_id": CommodityId.SOYA_BEANS.value,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -202,7 +205,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
             {
                 "admin_id": "ADM_1",
                 "commodity_hectares": 1,
-                "commodity_name": "CROP_0",
+                "commodity_id": CommodityId.MAIZE.value,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -213,17 +216,18 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
             },
         ]
     )
-    (crop_0, crop_1) = iter_national_from_provincials(
+    (maize, soya_beans) = iter_national_from_provincials(
         iso_3166="ISO_A3",
         methodology=Methodology.STATISTICAL,
         national_name="NAME",
         provincials=provincials,
     )
-    assert crop_0 == {
+    assert maize == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
         "commodity_hectares": 2,
-        "commodity_name": "CROP_0",
+        "commodity_id": CommodityId.MAIZE.value,
+        "commodity_name": "Maize (corn)",
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 2,
         "forest_emissions_mt": 2,
@@ -236,11 +240,12 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
         "production_kg": 2,
         "yield_kg_per_ha": 1,
     }
-    assert crop_1 == {
+    assert soya_beans == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
         "commodity_hectares": 1,
-        "commodity_name": "CROP_1",
+        "commodity_id": CommodityId.SOYA_BEANS.value,
+        "commodity_name": "Soya beans",
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 1,
         "forest_emissions_mt": 1,
@@ -442,4 +447,69 @@ def test_methodologies_share_a_schema() -> None:
     )
     assert set(jurisdictional.reset_index().columns) == set(
         statistical.reset_index().columns
+    )
+
+
+def test_with_commodity_ids_adds_together_the_names_sharing_an_item() -> None:
+    emissions = pandas.DataFrame.from_records(
+        [
+            (
+                "PROVINCIAL",
+                "BRA001",
+                "ARABICA_COFFEE",
+                "STATISTICAL",
+                "Acre",
+                1.0,
+                10.0,
+            ),
+            (
+                "PROVINCIAL",
+                "BRA001",
+                "ROBUSTA_COFFEE",
+                "STATISTICAL",
+                "Acre",
+                2.0,
+                20.0,
+            ),
+            ("PROVINCIAL", "BRA001", "MAIZE", "STATISTICAL", "Acre", 4.0, 40.0),
+        ],
+        columns=[
+            "admin_level",
+            "admin_id",
+            "commodity_name",
+            "methodology",
+            "jurisdiction_name",
+            "commodity_hectares",
+            "production_kg",
+        ],
+    ).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
+    result = with_commodity_ids(df=emissions, methodology=Methodology.STATISTICAL)
+    assert result.to_dict(orient="index") == {
+        ("PROVINCIAL", "BRA001", CommodityId.MAIZE, "STATISTICAL"): {
+            "commodity_hectares": 4.0,
+            "commodity_name": "Maize (corn)",
+            "jurisdiction_name": "Acre",
+            "production_kg": 40.0,
+        },
+        ("PROVINCIAL", "BRA001", CommodityId.COFFEE_GREEN, "STATISTICAL"): {
+            "commodity_hectares": 3.0,
+            "commodity_name": "Coffee, green",
+            "jurisdiction_name": "Acre",
+            "production_kg": 30.0,
+        },
+    }
+
+
+def test_with_commodity_ids_keeps_a_missing_yield_missing() -> None:
+    result = with_commodity_ids(
+        df=derive_jurisdictional_production_kg(
+            emissions=JURISDICTIONAL_EMISSIONS, raw_yields=RAW_YIELDS
+        ),
+        methodology=Methodology.JURISDICTIONAL_DIRECT,
+    )
+    assert pandas.isna(
+        result.loc[
+            ("PROVINCIAL", "USA016", CommodityId.WHEAT, "JURISDICTIONAL_DIRECT"),
+            "production_kg",
+        ]
     )
