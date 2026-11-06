@@ -5,11 +5,15 @@ each commodity's total production — the only step that depends on methodology:
   - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield (4-year mean).
   - STATISTICAL: production = MAPSPAM production for crops, carried straight through the
     attribute, and the attribute's GPW heads x FAOSTAT carcass weight per head for livestock.
+  - JURISDICTIONAL_DIRECT_PROXY: production = FAOSTAT national production split among provinces
+    by CROPGRIDS crop area for crops, and the attribute's 2020 GPW heads x FAOSTAT carcass weight
+    per head for livestock.
 
-It then derives, identically for both, each commodity's yield (kg per hectare) and emissions
+It then derives, identically for all three, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
 pandas.DataFrame indexed by (admin_level, admin_id, commodity_id, methodology), where
-`commodity_id` is a `taxonomy.CommodityId` and the `commodity_name` column holds its name.
+`commodity_id` is a FAOSTAT item code or a `taxonomy.InventedCommodityId`, and the `commodity_name`
+column holds its name: FAOSTAT's, from its crop table, or `taxonomy`'s.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -24,15 +28,31 @@ import collections.abc
 import logging
 import typing
 
+import numpy
 import pandas
 
-from jdluc import attribute, emit, statistical, storage, taxonomy
-from jdluc.datasets import faostat, usda_nass_quickstats, worldbank_jurisdictions
+from jdluc import (
+    attribute,
+    emit,
+    jurisdictional_direct_proxy,
+    statistical,
+    storage,
+    taxonomy,
+)
+from jdluc.datasets import (
+    faostat,
+    gpw_livestock,
+    tang_cropgrids,
+    usda_nass_quickstats,
+    worldbank_jurisdictions,
+)
 
 logger = logging.getLogger(__name__)
 
 
 NASS_YIELD_YEARS = (2017, 2018, 2019, 2020)
+# The proxy leg's FAOSTAT years, centered on CROPGRIDS'
+FAOSTAT_YEARS = tuple(range(tang_cropgrids.YEAR - 1, tang_cropgrids.YEAR + 2))
 KG_PER_TONNE = 1000
 CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
 ADDITIVE_COLUMNS = (
@@ -68,6 +88,34 @@ def derive_jurisdictional_production_kg(
     )
 
 
+def get_herd_production_kg(
+    heads: pandas.Series,
+    species: gpw_livestock.Species,
+    stocks: pandas.DataFrame,
+    years: tuple[int, ...],
+) -> numpy.ndarray:
+    """Heads times FAOSTAT's national carcass weight per head: mean meat over mean stocks across
+    `years`. No meat, or no herd in FAOSTAT, prices at 0.
+    """
+    livestock = stocks.reset_index()
+    means = (
+        livestock[livestock["year"].isin(years)]
+        .groupby(["admin_id", "commodity_name"])[["production_kg", "stocks_head"]]
+        .mean()
+    )
+    kg_per_head = (means["production_kg"] / means["stocks_head"]).fillna(0)
+    iso_3166s = heads.index.get_level_values("admin_id").str[:3]
+    return (
+        heads.to_numpy()
+        * kg_per_head.reindex(
+            fill_value=0,
+            index=pandas.MultiIndex.from_arrays(
+                [iso_3166s, [species.name] * len(iso_3166s)]
+            ),
+        ).to_numpy()
+    )
+
+
 def derive_statistical_production_kg(
     emissions: pandas.DataFrame, stocks: pandas.DataFrame
 ) -> pandas.DataFrame:
@@ -75,47 +123,113 @@ def derive_statistical_production_kg(
     each snapshot times FAOSTAT's national carcass weight per standing head that year, reduced
     over the window with the weights `statistical.get_discounted_snapshot_mean` gives a crop's.
     """
-    livestock = stocks.reset_index()
-    # No meat in a year, or no herd in FAOSTAT, prices at 0
-    kg_per_head = (
-        (livestock["production_kg"] / livestock["stocks_head"])
-        .fillna(0)
-        .set_axis(
-            pandas.MultiIndex.from_frame(
-                livestock[["admin_id", "commodity_name", "year"]]
-            )
-        )
-    )
     ret = emissions.copy()
     ret["production_kg"] = ret["production_mt"] * KG_PER_TONNE
-    for livestock_commodity, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
-        is_herd = (
-            ret.index.get_level_values("commodity_name") == livestock_commodity.name
-        )
-        iso_3166s = ret.index.get_level_values("admin_id")[is_herd].str[:3]
+    for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+        is_herd = ret.index.get_level_values("commodity_name") == livestock.name
         ret.loc[is_herd, "production_kg"] = sum(
             weight
-            * ret.loc[is_herd, statistical.get_herd_heads_column(year=year)]
-            * kg_per_head.reindex(
-                fill_value=0,
-                index=pandas.MultiIndex.from_arrays(
-                    [
-                        iso_3166s,
-                        [species.name] * len(iso_3166s),
-                        [year] * len(iso_3166s),
-                    ]
-                ),
-            ).to_numpy()
+            * get_herd_production_kg(
+                heads=ret.loc[is_herd, statistical.get_herd_heads_column(year=year)],
+                species=species,
+                stocks=stocks,
+                years=(year,),
+            )
             for year, weight in statistical.SNAPSHOT_YEAR_TO_WEIGHT.items()
         )
     return ret.drop(columns=["production_mt", *statistical.HERD_HEADS_COLUMNS])
 
 
+def derive_proxy_production_kg(
+    crops: pandas.DataFrame, emissions: pandas.DataFrame, stocks: pandas.DataFrame
+) -> pandas.DataFrame:
+    """A crop's production is FAOSTAT's national production of its item over `FAOSTAT_YEARS`, split
+    among provinces by CROPGRIDS crop area. A herd's is its heads times FAOSTAT's carcass weight per
+    head. Rows with no FAOSTAT item have none.
+    """
+    commodity_name_to_commodity_id = (
+        taxonomy.METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
+            attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
+        ]
+    )
+    crop_item_codes = {
+        commodity_name_to_commodity_id[crop.name]
+        for crop in tang_cropgrids.Crop
+        if commodity_name_to_commodity_id[crop.name] > 0
+    }
+    table = crops.reset_index()
+    # Every crop item is mapped or left out on purpose
+    assert (
+        set(table["commodity_id"])
+        == crop_item_codes
+        | set(taxonomy.CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE)
+        | taxonomy.UNMAPPED_CROP_ITEM_CODES
+    )
+    national_production = (
+        table[table["year"].isin(FAOSTAT_YEARS)]
+        .groupby(["admin_id", "commodity_id"])["production_kg"]
+        .mean()
+    )
+
+    flat = emissions.reset_index()
+    flat["commodity_id"] = [
+        commodity_name_to_commodity_id[commodity_name]
+        for commodity_name in flat["commodity_name"]
+    ]
+    flat["iso_3166"] = flat["admin_id"].str[:3]
+    national_hectares = (
+        flat.groupby(["iso_3166", "commodity_id"])["commodity_hectares"]
+        .sum()
+        .rename_axis(index=["admin_id", "commodity_id"])
+    )
+    row_keys = pandas.MultiIndex.from_frame(
+        flat[["iso_3166", "commodity_id"]], names=["admin_id", "commodity_id"]
+    )
+    item_hectares = national_hectares.reindex(row_keys)
+    flat["production_kg"] = (
+        national_production.reindex(row_keys).to_numpy()
+        * flat["commodity_hectares"].to_numpy()
+        / item_hectares.where(item_hectares > 0).to_numpy()
+    )
+
+    # FAOSTAT production with no CROPGRIDS area to split it by
+    traced = national_production[
+        national_production.index.get_level_values("admin_id").isin(
+            set(flat["iso_3166"])
+        )
+        & ~national_production.index.get_level_values("commodity_id").isin(
+            list(taxonomy.CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE)
+        )
+    ]
+    unplaced = traced[
+        national_hectares.reindex(traced.index, fill_value=0).to_numpy() == 0
+    ]
+    if unplaced.sum() > 0:
+        logger.warning(
+            f"{len(unplaced):d} FAOSTAT (country, item) production(s), "
+            f"{unplaced.sum() / KG_PER_TONNE**2:.3f} kt in all, have no CROPGRIDS area to "
+            f"split them by: {sorted(unplaced.index)}"
+        )
+
+    ret = flat.drop(columns=["commodity_id", "iso_3166"]).set_index(
+        emissions.index.names
+    )
+    for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+        is_herd = ret.index.get_level_values("commodity_name") == livestock.name
+        ret.loc[is_herd, "production_kg"] = get_herd_production_kg(
+            heads=ret.loc[is_herd, jurisdictional_direct_proxy.HERD_HEADS_COLUMN],
+            species=species,
+            stocks=stocks,
+            years=FAOSTAT_YEARS,
+        )
+    return ret.drop(columns=jurisdictional_direct_proxy.HERD_HEADS_COLUMN)
+
+
 def with_commodity_ids(
     df: pandas.DataFrame, methodology: attribute.Methodology
 ) -> pandas.DataFrame:
-    """Re-key rows named by the leg's own map onto `taxonomy.CommodityId`, adding together the rows
-    that share a code, such as arabica and robusta coffee.
+    """Re-key rows named by the leg's own map onto `taxonomy`'s codes, adding together the rows that
+    share a code, such as arabica and robusta coffee.
     """
     commodity_name_to_commodity_id = (
         taxonomy.METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[methodology]
@@ -127,14 +241,26 @@ def with_commodity_ids(
     ]
     grouped = flat.drop(columns="commodity_name").groupby(by=list(CANONICAL_KEY))
     # min_count keeps a row with no production at all, such as one NASS has no yield for, at NaN
-    ret = grouped.sum(min_count=1, numeric_only=True).assign(
+    return grouped.sum(min_count=1, numeric_only=True).assign(
         jurisdiction_name=grouped["jurisdiction_name"].first()
     )
-    ret["commodity_name"] = [
-        taxonomy.COMMODITY_ID_TO_NAME[taxonomy.CommodityId(commodity_id)]
-        for commodity_id in ret.index.get_level_values("commodity_id")
-    ]
-    return ret
+
+
+def get_commodity_id_to_name(crops: pandas.DataFrame) -> dict[int, str]:
+    """Every code's name: FAOSTAT's for its crop items, from its crop table, and `taxonomy`'s for
+    the rest.
+    """
+    pairs = crops.reset_index()[["commodity_id", "commodity_name"]].drop_duplicates()
+    assert pairs["commodity_id"].is_unique
+    crop_id_to_name = dict(
+        zip(
+            map(int, pairs["commodity_id"]),
+            map(str, pairs["commodity_name"]),
+            strict=True,
+        )
+    )
+    assert not set(crop_id_to_name) & set(taxonomy.COMMODITY_ID_TO_NAME)
+    return crop_id_to_name | taxonomy.COMMODITY_ID_TO_NAME
 
 
 def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
@@ -157,8 +283,7 @@ def iter_national_from_provincials(
     national_name: str,
     provincials: pandas.DataFrame,
 ) -> collections.abc.Iterator[dict[str, str | float]]:
-    for key, group in sorted(provincials.groupby(by="commodity_id")):
-        commodity_id = taxonomy.CommodityId(typing.cast(int, key))
+    for commodity_id, group in sorted(provincials.groupby(by="commodity_id")):
 
         def safe_div(numer: float, denom: float) -> float:
             return float("nan") if denom == 0 else numer / denom
@@ -169,8 +294,7 @@ def iter_national_from_provincials(
         }
         yield ret | {
             "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
-            "commodity_id": int(commodity_id),
-            "commodity_name": taxonomy.COMMODITY_ID_TO_NAME[commodity_id],
+            "commodity_id": int(typing.cast(int, commodity_id)),
             "jurisdiction_name": national_name,
             "admin_id": iso_3166,
             "yield_kg_per_ha": safe_div(
@@ -202,16 +326,24 @@ def workflow(
         "commodity_name",
         "methodology",
     ]
-    production = (
-        derive_jurisdictional_production_kg(
-            emissions=emissions, raw_yields=usda_nass_quickstats.load()
-        )
-        if methodology == attribute.Methodology.JURISDICTIONAL_DIRECT
-        else derive_statistical_production_kg(
-            emissions=emissions,
-            stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
-        )
-    )
+    match methodology:
+        case attribute.Methodology.JURISDICTIONAL_DIRECT:
+            production = derive_jurisdictional_production_kg(
+                emissions=emissions, raw_yields=usda_nass_quickstats.load()
+            )
+        case attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY:
+            production = derive_proxy_production_kg(
+                crops=faostat.load(dataset=faostat.CROP_DATASET),
+                emissions=emissions,
+                stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
+            )
+        case attribute.Methodology.STATISTICAL:
+            production = derive_statistical_production_kg(
+                emissions=emissions,
+                stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
+            )
+        case _:
+            raise ValueError(methodology)
     provincials = attach_ratios(
         df=with_commodity_ids(df=production, methodology=methodology)
     )
@@ -237,7 +369,7 @@ def workflow(
             ],
         )
     )
-    return pandas.concat(
+    ret = pandas.concat(
         [
             provincials,
             pandas.DataFrame.from_records(iter_national).set_index(
@@ -245,6 +377,14 @@ def workflow(
             ),
         ]
     )
+    commodity_id_to_name = get_commodity_id_to_name(
+        crops=faostat.load(dataset=faostat.CROP_DATASET)
+    )
+    ret["commodity_name"] = [
+        commodity_id_to_name[int(commodity_id)]
+        for commodity_id in ret.index.get_level_values("commodity_id")
+    ]
+    return ret
 
 
 def main() -> int:

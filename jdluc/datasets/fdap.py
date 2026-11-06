@@ -460,8 +460,8 @@ COCOA_DATASET = get_raster_dataset(
         ("WSM", 2024): 0.866,
     },
     # FAOSTAT's producers of cocoa, from a local copy of the ingested crop table
-    # ($INGEST_ROOT/tabular/faostat/production-crops/v2/whole-world/world.parquet):
-    #   duckdb -c "SELECT DISTINCT admin_id FROM 'world.parquet' WHERE commodity_name = 'COCO'
+    # ($INGEST_ROOT/tabular/faostat/production-crops/v3/whole-world/world.parquet):
+    #   duckdb -c "SELECT DISTINCT admin_id FROM 'world.parquet' WHERE commodity_id = 661
     #     AND year BETWEEN 2018 AND 2024 AND area_hectares > 0 ORDER BY admin_id"
     producer_iso_3166s={
         "AGO",
@@ -663,8 +663,8 @@ COFFEE_DATASET = get_raster_dataset(
         ("ZWE", 2024): HIGHEST_THRESHOLD,
     },
     # FAOSTAT's producers of coffee, from a local copy of the ingested crop table
-    # ($INGEST_ROOT/tabular/faostat/production-crops/v2/whole-world/world.parquet):
-    #   duckdb -c "SELECT DISTINCT admin_id FROM 'world.parquet' WHERE commodity_name = 'COFF'
+    # ($INGEST_ROOT/tabular/faostat/production-crops/v3/whole-world/world.parquet):
+    #   duckdb -c "SELECT DISTINCT admin_id FROM 'world.parquet' WHERE commodity_id = 656
     #     AND year BETWEEN 2018 AND 2024 AND area_hectares > 0 ORDER BY admin_id"
     producer_iso_3166s={
         "AGO",

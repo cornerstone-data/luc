@@ -5,8 +5,11 @@ import pytest
 
 from jdluc import statistical
 from jdluc.attribute import Methodology
-from jdluc.datasets import ifpri_mapspam
-from jdluc.taxonomy import METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID, CommodityId
+from jdluc.datasets import faostat, ifpri_mapspam
+from jdluc.taxonomy import (
+    METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID,
+    InventedCommodityId,
+)
 from validation import prepare
 
 STATISTICAL_NAME_TO_COMMODITY_ID = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
@@ -63,16 +66,31 @@ def test_a_split_crop_is_compared_under_its_combined_code(
     )
 
 
+# Written separately from `taxonomy`, so each checks the other
+@pytest.mark.parametrize(
+    "crop",
+    [
+        crop
+        for crop in statistical.Crop
+        if crop.value in prepare.FAOSTAT_ITEM_CODE_TO_CROP_CODE.values()
+    ],
+    ids=lambda crop: crop.name.lower(),
+)
+def test_faostat_items_match_taxonomy_codes(crop: statistical.Crop) -> None:
+    commodity_id = STATISTICAL_NAME_TO_COMMODITY_ID[crop.name]
+    assert prepare.FAOSTAT_ITEM_CODE_TO_CROP_CODE[commodity_id] == crop.value
+
+
 def test_with_crop_codes_keeps_only_crop_rows() -> None:
     frame = pandas.DataFrame(
         {
             "commodity_id": [
-                CommodityId.MAIZE,
-                CommodityId.COFFEE_GREEN,
-                CommodityId.CATTLE_MEAT,
-                CommodityId.PASTURE,
-                CommodityId.DROPPED,
-                CommodityId.UNATTRIBUTED,
+                56,  # maize
+                656,  # coffee
+                faostat.SPECIES_TO_MEAT_ITEM_CODE[faostat.Species.CATTLE],
+                InventedCommodityId.PASTURE,
+                InventedCommodityId.DROPPED,
+                InventedCommodityId.UNATTRIBUTED,
             ]
         }
     ).astype({"commodity_id": int})

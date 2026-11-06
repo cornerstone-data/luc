@@ -44,7 +44,7 @@ flowchart LR
 - **Harmonize** — align the ingested sources onto a common grid, one 10° tile at a time, yielding one lazy `xarray.Dataset` per tile backed by a zarr.
 - **Emit** — compute per-pixel land conversion events and emissions as a lazy dask/xarray graph and persist to zarr.
 - **Attribute** — clip per-pixel emissions to jurisdiction polygons and crop masks, rolling up to per-(jurisdiction, crop) totals via the jurisdictional-direct, statistical or jurisdictional-direct proxy leg.
-- **Trace** — join the attribution rollups to production (NASS yields for the direct leg, MapSPAM for the statistical leg) to produce the final emissions-factor table. The proxy leg has no production yet.
+- **Trace** — join the attribution rollups to production (NASS yields for the direct leg, MapSPAM for the statistical leg, FAOSTAT's national production split by CROPGRIDS crop area for the proxy leg) to produce the final emissions-factor table.
 
 ## Compute platform and libraries
 

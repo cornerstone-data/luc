@@ -1,10 +1,10 @@
 {
   "faostat": {
     "faostat.parquet": {
-      "bytes": 1416755,
-      "origin": "tabular/faostat/production-crops/v2/whole-world/world.parquet",
+      "bytes": 3876048,
+      "origin": "tabular/faostat/production-crops/v3/whole-world/world.parquet",
       "path": "faostat.parquet",
-      "sha256": "22d11e597a4b3d611cedc88f75834bb546d6d97dd7b0793c111cc3de01bdae67"
+      "sha256": "0af0d17818df3c0edec21fb251f4d78dc2195947ed64b91da475660d1ca1a20e"
     }
   },
   "orbae": {

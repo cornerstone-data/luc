@@ -19,15 +19,15 @@ This document is aimed at readers assessing how the methodology maps to the LSRS
 
 ## Data output
 
-The published deliverable is a single per-(jurisdiction, commodity) table — the **emissions-factors parquet** — indexed by `(admin_level, admin_id, commodity_id, methodology)`, where `admin_level` is `NATIONAL` or `PROVINCIAL`, `admin_id` is the ISO 3166 alpha-3 code nationally and the World Bank admin-1 code provincially, `commodity_id` is the FAOSTAT item code (or a negative code of our own where FAOSTAT has none) with its name in `commodity_name`, and `methodology` is `JURISDICTIONAL_DIRECT` or `STATISTICAL`. Each row carries the headline emissions factor and the quantities behind it; both attribution legs (jdLUC and sLUC) emit the same columns. The full schema is in [`data.md`](data.md#3-emissions-factors-parquet).
+The published deliverable is a single per-(jurisdiction, commodity) table — the **emissions-factors parquet** — indexed by `(admin_level, admin_id, commodity_id, methodology)`, where `admin_level` is `NATIONAL` or `PROVINCIAL`, `admin_id` is the ISO 3166 alpha-3 code nationally and the World Bank admin-1 code provincially, `commodity_id` is the FAOSTAT item code (or a negative code of our own where FAOSTAT has none) with its name in `commodity_name`, and `methodology` is `JURISDICTIONAL_DIRECT`, `STATISTICAL` or `JURISDICTIONAL_DIRECT_PROXY`. Each row carries the headline emissions factor and the quantities behind it; all three legs emit the same columns. The full schema is in [`data.md`](data.md#3-emissions-factors-parquet).
 
-| Column                           | Units        | What it is                                                                                                 |
-| -------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
-| `emissions_factor_kgco2e_per_kg` | kg CO₂e / kg | The headline factor — `1000 × emissions_mt / production_kg`                                                |
-| `emissions_mt`                   | t CO₂e       | Total allocated LUC emissions                                                                              |
-| `production_kg`                  | kg           | Production: crops from NASS × area (jdLUC) or MapSPAM (sLUC); livestock as FAOSTAT carcass weight, bone in |
-| `commodity_hectares`             | ha           | Commodity area in the jurisdiction, over 2000–2020                                                         |
-| `yield_kg_per_ha`                | kg/ha        | `production_kg / commodity_hectares`                                                                       |
+| Column                           | Units        | What it is                                                                                                                                          |
+| -------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `emissions_factor_kgco2e_per_kg` | kg CO₂e / kg | The headline factor — `1000 × emissions_mt / production_kg`                                                                                         |
+| `emissions_mt`                   | t CO₂e       | Total allocated LUC emissions                                                                                                                       |
+| `production_kg`                  | kg           | Production: crops from NASS × area (jdLUC), MapSPAM (sLUC) or FAOSTAT split by CROPGRIDS area (proxy); livestock as FAOSTAT carcass weight, bone in |
+| `commodity_hectares`             | ha           | Commodity area in the jurisdiction, over 2000–2020                                                                                                  |
+| `yield_kg_per_ha`                | kg/ha        | `production_kg / commodity_hectares`                                                                                                                |
 
 ## Known deviations and open items
 
