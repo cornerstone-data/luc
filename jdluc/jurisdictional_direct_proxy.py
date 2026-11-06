@@ -30,6 +30,7 @@ assert not {e.name for e in tang_cropgrids.Crop} & {
 }
 
 DATASET_NAMES = (DatasetName.GPW_LIVESTOCK, DatasetName.TANG_CROPGRIDS_CROP_AREA)
+HERD_HEADS_COLUMN = statistical.get_herd_heads_column(year=tang_cropgrids.YEAR)
 
 
 def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
@@ -202,6 +203,18 @@ def get_commodity_name_to_totals(
         totals["peatland_occupation_emissions_mt"] = occupation
         totals["emissions_mt"] = sum(component_to_emissions.values(), start=occupation)
 
+    # As in `statistical`, the whole herd of every cell with any pasture
+    livestock_to_heads = {
+        livestock: dset[
+            gpw_livestock.get_band_name(species=species, year=tang_cropgrids.YEAR)
+        ].where(dset[f"pasture:fraction:{tang_cropgrids.YEAR:d}"] > 0, other=0)
+        * hectares
+        for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items()
+        if livestock in commodities
+    }
+    for livestock, heads in livestock_to_heads.items():
+        commodity_to_totals[livestock][HERD_HEADS_COLUMN] = heads
+
     commodity_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
         dset["dropped-emissions:tco2e-per-ha"] * hectares
     )
@@ -234,7 +247,12 @@ def get_commodity_name_to_totals(
         start=unattributed["peatland_occupation_emissions_mt"],
     )
 
-    return utils.get_sum_totals(enum_to_name_to_darray=commodity_to_totals)
+    return {
+        name: {HERD_HEADS_COLUMN: numpy.nan} | totals
+        for name, totals in utils.get_sum_totals(
+            enum_to_name_to_darray=commodity_to_totals
+        ).items()
+    }
 
 
 SCHEMA = {
@@ -249,6 +267,7 @@ SCHEMA = {
     "peatland_commodity_hectares": float,
     "peatland_conversion_emissions_mt": float,
     "peatland_occupation_emissions_mt": float,
+    HERD_HEADS_COLUMN: float,
 }
 
 

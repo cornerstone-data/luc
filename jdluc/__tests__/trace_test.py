@@ -3,12 +3,20 @@ import pandas
 import pytest
 
 from jdluc.attribute import Methodology
+from jdluc.datasets import tang_cropgrids
 from jdluc.datasets.worldbank_jurisdictions import AdminLevel
+from jdluc.jurisdictional_direct_proxy import HERD_HEADS_COLUMN
 from jdluc.statistical import HERD_HEADS_COLUMNS
-from jdluc.taxonomy import InventedCommodityId
+from jdluc.taxonomy import (
+    CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE,
+    METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID,
+    UNMAPPED_CROP_ITEM_CODES,
+    InventedCommodityId,
+)
 from jdluc.trace import (
     attach_ratios,
     derive_jurisdictional_production_kg,
+    derive_proxy_production_kg,
     derive_statistical_production_kg,
     get_commodity_id_to_name,
     iter_national_from_provincials,
@@ -526,3 +534,97 @@ def test_get_commodity_id_to_name_takes_crops_from_the_table_and_the_rest_from_t
     assert commodity_id_to_name[236] == "Soya beans"
     assert commodity_id_to_name[InventedCommodityId.DROPPED] == "DROPPED"
     assert commodity_id_to_name[InventedCommodityId.ALFALFA] == "Alfalfa"
+
+
+def test_derive_proxy_production_kg(caplog: pytest.LogCaptureFixture) -> None:
+    """Brazil's maize is FAOSTAT's 2019-2021 mean of 200 kg, split over 50 ha of maize and popcorn,
+    which share its item. Its cattle weigh FAOSTAT's 1050 kg of meat a year over 100 head, with
+    2021's meat unreported and 2018 outside the years. Its soya beans have no CROPGRIDS area.
+    """
+    proxy_name_to_commodity_id = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
+        Methodology.JURISDICTIONAL_DIRECT_PROXY
+    ]
+    # Every crop item, so the coverage assertion holds
+    every_item_code = (
+        {
+            proxy_name_to_commodity_id[crop.name]
+            for crop in tang_cropgrids.Crop
+            if proxy_name_to_commodity_id[crop.name] > 0
+        }
+        | set(CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE)
+        | UNMAPPED_CROP_ITEM_CODES
+    )
+    crops = pandas.DataFrame.from_records(
+        [
+            {
+                "admin_id": "ZZZ",
+                "commodity_id": code,
+                "production_kg": 0.0,
+                "year": 2020,
+            }
+            for code in sorted(every_item_code)
+        ]
+        + [
+            {
+                "admin_id": "BRA",
+                "commodity_id": 56,
+                "production_kg": 100.0,
+                "year": 2019,
+            },
+            {
+                "admin_id": "BRA",
+                "commodity_id": 56,
+                "production_kg": 200.0,
+                "year": 2020,
+            },
+            {
+                "admin_id": "BRA",
+                "commodity_id": 56,
+                "production_kg": 300.0,
+                "year": 2021,
+            },
+            {
+                "admin_id": "BRA",
+                "commodity_id": 236,
+                "production_kg": 7.0,
+                "year": 2020,
+            },
+        ]
+    ).set_index(["admin_id", "commodity_id", "year"])
+    stocks = pandas.DataFrame.from_records(
+        [
+            ("BRA", "CATTLE", 2018, 99999.0, 100.0),
+            ("BRA", "CATTLE", 2019, 900.0, 100.0),
+            ("BRA", "CATTLE", 2020, 1200.0, 100.0),
+            ("BRA", "CATTLE", 2021, numpy.nan, 100.0),
+        ],
+        columns=["admin_id", "commodity_name", "year", "production_kg", "stocks_head"],
+    ).set_index(["admin_id", "commodity_name", "year"])
+    emissions = pandas.DataFrame.from_records(
+        [
+            ("BRA001", "MAIZE", 30.0, numpy.nan),
+            ("BRA002", "MAIZE", 10.0, numpy.nan),
+            ("BRA001", "POPCORN", 10.0, numpy.nan),
+            ("BRA001", "ALFALFA", 5.0, numpy.nan),
+            ("BRA001", "BEEF_CATTLE", 1.0, 100.0),
+            ("BRA001", "PASTURE", 1.0, numpy.nan),
+            ("BRA001", "DROPPED", 0.0, numpy.nan),
+        ],
+        columns=["admin_id", "commodity_name", "commodity_hectares", HERD_HEADS_COLUMN],
+    ).assign(admin_level="PROVINCIAL", methodology="JURISDICTIONAL_DIRECT_PROXY")
+    emissions = emissions.set_index(
+        ["admin_level", "admin_id", "commodity_name", "methodology"]
+    )
+    result = derive_proxy_production_kg(crops=crops, emissions=emissions, stocks=stocks)
+    production_kg = result["production_kg"].droplevel(["admin_level", "methodology"])
+    assert production_kg[("BRA001", "MAIZE")] == pytest.approx(120.0)
+    assert production_kg[("BRA002", "MAIZE")] == pytest.approx(40.0)
+    assert production_kg[("BRA001", "POPCORN")] == pytest.approx(40.0)
+    assert production_kg[("BRA001", "BEEF_CATTLE")] == pytest.approx(1050.0)
+    assert (
+        production_kg[[("BRA001", name) for name in ("ALFALFA", "PASTURE", "DROPPED")]]
+        .isna()
+        .all()
+    )
+    assert HERD_HEADS_COLUMN not in result.columns
+    assert "('BRA', 236)" in caplog.text

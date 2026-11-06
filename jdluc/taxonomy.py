@@ -375,3 +375,21 @@ assert len(
         attribute.Methodology.JURISDICTIONAL_DIRECT
     ]
 )
+
+# FAOSTAT crop items no CROPGRIDS crop maps to: co-products, counted in the crop they come from
+CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE = {
+    256: 254,  # palm kernels
+    311: 310,  # kapokseed
+    329: 328,  # cotton seed
+    378: 125,  # cassava leaves
+    767: 328,  # cotton lint
+    778: 310,  # kapok fibre
+    813: 249,  # coir
+}
+assert set(CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE.values()) <= set(
+    METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
+        attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
+    ].values()
+)
+# The rest: crops CROPGRIDS does not map (jojoba, tallowtree, leeks and other pome fruits)
+UNMAPPED_CROP_ITEM_CODES = {277, 305, 407, 542}

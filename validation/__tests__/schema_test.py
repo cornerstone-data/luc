@@ -42,7 +42,7 @@ def test_every_methodology_is_named_here() -> None:
     assert {schema.STATISTICAL, schema.JURISDICTIONAL_DIRECT} == {
         methodology.name
         for methodology in attribute.Methodology
-        # Reports no production, so it has no emissions factor to compare
+        # Not captured yet, so it is in no comparison
         if methodology != attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
     }
 

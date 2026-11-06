@@ -6,6 +6,7 @@ from jdluc.datasets.gnw_global_peatlands import DATASET as PEATLANDS
 from jdluc.datasets.gpw_grassland import DATASET as GRASSLAND
 from jdluc.datasets.gpw_grassland import YEARS as GRASSLAND_YEARS
 from jdluc.datasets.gpw_grassland import Grassland
+from jdluc.datasets.gpw_livestock import Species, get_band_name
 from jdluc.datasets.tang_cropgrids import DATASET as CROPGRIDS
 from jdluc.datasets.tang_cropgrids import YEAR as CROPGRIDS_YEAR
 from jdluc.datasets.tang_cropgrids import Crop
@@ -19,6 +20,7 @@ from jdluc.emit import (
     NonCommodity,
 )
 from jdluc.jurisdictional_direct_proxy import (
+    HERD_HEADS_COLUMN,
     get_commodity_name_to_totals,
     get_crop_to_area_share,
     get_name_to_band,
@@ -190,10 +192,10 @@ def test_get_crop_to_area_share_divides_by_every_crop_cropgrids_maps() -> None:
 def test_get_commodity_name_to_totals() -> None:
     """Two cells of 2 and 3 hectares, one row as a province one cell tall clips to.
 
-    Cocoa grows on the first cell and no crop on the second; half of each is pasture. Every band
-    charges both cells alike, and each land class and component charges its own amount, so a total
-    reading the wrong band is visible. Cropland's peat occupation drains the whole cell and
-    pasture's half of it.
+    Cocoa grows on the first cell and no crop on the second; half of each is pasture, and each
+    holds 10 cattle a hectare. Every band charges both cells alike, and each land class and
+    component charges its own amount, so a total reading the wrong band is visible. Cropland's peat
+    occupation drains the whole cell and pasture's half of it.
     """
     per_hectare = {
         f"{CROPLAND:s}-forest-emissions:tco2e-per-ha": 100.0,
@@ -201,6 +203,7 @@ def test_get_commodity_name_to_totals() -> None:
         f"{CROPLAND:s}-peatland-conversion-emissions:tco2e-per-ha": 3.0,
         f"{CROPLAND:s}-peatland-occupation:tco2e-per-ha": PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA,
         "dropped-emissions:tco2e-per-ha": 9.0,
+        get_band_name(species=Species.CATTLE, year=CROPGRIDS_YEAR): 10.0,
         f"pasture:fraction:{CROPGRIDS_YEAR:d}": 0.5,
         f"{PASTURELAND:s}-forest-emissions:tco2e-per-ha": 4000.0,
         f"{PASTURELAND:s}-grassland-emissions:tco2e-per-ha": 500.0,
@@ -230,18 +233,22 @@ def test_get_commodity_name_to_totals() -> None:
             {
                 "commodity_hectares": 50.0,
                 "emissions_mt": 320.6,
+                HERD_HEADS_COLUMN: numpy.nan,
                 "forest_emissions_mt": 200.0,
                 "grassland_emissions_mt": 40.0,
                 "peatland_commodity_hectares": 2.0,
                 "peatland_conversion_emissions_mt": 6.0,
                 "peatland_occupation_emissions_mt": 74.6,
-            }
+            },
+            nan_ok=True,
         ),
         # Pasture's charge on three quarters of both cells' 5 ha, and of their 2.5 ha of pasture
         Livestock.BEEF_CATTLE.name: pytest.approx(
             {
                 "commodity_hectares": 1.875,
                 "emissions_mt": 17169.9375,
+                # Both cells' whole herd, since both have pasture
+                HERD_HEADS_COLUMN: 50.0,
                 "forest_emissions_mt": 15000.0,
                 "grassland_emissions_mt": 1875.0,
                 "peatland_commodity_hectares": 1.875,
@@ -249,15 +256,19 @@ def test_get_commodity_name_to_totals() -> None:
                 "peatland_occupation_emissions_mt": 69.9375,
             }
         ),
-        NonCommodity.DROPPED.name: pytest.approx({"emissions_mt": 45.0}),
+        NonCommodity.DROPPED.name: pytest.approx(
+            {"emissions_mt": 45.0, HERD_HEADS_COLUMN: numpy.nan}, nan_ok=True
+        ),
         # Cropland's charge on the second cell's 3 ha, plus the quarter of pasture's no row takes
         NonCommodity.UNATTRIBUTED.name: pytest.approx(
             {
                 "emissions_mt": 6204.2125,
                 "forest_emissions_mt": 5300.0,
+                HERD_HEADS_COLUMN: numpy.nan,
                 "grassland_emissions_mt": 685.0,
                 "peatland_conversion_emissions_mt": 84.0,
                 "peatland_occupation_emissions_mt": 135.2125,
-            }
+            },
+            nan_ok=True,
         ),
     }
