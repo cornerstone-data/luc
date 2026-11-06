@@ -303,3 +303,30 @@ The jurisdictional-direct pipeline (USA only) covers the following 11 crops, map
 | SUGARBEET | SUGARBEETS                              | 157 (Sugar beet)            |
 | SUGARCANE | SUGARCANE                               | 156 (Sugar cane)            |
 | WHEAT     | DURUM_WHEAT, SPRING_WHEAT, WINTER_WHEAT | 15 (Wheat)                  |
+
+### Jurisdictional direct proxy
+
+The proxy pipeline covers all 173 CROPGRIDS crops, each published under a FAOSTAT item with FAOSTAT's name for it. Most follow the CROPGRIDS publisher's crop table (`CROPS_matching_v17.xlsx`). Where that table names no item, or a retired one, FAOSTAT's current list gives flax (771), green broad beans (420) and jute-like fibres (782), and our judgement gives pimento (689, dry chillies and peppers) and popcorn (56, with maize). Several crops may share an item: maize and popcorn are both 56, and kapok fibre and kapok seed both 310. The full crosswalk is the proxy leg's entry in `jdluc/taxonomy.py`. Livestock is as in the statistical leg.
+
+FAOSTAT has no item for the 16 fodder crops, so each takes a code of our own and the name the CROPGRIDS publisher gives it. They carry emissions and area, but no production and so no emissions factor.
+
+| Crop         | Published as                           |
+| ------------ | -------------------------------------- |
+| ALFALFA      | -101 (Alfalfa)                         |
+| BEETFOR      | -102 (Beets for fodder)                |
+| CABBAGEFOR   | -103 (Cabbage for fodder)              |
+| CARROTFOR    | -104 (Carrots for fodder)              |
+| CLOVER       | -105 (Clover)                          |
+| FORNES       | -106 (Forage products, other)          |
+| GRASSNES     | -107 (Grasses, other)                  |
+| LEGUMENES    | -108 (Legumes, other)                  |
+| MAIZEFOR     | -109 (Maize for forage and silage)     |
+| MIXEDGRASS   | -110 (Mixed grasses and legumes)       |
+| OILSEEDFOR   | -111 (Green oilseeds for fodder)       |
+| RYEFOR       | -112 (Rye grass for forage and silage) |
+| SORGHUMFOR   | -113 (Sorghum for forage and silage)   |
+| SWEDEFOR     | -114 (Swedes for fodder)               |
+| TURNIPFOR    | -115 (Turnips for fodder)              |
+| VEGETABLENES | -116 (Vegetables and roots for fodder) |
+
+Eleven FAOSTAT crop items have no CROPGRIDS crop. Seven are co-products counted in the crop they come from: palm kernels, kapokseed, kapok fibre, cotton seed, cotton lint, cassava leaves and coir. Four are crops CROPGRIDS does not map, whose production has no area to be split by and is left out: jojoba seeds, tallowtree seeds, leeks and other alliaceous vegetables, and other pome fruits.
