@@ -73,10 +73,12 @@ def get_path_to_source(species: Species, year: int) -> str:
     path_to_source = os.path.join(
         tempfile.mkdtemp(), f"gpw-livestock-{species:s}-{year:d}"
     )
+    record = SPECIES_TO_ZENODO_RECORD[species]
     utils.save_remote_url_to_local_path(
+        cache_key=f"zenodo/{record:d}/{name:s}",
         local_path=path_to_source,
         params={},
-        remote_url=f"https://zenodo.org/api/records/{SPECIES_TO_ZENODO_RECORD[species]:d}/files/{name:s}/content",
+        remote_url=f"https://zenodo.org/api/records/{record:d}/files/{name:s}/content",
     )
     return path_to_source
 
