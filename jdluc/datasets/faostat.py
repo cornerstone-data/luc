@@ -22,10 +22,8 @@ https://bulks-faostat.fao.org/production/
 
 Two bulk archives, read into three tables:
 
-- `CROP_DATASET`: area harvested and production of each MapSPAM crop FAOSTAT names one-for-one,
-  plus coffee as one item, COFF, which MapSPAM splits into arabica and robusta. Yield is not
-  carried, since a MapSPAM group's yield is not its members'; area and production are additive, so
-  a consumer sums the items it wants and divides
+- `CROP_DATASET`: area harvested and production of every crop item, keyed by item code in
+  `commodity_id`. Yield is not carried: area and production add across items, and yield does not
 - `LIVESTOCK_DATASET`: stocks (live animals) and meat production (carcass weight, with the bone) of
   five grazers
 - `LIVESTOCK_PATTERNS_DATASET`: stocks in livestock units of the same five grazers, from Livestock
@@ -48,7 +46,7 @@ import iso3166
 import pandas
 
 from jdluc import config, storage, utils
-from jdluc.datasets import base, ifpri_mapspam, worldbank_jurisdictions
+from jdluc.datasets import base, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
@@ -74,113 +72,9 @@ STOCKS_ELEMENT_CODE = 5111
 LIVESTOCK_UNITS_ELEMENT_CODE = 5118
 # "Missing value; data cannot exist". Estimated and imputed figures are kept.
 MISSING_FLAG = "M"
-
-
-class Crop(enum.IntEnum):
-    """The MapSPAM crops FAOSTAT reports one-for-one."""
-
-    BANA = enum.auto()
-    BARL = enum.auto()
-    BEAN = enum.auto()
-    CASS = enum.auto()
-    CHIC = enum.auto()
-    CNUT = enum.auto()
-    COCO = enum.auto()
-    COTT = enum.auto()
-    COWP = enum.auto()
-    GROU = enum.auto()
-    LENT = enum.auto()
-    MAIZ = enum.auto()
-    OILP = enum.auto()
-    PIGE = enum.auto()
-    PLNT = enum.auto()
-    POTA = enum.auto()
-    RAPE = enum.auto()
-    RICE = enum.auto()
-    SESA = enum.auto()
-    SORG = enum.auto()
-    SOYB = enum.auto()
-    SUGB = enum.auto()
-    SUGC = enum.auto()
-    SUNF = enum.auto()
-    SWPO = enum.auto()
-    TEAS = enum.auto()
-    TOBA = enum.auto()
-    WHEA = enum.auto()
-    YAMS = enum.auto()
-
-
-# Keyed on code, since FAOSTAT spells an item's name differently across its own files. COTT is
-# seed cotton (328), not ginned lint (767), and OILP is fruit bunches (254), not palm oil (257),
-# both as MapSPAM: either mistake would scale a comparison by the milling yield.
-CROP_TO_ITEM_CODE = {
-    Crop.BANA: 486,
-    Crop.BARL: 44,
-    Crop.BEAN: 176,
-    Crop.CASS: 125,
-    Crop.CHIC: 191,
-    Crop.CNUT: 249,
-    Crop.COCO: 661,
-    Crop.COTT: 328,
-    Crop.COWP: 195,
-    Crop.GROU: 242,
-    Crop.LENT: 201,
-    Crop.MAIZ: 56,
-    Crop.OILP: 254,
-    Crop.PIGE: 197,
-    Crop.PLNT: 489,
-    Crop.POTA: 116,
-    Crop.RAPE: 270,
-    Crop.RICE: 27,
-    Crop.SESA: 289,
-    Crop.SORG: 83,
-    Crop.SOYB: 236,
-    Crop.SUGB: 157,
-    Crop.SUGC: 156,
-    Crop.SUNF: 267,
-    Crop.SWPO: 122,
-    Crop.TEAS: 667,
-    Crop.TOBA: 826,
-    Crop.WHEA: 15,
-    Crop.YAMS: 137,
-}
-
-
-# One FAOSTAT item that MapSPAM splits in two, so neither half can take the figure.
-SPLIT_CROP_NAMES = {
-    ifpri_mapspam.CANONICAL_CROP_CLS.ACOF.name,  # both are 656, Coffee, green
-    ifpri_mapspam.CANONICAL_CROP_CLS.RCOF.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.PMIL.name,  # both are 79, Millet
-    ifpri_mapspam.CANONICAL_CROP_CLS.SMIL.name,
-}
-COMBINED_CROP_NAME_TO_ITEM_CODE = {
-    ifpri_mapspam.Crop2000.COFF.name: 656,
-}
-# MapSPAM groups that aggregate many FAOSTAT items, by a member list that is MapSPAM's.
-SPAM_GROUP_CROP_NAMES = {
-    ifpri_mapspam.CANONICAL_CROP_CLS.OCER.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.OFIB.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.OOIL.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.OPUL.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.ORTS.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.REST.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.TEMF.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.TROF.name,
-    ifpri_mapspam.CANONICAL_CROP_CLS.VEGE.name,
-}
-# Every canonical crop is mapped, split or grouped, so a MapSPAM rename cannot drop one silently.
-assert {crop.name for crop in Crop} | SPLIT_CROP_NAMES | SPAM_GROUP_CROP_NAMES == {
-    crop.name for crop in ifpri_mapspam.CANONICAL_CROP_CLS
-}
-assert not {crop.name for crop in Crop} & (SPLIT_CROP_NAMES | SPAM_GROUP_CROP_NAMES)
-assert set(CROP_TO_ITEM_CODE) == set(Crop)
-assert all(
-    ifpri_mapspam.GROUP_TO_CONSTITUENT_NAMES[combined_crop_name] <= SPLIT_CROP_NAMES
-    for combined_crop_name in COMBINED_CROP_NAME_TO_ITEM_CODE
-)
-assert len(
-    set(CROP_TO_ITEM_CODE.values()) | set(COMBINED_CROP_NAME_TO_ITEM_CODE.values())
-) == len(CROP_TO_ITEM_CODE) + len(COMBINED_CROP_NAME_TO_ITEM_CODE)
+# FAOSTAT's crop items are exactly CPC division 01, quoted in the bulk (`'0112` is maize). It
+# includes co-products such as cotton seed (329).
+CROP_CPC_PREFIX = "'01"
 
 
 class Species(enum.StrEnum):
@@ -230,26 +124,6 @@ class ElementColumn:
     scale: float
 
 
-CROP_ELEMENT_COLUMNS = {
-    AREA_HARVESTED_ELEMENT_CODE: ElementColumn(
-        column_name="area_hectares",
-        commodity_name_to_item_code={
-            crop.name: item_code for crop, item_code in CROP_TO_ITEM_CODE.items()
-        }
-        | COMBINED_CROP_NAME_TO_ITEM_CODE,
-        required=True,
-        scale=1,
-    ),
-    PRODUCTION_ELEMENT_CODE: ElementColumn(
-        column_name="production_kg",
-        commodity_name_to_item_code={
-            crop.name: item_code for crop, item_code in CROP_TO_ITEM_CODE.items()
-        }
-        | COMBINED_CROP_NAME_TO_ITEM_CODE,
-        required=True,
-        scale=KG_PER_TONNE,
-    ),
-}
 LIVESTOCK_ELEMENT_COLUMNS = {
     STOCKS_ELEMENT_CODE: ElementColumn(
         column_name="stocks_head",
@@ -384,6 +258,69 @@ def get_records_for_path(
     return records
 
 
+def get_crop_records(
+    rows: collections.abc.Iterable[dict[str, str]],
+) -> list[dict[str, str | float]]:
+    """One record per (country, crop item, year), from the Production archive's rows.
+
+    Production is required. Area harvested reads NaN where FAOSTAT reports none (Brazil nuts).
+    """
+    accumulated: dict[tuple[str, int, int], dict[int, float]] = {}
+    iso_3166_to_jurisdiction_name: dict[str, str] = {}
+    commodity_id_to_commodity_name: dict[int, str] = {}
+    seen = 0
+
+    for row in rows:
+        seen += 1
+        element_code = int(row["Element Code"])
+        if (
+            row["Item Code (CPC)"].startswith(CROP_CPC_PREFIX)
+            and row["Flag"] != MISSING_FLAG
+            and row["Value"]
+            and element_code in (AREA_HARVESTED_ELEMENT_CODE, PRODUCTION_ELEMENT_CODE)
+            and (iso_3166 := get_iso_3166(m49_code=row["Area Code (M49)"])) is not None
+        ):
+            commodity_id = int(row["Item Code"])
+            key = (iso_3166, commodity_id, int(row["Year"]))
+            if key not in accumulated:
+                accumulated[key] = {AREA_HARVESTED_ELEMENT_CODE: math.nan}
+            accumulated[key][element_code] = float(row["Value"])
+            iso_3166_to_jurisdiction_name[iso_3166] = row["Area"]
+            commodity_id_to_commodity_name[commodity_id] = row["Item"]
+    logger.info(f"Read {seen:d} rows; kept {len(accumulated):d} keys")
+
+    records: list[dict[str, str | float]] = [
+        {
+            "admin_id": worldbank_jurisdictions.iso_3166_str(s=iso_3166),
+            "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
+            "area_hectares": element_code_to_value[AREA_HARVESTED_ELEMENT_CODE],
+            "commodity_id": commodity_id,
+            "commodity_name": commodity_id_to_commodity_name[commodity_id],
+            "jurisdiction_name": iso_3166_to_jurisdiction_name[iso_3166],
+            "production_kg": element_code_to_value[PRODUCTION_ELEMENT_CODE]
+            * KG_PER_TONNE,
+            "year": year,
+        }
+        for (iso_3166, commodity_id, year), element_code_to_value in sorted(
+            accumulated.items()
+        )
+        if PRODUCTION_ELEMENT_CODE in element_code_to_value
+    ]
+    logger.info(f"After requiring production: {len(records):d} records")
+    return records
+
+
+def get_crop_records_for_tile(tile_id: str) -> list[dict[str, str | float]]:
+    with tempfile.TemporaryDirectory() as local_dir:
+        path_to_zip = os.path.join(local_dir, "data.zip")
+        utils.save_remote_url_to_local_path(
+            local_path=path_to_zip, params={}, remote_url=BULK_URL
+        )
+        return get_crop_records(
+            rows=iter_rows(member_name=BULK_MEMBER_NAME, path_to_zip=path_to_zip)
+        )
+
+
 def _get_records_for_tile(
     tile_id: str,
     bulk_url: str,
@@ -409,20 +346,23 @@ IDX_COLUMN_NAMES = [
     "commodity_name",
     "year",
 ]
+CROP_IDX_COLUMN_NAMES = [
+    "admin_level",
+    "admin_id",
+    "jurisdiction_name",
+    "commodity_id",
+    "year",
+]
 
 CROP_DATASET = base.TabularDataset(
-    get_records_for_tile_id=functools.partial(
-        _get_records_for_tile,
-        bulk_url=BULK_URL,
-        element_columns=CROP_ELEMENT_COLUMNS,
-        member_name=BULK_MEMBER_NAME,
-    ),
-    idx_column_names=IDX_COLUMN_NAMES,
+    get_records_for_tile_id=get_crop_records_for_tile,
+    idx_column_names=CROP_IDX_COLUMN_NAMES,
     product_name="production-crops",
     source_name="faostat",
     # v1: crop_name -> commodity_name
     # v2: coffee as COFF
-    version="v2",
+    # v3: every crop item, keyed by commodity_id
+    version="v3",
 )
 LIVESTOCK_DATASET = base.TabularDataset(
     get_records_for_tile_id=functools.partial(

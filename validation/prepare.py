@@ -804,6 +804,61 @@ SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE = {
     statistical.Crop.ROBUSTA_COFFEE.value: ifpri_mapspam.Crop2000.COFF.name,
     statistical.Crop.SMALL_MILLET.value: ifpri_mapspam.Crop2000.MILL.name,
 }
+# The MapSPAM crops FAOSTAT names one-for-one, cocoa, tea and tobacco among them. Coffee and millet
+# are left out, since WRI's yields call arabica COFF and small millet MILL.
+FAOSTAT_ITEM_CODE_TO_CROP_CODE = {
+    15: ifpri_mapspam.CANONICAL_CROP_CLS.WHEA.name,
+    27: ifpri_mapspam.CANONICAL_CROP_CLS.RICE.name,
+    44: ifpri_mapspam.CANONICAL_CROP_CLS.BARL.name,
+    56: ifpri_mapspam.CANONICAL_CROP_CLS.MAIZ.name,
+    83: ifpri_mapspam.CANONICAL_CROP_CLS.SORG.name,
+    116: ifpri_mapspam.CANONICAL_CROP_CLS.POTA.name,
+    122: ifpri_mapspam.CANONICAL_CROP_CLS.SWPO.name,
+    125: ifpri_mapspam.CANONICAL_CROP_CLS.CASS.name,
+    137: ifpri_mapspam.CANONICAL_CROP_CLS.YAMS.name,
+    156: ifpri_mapspam.CANONICAL_CROP_CLS.SUGC.name,
+    157: ifpri_mapspam.CANONICAL_CROP_CLS.SUGB.name,
+    176: ifpri_mapspam.CANONICAL_CROP_CLS.BEAN.name,
+    191: ifpri_mapspam.CANONICAL_CROP_CLS.CHIC.name,
+    195: ifpri_mapspam.CANONICAL_CROP_CLS.COWP.name,
+    197: ifpri_mapspam.CANONICAL_CROP_CLS.PIGE.name,
+    201: ifpri_mapspam.CANONICAL_CROP_CLS.LENT.name,
+    236: ifpri_mapspam.CANONICAL_CROP_CLS.SOYB.name,
+    242: ifpri_mapspam.CANONICAL_CROP_CLS.GROU.name,
+    249: ifpri_mapspam.CANONICAL_CROP_CLS.CNUT.name,
+    254: ifpri_mapspam.CANONICAL_CROP_CLS.OILP.name,
+    267: ifpri_mapspam.CANONICAL_CROP_CLS.SUNF.name,
+    270: ifpri_mapspam.CANONICAL_CROP_CLS.RAPE.name,
+    289: ifpri_mapspam.CANONICAL_CROP_CLS.SESA.name,
+    328: ifpri_mapspam.CANONICAL_CROP_CLS.COTT.name,
+    486: ifpri_mapspam.CANONICAL_CROP_CLS.BANA.name,
+    489: ifpri_mapspam.CANONICAL_CROP_CLS.PLNT.name,
+    661: ifpri_mapspam.CANONICAL_CROP_CLS.COCO.name,
+    667: ifpri_mapspam.CANONICAL_CROP_CLS.TEAS.name,
+    826: ifpri_mapspam.CANONICAL_CROP_CLS.TOBA.name,
+}
+# MapSPAM groups of several FAOSTAT items
+SPAM_GROUP_CROP_CODES = {
+    ifpri_mapspam.CANONICAL_CROP_CLS.OCER.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.OFIB.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.OOIL.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.OPUL.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.ORTS.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.REST.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.TEMF.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.TROF.name,
+    ifpri_mapspam.CANONICAL_CROP_CLS.VEGE.name,
+}
+# Every canonical crop is mapped, split or grouped
+assert set(FAOSTAT_ITEM_CODE_TO_CROP_CODE.values()) | set(
+    SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE
+) | SPAM_GROUP_CROP_CODES == {crop.name for crop in ifpri_mapspam.CANONICAL_CROP_CLS}
+assert len(set(FAOSTAT_ITEM_CODE_TO_CROP_CODE.values())) == len(
+    FAOSTAT_ITEM_CODE_TO_CROP_CODE
+)
+assert not set(FAOSTAT_ITEM_CODE_TO_CROP_CODE.values()) & (
+    set(SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE) | SPAM_GROUP_CROP_CODES
+)
 
 
 def with_crop_codes(frame: pandas.DataFrame) -> pandas.DataFrame:
@@ -1504,49 +1559,6 @@ def get_orbae_findings(frame: pandas.DataFrame) -> list[schema.Finding]:
     ]
 
 
-# The one EPA figure this tool uses, hardcoded rather than parsed: a transcription pipeline for a single
-# number is not worth the dependency, and the number is checkable by hand in a minute.
-#
-# EPA GHG Inventory 1990-2022, published April 2024, Chapter 6, Table 6-40 on page 6-75, "Net CO2 Flux
-# from Soil, Dead Organic Matter and Biomass Carbon Stock Changes in Land Converted to Cropland by
-# Land-Use Change Category (MMT CO2 Eq.)", row "Grassland Converted to Cropland".
-#
-# To reproduce, from a machine with network access:
-#
-#   uv run --with pdfplumber python -c "
-#   import pdfplumber, urllib.request, pathlib
-#   u = ('https://www.epa.gov/system/files/documents/2024-04/'
-#        'us-ghg-inventory-2024-chapter-6-land-use-land-use-change-and-forestry_0.pdf')
-#   r = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
-#   pathlib.Path('ch6.pdf').write_bytes(urllib.request.urlopen(r).read())
-#   print([l for p in pdfplumber.open('ch6.pdf').pages if 'Table 6-40:' in (p.extract_text() or '')
-#          for l in p.extract_text().split(chr(10)) if l.startswith('Grassland Converted')])"
-#
-# That PDF is sha256 a9914b673a61b3bba926253f9d68168dde2ef1487c388455fd78922a69263d5d, 5.5 MiB, 194
-# pages. It is not in `sources.lock.json` because nothing here retrieves it, so there is nothing to pin.
-#
-# The comparison year is 2020, where EPA reports 10.6, putting sLUC's 30.9 Mt US grassland figure at
-# about 2.9x -- the same comparison `docs/further_research.md` draws. The 2022 column is the easy
-# mistake to make here: at 16.3 it is the row's most recent number and it is not our year.
-#
-# Only one mismatch remains, and it is not the temporal basis. The two sides are both annual: the
-# GHGP per-year weights integrate to exactly 1.0 over the 20-year window, so `SPAN_TO_LINEAR_DISCOUNT_WEIGHT`
-# allocates a conversion's emissions to one sourcing year rather than accumulating twenty, and the
-# production denominator is a weighted mean over the same spans. What does differ is scope -- EPA's row
-# covers all cropland where sLUC's 30.9 Mt is the corn-soy-wheat subset -- and closing that gap can only
-# raise our side, so the disagreement is a floor rather than an artifact.
-EPA_RELEASE = "1990-2022, published 2024"
-EPA_GRASSLAND_TO_CROPLAND_MMT_BY_YEAR = {
-    1990: 27.3,
-    2005: 17.2,
-    2018: 13.7,
-    2019: 13.0,
-    2020: 10.6,
-    2021: 16.1,
-    2022: 16.3,
-}
-
-
 def read_faostat_production() -> pandas.DataFrame:
     """FAOSTAT's ingested production and area, cached locally and pinned by digest.
 
@@ -1567,11 +1579,9 @@ def read_faostat_production() -> pandas.DataFrame:
     frame = pandas.read_parquet(FAOSTAT_CACHE)
     if frame.index.names != [None]:
         frame = frame.reset_index()
-    # WRI's COFF is arabica only
-    frame = frame[
-        ~frame["commodity_name"].isin(faostat.COMBINED_CROP_NAME_TO_ITEM_CODE)
-    ]
-    return frame.rename(columns={"admin_id": "iso_3166", "commodity_name": "crop_name"})
+    frame = frame[frame["commodity_id"].isin(FAOSTAT_ITEM_CODE_TO_CROP_CODE)].copy()
+    frame["crop_name"] = frame["commodity_id"].map(FAOSTAT_ITEM_CODE_TO_CROP_CODE)
+    return frame.rename(columns={"admin_id": "iso_3166"})
 
 
 def get_faostat_yields() -> pandas.DataFrame:
@@ -1653,24 +1663,22 @@ def get_unpaired_crop_names(
     """
     unpaired = set(wri_yields["crop_name"]) - set(comparison["crop_name"])
     compared = set(comparison["crop_name"])
-    mapped = {crop.name for crop in faostat.Crop}
+    mapped = set(FAOSTAT_ITEM_CODE_TO_CROP_CODE.values())
+    split = set(SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE)
     reasons: dict[schema.UnpairedReason, tuple[str, ...]] = {}
     for reason, names in (
         (
             schema.UnpairedReason.SPAM_GROUP,
-            unpaired & faostat.SPAM_GROUP_CROP_NAMES,
+            unpaired & SPAM_GROUP_CROP_CODES,
         ),
         (
             schema.UnpairedReason.SPAM_SPLIT,
-            unpaired & faostat.SPLIT_CROP_NAMES,
+            unpaired & split,
         ),
         (schema.UnpairedReason.TOO_FEW_COUNTRIES, (unpaired & mapped) - compared),
         (
             schema.UnpairedReason.UNMAPPED,
-            unpaired
-            - mapped
-            - faostat.SPAM_GROUP_CROP_NAMES
-            - faostat.SPLIT_CROP_NAMES,
+            unpaired - mapped - SPAM_GROUP_CROP_CODES - split,
         ),
     ):
         if names:

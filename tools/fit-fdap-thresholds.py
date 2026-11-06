@@ -34,7 +34,7 @@ import shapely
 import xarray
 
 from jdluc import emit, storage
-from jdluc.datasets import faostat, fdap, ifpri_mapspam, worldbank_jurisdictions
+from jdluc.datasets import faostat, fdap, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +45,10 @@ COMMODITY_TO_FLOOR = {
     fdap.Commodity.COCOA: fdap.COCOA_PRECISION_RECALL_CROSSOVER,
     fdap.Commodity.COFFEE: fdap.COFFEE_PRECISION_RECALL_CROSSOVER,
 }
-COMMODITY_TO_FAOSTAT_NAME = {
-    fdap.Commodity.COCOA: faostat.Crop.COCO.name,
-    fdap.Commodity.COFFEE: ifpri_mapspam.Crop2000.COFF.name,
+# FAOSTAT's items "Cocoa beans" and "Coffee, green"
+COMMODITY_TO_FAOSTAT_ITEM_CODE = {
+    fdap.Commodity.COCOA: 661,
+    fdap.Commodity.COFFEE: 656,
 }
 # Ad Astra fitted the 2024 band to FAOSTAT 2023, before FAOSTAT published 2024, and so does this
 YEAR_TO_FAOSTAT_YEAR = {2018: 2018, 2020: 2020, 2022: 2022, 2024: 2023}
@@ -195,9 +196,11 @@ def main() -> int:
                 logger.info(f"Read {n:d} of {len(tasks):d} source files")
 
     crops = faostat.load(dataset=faostat.CROP_DATASET).reset_index()
-    area_harvested = crops[
-        crops["commodity_name"] == COMMODITY_TO_FAOSTAT_NAME[commodity]
-    ].set_index(["admin_id", "year"])["area_hectares"]
+    area_harvested = (
+        crops[crops["commodity_id"] == COMMODITY_TO_FAOSTAT_ITEM_CODE[commodity]]
+        .set_index(["admin_id", "year"])["area_hectares"]
+        .dropna()
+    )
     thresholds = numpy.arange(BINS) / BINS
     in_range = (thresholds >= LOWEST_THRESHOLD) & (thresholds <= fdap.HIGHEST_THRESHOLD)
     fits: list[dict[str, float | int | str]] = []

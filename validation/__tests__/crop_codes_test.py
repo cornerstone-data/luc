@@ -63,6 +63,21 @@ def test_a_split_crop_is_compared_under_its_combined_code(
     )
 
 
+# Written separately from `taxonomy`, so each checks the other
+@pytest.mark.parametrize(
+    "crop",
+    [
+        crop
+        for crop in statistical.Crop
+        if crop.value in prepare.FAOSTAT_ITEM_CODE_TO_CROP_CODE.values()
+    ],
+    ids=lambda crop: crop.name.lower(),
+)
+def test_faostat_items_match_taxonomy_codes(crop: statistical.Crop) -> None:
+    commodity_id = STATISTICAL_NAME_TO_COMMODITY_ID[crop.name]
+    assert prepare.FAOSTAT_ITEM_CODE_TO_CROP_CODE[commodity_id] == crop.value
+
+
 def test_with_crop_codes_keeps_only_crop_rows() -> None:
     frame = pandas.DataFrame(
         {
