@@ -10,7 +10,8 @@ import xarray
 from jdluc import emit
 from jdluc.datasets import gpw_livestock, ifpri_mapspam
 from jdluc.statistical import (
-    MAPSPAM_SNAPSHOT_YEARS,
+    HERD_HEADS_COLUMNS,
+    SNAPSHOT_YEAR_TO_WEIGHT,
     SPAN_TO_MAPSPAM_SPAN,
     Commodity,
     Crop,
@@ -20,6 +21,7 @@ from jdluc.statistical import (
     get_commodity_to_peatland_conversion_share,
     get_commodity_to_share,
     get_crop_to_area_share,
+    get_discounted_snapshot_mean,
     get_livestock_to_grazing_share,
 )
 
@@ -533,12 +535,31 @@ def test_get_canonical_quantity_conserves_the_group_total(group_name: str) -> No
 # those: a test that redoes the weighting can agree with a wrong implementation.
 
 
-# Defaults for `get_name_to_totals`, read-only so every call can safely share them. A test passes
-# only the shares and yields it cares about, and everything else is zero.
+def test_snapshot_year_to_weight() -> None:
+    assert (
+        pytest.approx({2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.375})
+        == SNAPSHOT_YEAR_TO_WEIGHT
+    )
+
+
+def test_snapshot_year_to_weight_reduces_as_the_discounted_snapshot_mean_does() -> None:
+    year_to_value = {2000: 1.0, 2005: 10.0, 2010: 100.0, 2020: 1000.0}
+    assert get_value(
+        darray=get_discounted_snapshot_mean(
+            year_to_value={
+                year: xarray.DataArray(value) for year, value in year_to_value.items()
+            }
+        )
+    ) == pytest.approx(
+        sum(
+            weight * year_to_value[year]
+            for year, weight in SNAPSHOT_YEAR_TO_WEIGHT.items()
+        )
+    )
+
+
+# The default for `get_name_to_totals`'s shares, read-only so every call can share it
 NO_SHARES: collections.abc.Mapping[Commodity, float] = types.MappingProxyType({})
-NO_YIELD: collections.abc.Mapping[int, float] = types.MappingProxyType(
-    dict.fromkeys(MAPSPAM_SNAPSHOT_YEARS, 0.0)
-)
 
 
 def get_name_to_totals(
@@ -552,12 +573,11 @@ def get_name_to_totals(
     pasture_occupation: float = 0.0,
     pasture_pulse: float = 0.0,
     peatland_conversion_shares: collections.abc.Mapping[Commodity, float] = NO_SHARES,
-    year_to_kg_per_head: collections.abc.Mapping[int, float] = NO_YIELD,
 ) -> dict[str, dict[str, float]]:
     """`get_commodity_name_to_totals` over WHEAT and the livestock rows on `get_dset`'s 2x2 grid.
 
-    Every band, share and rate a caller does not set is zero, so each test moves one thing. The
-    shares are the same in every span.
+    Every band and share a caller does not set is zero, so each test moves one thing. The shares
+    are the same in every span.
     """
     commodities = (Crop.WHEAT, *Livestock)
 
@@ -600,9 +620,6 @@ def get_name_to_totals(
         span_to_commodity_to_share=dict.fromkeys(
             SPAN_TO_MAPSPAM_SPAN.values(), get_shares(shares=commodity_to_share)
         ),
-        species_to_year_to_kg_per_head={
-            species: dict(year_to_kg_per_head) for species in gpw_livestock.Species
-        },
     )
 
 
@@ -987,37 +1004,26 @@ def test_get_livestock_to_grazing_share(
     ),
 )
 @pytest.mark.parametrize(
-    ("pasture_fraction", "year_to_kg_per_head", "expected_kg_per_ha"),
+    ("pasture_fraction", "expected_heads_per_ha"),
     (
         pytest.param(
             0.5,
-            dict.fromkeys(MAPSPAM_SNAPSHOT_YEARS, 40.0),
-            4.0,
+            0.1,
             id="the-whole-herd-counts-where-the-cell-holds-any-pasture-not-a-fraction-weighted-part",
         ),
         pytest.param(
             0.0,
-            dict.fromkeys(MAPSPAM_SNAPSHOT_YEARS, 40.0),
             0.0,
-            id="a-herd-in-cells-without-pasture-earns-no-production",
-        ),
-        pytest.param(
-            # 0.1 heads/ha x 40 kg in 2020 alone, at 2020's 37.5% of the window
-            0.5,
-            {2000: 0.0, 2005: 0.0, 2010: 0.0, 2020: 40.0},
-            1.5,
-            id="each-snapshot-pairs-its-own-heads-with-its-own-rate",
+            id="a-herd-in-cells-without-pasture-counts-no-heads",
         ),
     ),
 )
-def test_the_beef_row_reports_its_herds_carcass_weight(
+def test_the_beef_row_reports_its_herd(
     pasture_fraction: float,
-    year_to_kg_per_head: dict[int, float],
-    expected_kg_per_ha: float,
+    expected_heads_per_ha: float,
     units_per_head: dict[gpw_livestock.Species, float],
 ) -> None:
-    # Production counts heads, so however a head of cattle is weighed in livestock units, the herd's
-    # carcass weight is the same
+    # Livestock units weigh grazing, not the herd
     totals = get_name_to_totals(
         dset=get_dset(
             density=get_density(heads_per_ha={CATTLE: 0.1}),
@@ -1025,11 +1031,13 @@ def test_the_beef_row_reports_its_herds_carcass_weight(
             units_per_head=units_per_head,
             values={},
         ),
-        year_to_kg_per_head=year_to_kg_per_head,
     )[Livestock.BEEF_CATTLE.name]
-    assert totals["production_mt"] == pytest.approx(
-        PIXELS * HECTARES_PER_CELL * expected_kg_per_ha / 1_000
+    assert {column: totals[column] for column in HERD_HEADS_COLUMNS} == pytest.approx(
+        dict.fromkeys(
+            HERD_HEADS_COLUMNS, PIXELS * HECTARES_PER_CELL * expected_heads_per_ha
+        )
     )
+    assert math.isnan(totals["production_mt"])
     # Cattle alone graze the cell, so the beef row holds all its pasture
     assert totals["commodity_hectares"] == pytest.approx(
         PIXELS * HECTARES_PER_CELL * pasture_fraction

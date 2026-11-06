@@ -34,7 +34,7 @@ RESULT_BEARING_PATHS = ("jdluc", "pyproject.toml", "uv.lock")
 # efs.parquet's own index, and what any other capture is re-keyed onto. admin_id rather than
 # jurisdiction_name: a machine identifier, where a display string could be renamed. `methodology`
 # is a key level because both legs share one artifact, so it separates sLUC from jdLUC.
-CANONICAL_KEY = ("admin_level", "admin_id", "commodity_name", "methodology")
+CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
 NATIONAL = "NATIONAL"
 PROVINCIAL = "PROVINCIAL"
 # The two legs, as `methodology` records them in efs.parquet.

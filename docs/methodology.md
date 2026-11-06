@@ -269,13 +269,13 @@ Each pixel's emissions are split by the land class it became, cropland or pastur
 
 ### From rollups to emissions factors (`trace.py`)
 
-`trace.py` takes the attribution rollup and derives the emissions factor identically for the jurisdictional-direct and statistical methodologies — the only methodology-specific step is where production comes from (NASS yield × area for direct; for statistical, MapSPAM production for crops and GPW heads × FAOSTAT carcass weight per head for livestock). The proxy leg has no production yet:
+`trace.py` takes the attribution rollup and derives the emissions factor identically for the jurisdictional-direct and statistical methodologies — the only methodology-specific step is where production comes from (NASS yield × area for direct; for statistical, MapSPAM production for crops and GPW heads × FAOSTAT carcass weight per head for livestock). It then maps each leg's own commodity names onto FAOSTAT item codes (`jdluc/taxonomy.py`), so the legs share one vocabulary, and adds together the rows that share a code, such as MapSPAM's arabica and robusta coffee. The proxy leg has no production yet, and no codes:
 
 ```
 emissions_factor_kgco2e_per_kg = Σ emissions / Σ production
 ```
 
-Provincial (admin-1) rows are then summed up to national (admin-0) totals. The final output is a `pandas.DataFrame` indexed by `(admin_level, admin_id, commodity_name, methodology)` with crop hectares, peatland crop hectares, emissions (with the forest, grassland, peatland-conversion and peatland-occupation components broken out), production, and the emissions factor; see `data.md` for the full column schema. The full stage-by-stage pipeline that produces this table, and how its outputs are cached, is described in `architecture.md`.
+Provincial (admin-1) rows are then summed up to national (admin-0) totals. The final output is a `pandas.DataFrame` indexed by `(admin_level, admin_id, commodity_id, methodology)` with the commodity's name, crop hectares, peatland crop hectares, emissions (with the forest, grassland, peatland-conversion and peatland-occupation components broken out), production, and the emissions factor; see `data.md` for the full column schema. The full stage-by-stage pipeline that produces this table, and how its outputs are cached, is described in `architecture.md`.
 
 ______________________________________________________________________
 

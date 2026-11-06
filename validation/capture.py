@@ -4,7 +4,7 @@ The one stage that runs the pipeline itself, so it is run by hand rather than by
 `python -m validation`, and its output is cached rather than recomputed per report.
 
 **One capture, both legs.** `efs.parquet` holds sLUC and jdLUC together, indexed on
-`trace.CANONICAL_KEY` -- `(admin_level, admin_id, commodity_name, methodology)` -- so the US
+`trace.CANONICAL_KEY` -- `(admin_level, admin_id, commodity_id, methodology)` -- so the US
 sLUC-versus-jdLUC head-to-head is a filter on `methodology` within one table rather than a join
 between two files. A join there would invite exactly the alignment failure the comparison exists to
 rule out.

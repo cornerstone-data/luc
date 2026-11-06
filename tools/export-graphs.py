@@ -11,8 +11,8 @@ import zipfile
 import numpy
 import pandas
 
-from jdluc import attribute, statistical, trace
-from jdluc.datasets import ifpri_mapspam, worldbank_jurisdictions
+from jdluc import attribute, taxonomy, trace
+from jdluc.datasets import worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,6 @@ class Record:
             methodology=str(srs.methodology),
             production_kg=float(srs.production_kg),
         )
-
-    @property
-    def crop_description(self) -> str:
-        crop_name_2005 = statistical.Crop[self.commodity_name].value
-        return ifpri_mapspam.Crop2005[crop_name_2005].value
 
     @property
     def payload(self) -> dict[str, float | str]:
@@ -82,30 +77,56 @@ PROVINCE_NAME_BLOCKLIST = {
     "Brazil | Name Unknown",
 }
 
-METHODOLOGY_TO_ISO_3166_TO_CROP_NAMES = {
-    attribute.Methodology.JURISDICTIONAL_DIRECT: {"USA": ("MAIZE", "SOYBEAN", "WHEAT")},
+METHODOLOGY_TO_ISO_3166_TO_COMMODITY_IDS = {
+    attribute.Methodology.JURISDICTIONAL_DIRECT: {
+        "USA": (
+            taxonomy.CommodityId.MAIZE,
+            taxonomy.CommodityId.SOYA_BEANS,
+            taxonomy.CommodityId.WHEAT,
+        )
+    },
     attribute.Methodology.STATISTICAL: {
-        "BRA": ("MAIZE", "SOYBEAN", "OILPALM"),
-        "BOL": ("SOYBEAN", "PLANTAIN", "BANANA"),
-        "ARG": ("SOYBEAN",),
-        "CAN": ("SOYBEAN",),
-        "IDN": ("OILPALM",),
-        "PNG": ("OILPALM",),
-        "GHA": ("RICE", "WHEAT"),
-        "VNM": ("RICE", "SORGHUM"),
-        "MYS": ("RICE", "SORGHUM", "OILPALM"),
-        "CUB": ("SUGARCANE", "RICE", "BANANA"),
-        "ZAF": ("RICE", "WHEAT", "SORGHUM"),
+        "BRA": (
+            taxonomy.CommodityId.MAIZE,
+            taxonomy.CommodityId.SOYA_BEANS,
+            taxonomy.CommodityId.OIL_PALM_FRUIT,
+        ),
+        "BOL": (
+            taxonomy.CommodityId.SOYA_BEANS,
+            taxonomy.CommodityId.PLANTAINS,
+            taxonomy.CommodityId.BANANAS,
+        ),
+        "ARG": (taxonomy.CommodityId.SOYA_BEANS,),
+        "CAN": (taxonomy.CommodityId.SOYA_BEANS,),
+        "IDN": (taxonomy.CommodityId.OIL_PALM_FRUIT,),
+        "PNG": (taxonomy.CommodityId.OIL_PALM_FRUIT,),
+        "GHA": (taxonomy.CommodityId.RICE, taxonomy.CommodityId.WHEAT),
+        "VNM": (taxonomy.CommodityId.RICE, taxonomy.CommodityId.SORGHUM),
+        "MYS": (
+            taxonomy.CommodityId.RICE,
+            taxonomy.CommodityId.SORGHUM,
+            taxonomy.CommodityId.OIL_PALM_FRUIT,
+        ),
+        "CUB": (
+            taxonomy.CommodityId.SUGAR_CANE,
+            taxonomy.CommodityId.RICE,
+            taxonomy.CommodityId.BANANAS,
+        ),
+        "ZAF": (
+            taxonomy.CommodityId.RICE,
+            taxonomy.CommodityId.WHEAT,
+            taxonomy.CommodityId.SORGHUM,
+        ),
     },
 }
 
 
-def subset_to_crop_names(
-    df: pandas.DataFrame, crop_names: tuple[str, ...]
+def subset_to_commodity_ids(
+    commodity_ids: tuple[taxonomy.CommodityId, ...], df: pandas.DataFrame
 ) -> pandas.DataFrame:
-    ret = df[df.index.get_level_values("commodity_name").isin(crop_names)]
+    ret = df[df.index.get_level_values("commodity_id").isin(commodity_ids)]
     missing = sorted(
-        set(crop_names) - set(map(str, ret.index.get_level_values("commodity_name")))
+        set(commodity_ids) - set(map(int, ret.index.get_level_values("commodity_id")))
     )
     if missing:
         logger.warning(f"Workflow returned no rows for {missing=}")
@@ -113,18 +134,18 @@ def subset_to_crop_names(
 
 
 def iter_dfs(
-    iso_3166_to_crop_names: dict[str, tuple[str, ...]],
+    iso_3166_to_commodity_ids: dict[str, tuple[taxonomy.CommodityId, ...]],
     methodology: attribute.Methodology,
 ) -> collections.abc.Iterator[pandas.DataFrame]:
     # The full commodity list, so this reuses the caches an ordinary trace.py run populates
     workflow_commodity_names = attribute.get_commodity_names(methodology=methodology)
-    for iso_3166, crop_names in iso_3166_to_crop_names.items():
+    for iso_3166, commodity_ids in iso_3166_to_commodity_ids.items():
         logger.info(
             f"Tracing {methodology.name:s}/{iso_3166:s} with "
-            f"{len(workflow_commodity_names):d} commodities, tabulating {len(crop_names):d}"
+            f"{len(workflow_commodity_names):d} commodities, tabulating {len(commodity_ids):d}"
         )
-        yield subset_to_crop_names(
-            crop_names=crop_names,
+        yield subset_to_commodity_ids(
+            commodity_ids=commodity_ids,
             df=trace.workflow(
                 commodity_names=workflow_commodity_names,
                 iso_3166s=(iso_3166,),
@@ -136,15 +157,13 @@ def iter_dfs(
 def iter_path_record(
     df: pandas.DataFrame,
 ) -> collections.abc.Generator[tuple[tuple[str, ...], Record]]:
-    for commodity_name, crop_df in df.reset_index(drop=False).groupby(
-        by="commodity_name"
-    ):
+    for commodity_id, crop_df in df.reset_index(drop=False).groupby(by="commodity_id"):
         nationals = crop_df[
             crop_df.admin_level == worldbank_jurisdictions.AdminLevel.NATIONAL.name
         ]
         for national_name, national_df in nationals.groupby(by="jurisdiction_name"):
             record = Record.from_dataframe(df=national_df)
-            yield (record.crop_description, national_name), record
+            yield (record.commodity_name, national_name), record
             provincials = crop_df[
                 (
                     crop_df.admin_level
@@ -157,13 +176,13 @@ def iter_path_record(
             ):
                 if provincial_name in PROVINCE_NAME_BLOCKLIST:
                     logger.warning(
-                        f"Skipping {commodity_name=:s}/{provincial_name=:s} because it is blocklisted"
+                        f"Skipping {commodity_id=:d}/{provincial_name=:s} because it is blocklisted"
                     )
                     continue
                 else:
                     record = Record.from_dataframe(df=provincial_df)
                     yield (
-                        (record.crop_description, *provincial_name.split(" | ")),
+                        (record.commodity_name, *provincial_name.split(" | ")),
                         record,
                     )
 
@@ -176,7 +195,7 @@ def write_data_to_graph(
     with zipfile.ZipFile(buffer, compression=zipfile.ZIP_DEFLATED, mode="w") as zf:
         for df in dfs:
             for path_tokens, record in iter_path_record(df=df):
-                arcname = "/".join((*path_tokens, record.crop_description + ".csv"))
+                arcname = "/".join((*path_tokens, record.commodity_name + ".csv"))
                 zf.writestr(arcname, record.csv)
 
     with tempfile.NamedTemporaryFile(delete=False, mode="wb", suffix=".zip") as fp:
@@ -194,11 +213,11 @@ def main() -> int:
         dfs=[
             pandas.concat(
                 iter_dfs(
-                    iso_3166_to_crop_names=iso_3166_to_crop_names,
+                    iso_3166_to_commodity_ids=iso_3166_to_commodity_ids,
                     methodology=methodology,
                 )
             )
-            for methodology, iso_3166_to_crop_names in METHODOLOGY_TO_ISO_3166_TO_CROP_NAMES.items()
+            for methodology, iso_3166_to_commodity_ids in METHODOLOGY_TO_ISO_3166_TO_COMMODITY_IDS.items()
         ]
     )
 

@@ -76,6 +76,7 @@ name = "ETL"
 type = "layers"
 layers = [
     "jdluc.trace",
+    "jdluc.taxonomy",
     "jdluc.attribute",
     "jdluc.jurisdictional_direct | jdluc.statistical",
     "jdluc.emit",
@@ -95,6 +96,7 @@ source_modules = [
 ]
 forbidden_modules = [
     "jdluc.attribute",
+    "jdluc.taxonomy",
     "jdluc.emit",
     "jdluc.harmonize",
     "jdluc.ingest",
@@ -112,6 +114,7 @@ source_modules = [
 ]
 forbidden_modules = [
     "jdluc.attribute",
+    "jdluc.taxonomy",
     "jdluc.emit",
     "jdluc.harmonize",
     "jdluc.ingest",

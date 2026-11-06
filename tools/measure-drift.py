@@ -13,8 +13,9 @@ summary flags byte-identical parquets, and jdluc.storage logs the URI each side 
 cache keys are in the run log. `--isolated` sidesteps it with a private SCRATCH_ROOT per side, at
 the price of the full pipeline rather than a cache read.
 
-Every commodity in the capture gets checked -- Target.commodity_names is the same
-attribute.get_commodity_names call that drives the capture, so the two cannot diverge. The cache
+Every commodity in the capture gets checked -- Target.commodity_ids is the same
+attribute.get_commodity_names call that drives the capture, mapped onto `taxonomy` codes, so the
+two cannot diverge. The cache
 key includes commodity_names, so asking for a subset would also cold-miss every layer an ordinary
 `uv run python jdluc/trace.py USA` populated; captures are one country at a time over the full
 per-methodology list. Scoring the same list means each sum drift is a true all-crop total, and
@@ -60,7 +61,7 @@ import typing
 
 import pandas
 
-from jdluc import attribute, config, storage, trace
+from jdluc import attribute, config, storage, taxonomy, trace
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ PROVINCIAL = "PROVINCIAL"
 KG_PER_TONNE = 1000
 # Two sides can be written with different index levels, so both are re-keyed onto this. admin_id
 # rather than jurisdiction_name: a machine identifier, where a display string could be renamed.
-CANONICAL_KEY = ("admin_level", "admin_id", "commodity_name", "methodology")
+CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
 # Columns this repo has renamed, old name to current. A baseline older than a rename writes the
 # old name, and this tool grades both sides with one vocabulary -- without which the two columns
 # would fail the "in both frames" guard and drop out of every check below unremarked.
@@ -222,11 +223,23 @@ class Target:
     iso_3166: str
 
     @property
-    def commodity_names(self) -> tuple[str, ...]:
+    def commodity_ids(self) -> tuple[int, ...]:
         # The same list the capture hands the pipeline, so what gets checked can never be less
         # than what ran.  A curated subset scores a partial sum, which moves whenever a crop
         # trades with a sibling outside it -- indistinguishable from mass being created.
-        return attribute.get_commodity_names(methodology=self.methodology)
+        commodity_name_to_commodity_id = (
+            taxonomy.METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[self.methodology]
+        )
+        return tuple(
+            sorted(
+                {
+                    int(commodity_name_to_commodity_id[commodity_name])
+                    for commodity_name in attribute.get_commodity_names(
+                        methodology=self.methodology
+                    )
+                }
+            )
+        )
 
     @property
     def slug(self) -> str:
@@ -305,18 +318,30 @@ def get_dirty_paths(cwd: pathlib.Path) -> list[str]:
 
 
 def load_capture(
-    directory: pathlib.Path, slug: str
+    directory: pathlib.Path, target: Target
 ) -> tuple[pandas.DataFrame, tuple[str, ...]]:
     """Read one side's parquet onto CANONICAL_KEY, whatever index it was written with.
 
     Whichever of admin_id and jurisdiction_name is not in the index is a column, so resetting and
-    re-keying realigns two sides written differently. Also returns the index each was *written*
-    with, since a schema difference and a value disagreement look identical once rows fail to line
-    up.
+    re-keying realigns two sides written differently. A side keyed by each leg's own commodity
+    names, from before `trace` keyed on `commodity_id`, is re-keyed the way `trace` does it, with
+    its ratios derived again over the rows that were added together. Also returns the index each
+    was *written* with, since a schema difference and a value disagreement look identical once rows
+    fail to line up.
     """
+    slug = target.slug
     raw = pandas.read_parquet(directory / f"{slug:s}.parquet")
     written = tuple(str(name) for name in raw.index.names if name is not None)
     df = raw.reset_index().rename(columns=RENAMED_COLUMNS)
+    if "commodity_id" not in df.columns:
+        df = trace.attach_ratios(
+            df=trace.with_commodity_ids(
+                df=df.set_index(
+                    ["admin_level", "admin_id", "commodity_name", "methodology"]
+                ),
+                methodology=target.methodology,
+            )
+        ).reset_index()
     missing = [name for name in CANONICAL_KEY if name not in df.columns]
     assert not missing, (
         f"{slug:s} in {directory} lacks {missing}; is it the schema you think it is?"
@@ -326,7 +351,7 @@ def load_capture(
 
 def check_alignment(
     baseline: pandas.DataFrame,
-    commodity_names: tuple[str, ...],
+    commodity_ids: tuple[int, ...],
     head: pandas.DataFrame,
     slug: str,
     written: tuple[tuple[str, ...], tuple[str, ...]],
@@ -367,7 +392,7 @@ def check_alignment(
             )
         # A target that silently stopped existing would otherwise be reported as nothing at all
         if absent := sorted(
-            set(commodity_names) - set(df.index.get_level_values("commodity_name"))
+            set(commodity_ids) - set(df.index.get_level_values("commodity_id"))
         ):
             findings.append(
                 Finding(
@@ -419,15 +444,15 @@ def print_worst_rows(
     for value, column, row, before_value, after_value in sorted(records, reverse=True)[
         :limit
     ]:
-        admin_id, commodity_name = row[1], row[2]
+        admin_id, commodity_id = row[1], row[2]
         print(
-            f"      {commodity_name!s:<16}{admin_id!s:<9}{column:<34}"
+            f"      {commodity_id!s:<16}{admin_id!s:<9}{column:<34}"
             f"{before_value:>13.5g}{after_value:>13.5g}{value:>11.3e}"
         )
 
 
 def check_excluded_crops(
-    baseline: pandas.DataFrame, crops: list[str], head: pandas.DataFrame, rtol: float
+    baseline: pandas.DataFrame, crops: list[int], head: pandas.DataFrame, rtol: float
 ) -> list[Finding]:
     """Say what the hardcoded crop filter left unchecked, and whether it moved.
 
@@ -441,11 +466,11 @@ def check_excluded_crops(
         # Per frame, because the two sides need not hold the same rows: a change that adds a row
         # -- pastureland becoming a commodity of its own -- makes one side longer than the other,
         # and a mask built on the baseline cannot index the head
-        return df[~df.index.get_level_values("commodity_name").isin(crops)]
+        return df[~df.index.get_level_values("commodity_id").isin(crops)]
 
     left, right = get_outside(baseline), get_outside(head)
     shared = left.index.intersection(right.index)
-    excluded = sorted(set(left.index.get_level_values("commodity_name")))
+    excluded = sorted(set(left.index.get_level_values("commodity_id")))
     if not len(shared) or not excluded:
         return []
     worst, where, flips, blind = 0.0, "", 0, 0
@@ -461,7 +486,7 @@ def check_excluded_crops(
             blind += 1
         elif float(relative.max()) > worst:
             row = typing.cast(tuple[str, ...], relative.idxmax())
-            worst, where = float(relative.max()), f"{column:s} {row[2]:s}/{row[1]:s}"
+            worst, where = float(relative.max()), f"{column:s} {row[2]!s}/{row[1]:s}"
     # Three distinct outcomes, and the first two used to print alike: something moved, nothing was
     # comparable, and everything was comparable and sat exactly still
     measured = (
@@ -482,7 +507,7 @@ def check_excluded_crops(
         Finding(
             message=(
                 f"{len(excluded):d} crop(s) outside the checked set moved where nothing "
-                f"checked them: {measured:s}, plus {flips:d} NaN flip(s). Target.commodity_names "
+                f"checked them: {measured:s}, plus {flips:d} NaN flip(s). Target.commodity_ids "
                 "should cover every crop the capture holds, so this means they diverged"
             ),
             severity=Severity.ADVISORY,
@@ -517,9 +542,9 @@ def check_value_drift(
     Filtered to the hardcoded crops, which is what that subset is for; alignment ran over the
     whole table.
     """
-    crops = list(target.commodity_names)
-    left_all = baseline[baseline.index.get_level_values("commodity_name").isin(crops)]
-    right_all = head[head.index.get_level_values("commodity_name").isin(crops)]
+    crops = list(target.commodity_ids)
+    left_all = baseline[baseline.index.get_level_values("commodity_id").isin(crops)]
+    right_all = head[head.index.get_level_values("commodity_id").isin(crops)]
     shared = left_all.index.intersection(right_all.index)
     columns = sorted(
         set(left_all.select_dtypes("number").columns)
@@ -611,15 +636,13 @@ def check_sum_drift(
     def nationals(df: pandas.DataFrame) -> pandas.DataFrame:
         return df[
             (df.index.get_level_values("admin_level") == NATIONAL)
-            & df.index.get_level_values("commodity_name").isin(
-                list(target.commodity_names)
-            )
+            & df.index.get_level_values("commodity_id").isin(list(target.commodity_ids))
         ]
 
     left, right = nationals(baseline), nationals(head)
     print(
         f"\n  {target.slug:s}: {len(left):d} vs {len(right):d} national row(s) over "
-        f"{len(target.commodity_names):d} hardcoded crop(s)"
+        f"{len(target.commodity_ids):d} hardcoded crop(s)"
     )
     print(f"    {'column':<34}{'baseline':>15}{'head':>15}{'delta':>14}{'rel':>11}")
     totals = [
@@ -688,8 +711,8 @@ def check_invariants(df: pandas.DataFrame) -> dict[Invariant, str]:
 
     broken: dict[Invariant, str] = {}
     levels = df.index.get_level_values("admin_level")
-    national = df[levels == NATIONAL].reset_index().set_index("commodity_name")
-    provincial = df[levels == PROVINCIAL].reset_index().groupby("commodity_name")
+    national = df[levels == NATIONAL].reset_index().set_index("commodity_id")
+    provincial = df[levels == PROVINCIAL].reset_index().groupby("commodity_id")
     columns = [column for column in trace.ADDITIVE_COLUMNS if column in df.columns]
 
     rollup = {
@@ -774,7 +797,7 @@ def compare_invariants(
 class LegAgreement:
     """How far apart the two attribution legs price one crop, at one commit."""
 
-    commodity_name: str
+    commodity_id: int
     statistical: float
     jurisdictional_direct: float
 
@@ -798,17 +821,17 @@ def check_leg_agreement(
         national = df[df.index.get_level_values("admin_level") == NATIONAL]
         priced = national[national["production_kg"] > 0]
         factor = priced["emissions_mt"] * KG_PER_TONNE / priced["production_kg"]
-        return factor.groupby(level="commodity_name").first()
+        return factor.groupby(level="commodity_id").first()
 
     left, right = factors(statistical), factors(jurisdictional_direct)
     return [
         LegAgreement(
-            commodity_name=str(commodity_name),
-            jurisdictional_direct=float(right[commodity_name]),
-            statistical=float(left[commodity_name]),
+            commodity_id=int(commodity_id),
+            jurisdictional_direct=float(right[commodity_id]),
+            statistical=float(left[commodity_id]),
         )
-        for commodity_name in sorted(set(left.index) & set(right.index))
-        if right[commodity_name]
+        for commodity_id in sorted(set(left.index) & set(right.index))
+        if right[commodity_id]
     ]
 
 
@@ -826,15 +849,15 @@ def compare_leg_agreement(
     if not head:
         print("  no crop is priced by both legs, so there is nothing to compare")
         return []
-    before = {agreement.commodity_name: agreement for agreement in baseline}
+    before = {agreement.commodity_id: agreement for agreement in baseline}
     print(
         f"  {'crop':<16}{'jurisdictional':>16}{'statistical':>14}{'ratio':>8}"
         f"{'was':>14}{'ratio':>8}"
     )
     for agreement in head:
-        was = before.get(agreement.commodity_name)
+        was = before.get(agreement.commodity_id)
         print(
-            f"  {agreement.commodity_name:<16}{agreement.jurisdictional_direct:>16.4f}"
+            f"  {agreement.commodity_id:<16}{agreement.jurisdictional_direct:>16.4f}"
             f"{agreement.statistical:>14.4f}{agreement.ratio:>8.2f}"
             + (
                 f"{was.statistical:>14.4f}{was.ratio:>8.2f}"
@@ -1062,7 +1085,7 @@ def compare_target(
     Alignment first, because everything after it assumes the rows line up.
     """
     pair = {
-        side: load_capture(directory=out / str(side), slug=target.slug)
+        side: load_capture(directory=out / str(side), target=target)
         for side in (Side.BASELINE, Side.HEAD)
     }
     left, right = pair[Side.BASELINE][0], pair[Side.HEAD][0]
@@ -1070,7 +1093,7 @@ def compare_target(
     print(f"\n=== {target.slug:s}: alignment ===")
     findings = check_alignment(
         baseline=left,
-        commodity_names=target.commodity_names,
+        commodity_ids=target.commodity_ids,
         head=right,
         slug=target.slug,
         written=(pair[Side.BASELINE][1], pair[Side.HEAD][1]),
@@ -1240,7 +1263,7 @@ def main() -> int:
             side: {
                 methodology: load_capture(
                     directory=out / str(side),
-                    slug=Target(iso_3166=iso_3166, methodology=methodology).slug,
+                    target=Target(iso_3166=iso_3166, methodology=methodology),
                 )[0]
                 for methodology in methodologies
             }

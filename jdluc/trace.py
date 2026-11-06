@@ -3,12 +3,13 @@
 Starting from the per-(admin, commodity) attribution rollup (`attribute.workflow`), determines
 each commodity's total production — the only step that depends on methodology:
   - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield (4-year mean).
-  - STATISTICAL: production = MAPSPAM production for crops, and GPW heads x FAOSTAT carcass
-    weight per head for livestock, carried straight through the attribute.
+  - STATISTICAL: production = MAPSPAM production for crops, carried straight through the
+    attribute, and the attribute's GPW heads x FAOSTAT carcass weight per head for livestock.
 
 It then derives, identically for both, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
-pandas.DataFrame indexed by (admin_level, admin_id, commodity_name, methodology).
+pandas.DataFrame indexed by (admin_level, admin_id, commodity_id, methodology), where
+`commodity_id` is a `taxonomy.CommodityId` and the `commodity_name` column holds its name.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -21,18 +22,19 @@ Example invocations:
 import argparse
 import collections.abc
 import logging
+import typing
 
 import pandas
 
-from jdluc import attribute, emit, storage
-from jdluc.datasets import usda_nass_quickstats, worldbank_jurisdictions
+from jdluc import attribute, emit, statistical, storage, taxonomy
+from jdluc.datasets import faostat, usda_nass_quickstats, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
 
 NASS_YIELD_YEARS = (2017, 2018, 2019, 2020)
 KG_PER_TONNE = 1000
-CANONICAL_KEY = ("admin_level", "admin_id", "commodity_name", "methodology")
+CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
 ADDITIVE_COLUMNS = (
     "commodity_hectares",
     "emissions_mt",
@@ -61,15 +63,78 @@ def derive_jurisdictional_production_kg(
     merged["production_kg"] = merged["commodity_hectares"] * merged["yield_kg_per_ha"]
     return (
         merged.drop(columns="yield_kg_per_ha")
-        .set_index(list(CANONICAL_KEY))
+        .set_index(emissions.index.names)
         .sort_index()
     )
 
 
-def derive_statistical_production_kg(emissions: pandas.DataFrame) -> pandas.DataFrame:
+def derive_statistical_production_kg(
+    emissions: pandas.DataFrame, stocks: pandas.DataFrame
+) -> pandas.DataFrame:
+    """A crop's production is MapSPAM's, carried through `attribute`. A herd's is its heads at
+    each snapshot times FAOSTAT's national carcass weight per standing head that year, reduced
+    over the window with the weights `statistical.get_discounted_snapshot_mean` gives a crop's.
+    """
+    livestock = stocks.reset_index()
+    # No meat in a year, or no herd in FAOSTAT, prices at 0
+    kg_per_head = (
+        (livestock["production_kg"] / livestock["stocks_head"])
+        .fillna(0)
+        .set_axis(
+            pandas.MultiIndex.from_frame(
+                livestock[["admin_id", "commodity_name", "year"]]
+            )
+        )
+    )
     ret = emissions.copy()
     ret["production_kg"] = ret["production_mt"] * KG_PER_TONNE
-    return ret.drop(columns="production_mt")
+    for livestock_commodity, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+        is_herd = (
+            ret.index.get_level_values("commodity_name") == livestock_commodity.name
+        )
+        iso_3166s = ret.index.get_level_values("admin_id")[is_herd].str[:3]
+        ret.loc[is_herd, "production_kg"] = sum(
+            weight
+            * ret.loc[is_herd, statistical.get_herd_heads_column(year=year)]
+            * kg_per_head.reindex(
+                fill_value=0,
+                index=pandas.MultiIndex.from_arrays(
+                    [
+                        iso_3166s,
+                        [species.name] * len(iso_3166s),
+                        [year] * len(iso_3166s),
+                    ]
+                ),
+            ).to_numpy()
+            for year, weight in statistical.SNAPSHOT_YEAR_TO_WEIGHT.items()
+        )
+    return ret.drop(columns=["production_mt", *statistical.HERD_HEADS_COLUMNS])
+
+
+def with_commodity_ids(
+    df: pandas.DataFrame, methodology: attribute.Methodology
+) -> pandas.DataFrame:
+    """Re-key rows named by the leg's own map onto `taxonomy.CommodityId`, adding together the rows
+    that share a code, such as arabica and robusta coffee.
+    """
+    commodity_name_to_commodity_id = (
+        taxonomy.METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[methodology]
+    )
+    flat = df.reset_index()
+    flat["commodity_id"] = [
+        int(commodity_name_to_commodity_id[commodity_name])
+        for commodity_name in flat["commodity_name"]
+    ]
+    grouped = flat.drop(columns="commodity_name").groupby(by=list(CANONICAL_KEY))
+    # min_count keeps a row with no production at all, such as one NASS has no yield for, at NaN
+    ret = grouped.sum(min_count=1, numeric_only=True).assign(
+        jurisdiction_name=grouped["jurisdiction_name"].first()
+    )
+    ret["commodity_name"] = [
+        taxonomy.COMMODITY_ID_TO_NAME[taxonomy.CommodityId(commodity_id)]
+        for commodity_id in ret.index.get_level_values("commodity_id")
+    ]
+    return ret
 
 
 def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
@@ -92,7 +157,8 @@ def iter_national_from_provincials(
     national_name: str,
     provincials: pandas.DataFrame,
 ) -> collections.abc.Iterator[dict[str, str | float]]:
-    for commodity_name, group in sorted(provincials.groupby(by="commodity_name")):
+    for key, group in sorted(provincials.groupby(by="commodity_id")):
+        commodity_id = taxonomy.CommodityId(typing.cast(int, key))
 
         def safe_div(numer: float, denom: float) -> float:
             return float("nan") if denom == 0 else numer / denom
@@ -103,7 +169,8 @@ def iter_national_from_provincials(
         }
         yield ret | {
             "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
-            "commodity_name": str(commodity_name),
+            "commodity_id": int(commodity_id),
+            "commodity_name": taxonomy.COMMODITY_ID_TO_NAME[commodity_id],
             "jurisdiction_name": national_name,
             "admin_id": iso_3166,
             "yield_kg_per_ha": safe_div(
@@ -129,15 +196,25 @@ def workflow(
         iso_3166s=iso_3166s,
         methodology=methodology,
     )
-    assert tuple(emissions.index.names) == CANONICAL_KEY
-    emissions_and_yields = (
+    assert emissions.index.names == [
+        "admin_level",
+        "admin_id",
+        "commodity_name",
+        "methodology",
+    ]
+    production = (
         derive_jurisdictional_production_kg(
             emissions=emissions, raw_yields=usda_nass_quickstats.load()
         )
         if methodology == attribute.Methodology.JURISDICTIONAL_DIRECT
-        else derive_statistical_production_kg(emissions=emissions)
+        else derive_statistical_production_kg(
+            emissions=emissions,
+            stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
+        )
     )
-    provincials = attach_ratios(df=emissions_and_yields)
+    provincials = attach_ratios(
+        df=with_commodity_ids(df=production, methodology=methodology)
+    )
     assert all(
         admin_level_name == worldbank_jurisdictions.AdminLevel.PROVINCIAL.name
         for admin_level_name in map(

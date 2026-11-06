@@ -2,6 +2,7 @@ import collections
 import collections.abc
 import enum
 import logging
+import math
 
 import numpy
 import pandas
@@ -77,6 +78,8 @@ assert set(LIVESTOCK_TO_SPECIES) == set(Livestock) - {Livestock.PASTURE}
 assert sum(len(species) for species in LIVESTOCK_TO_SPECIES.values()) == len(
     set(LIVESTOCK_TO_SPECIES.values())
 )
+# `trace` prices a commodity's herd at one species' carcass weight per head
+assert all(len(species) == 1 for species in LIVESTOCK_TO_SPECIES.values())
 
 assert {e.name for e in faostat.Species} == {e.name for e in gpw_livestock.Species}
 
@@ -368,6 +371,26 @@ MAPSPAM_SNAPSHOT_YEARS = tuple(
     sorted({year for span in SPAN_TO_MAPSPAM_SPAN.values() for year in span})
 )
 assert set(MAPSPAM_SNAPSHOT_YEARS).issubset(gpw_livestock.YEARS)
+# Each snapshot's weight in `get_discounted_snapshot_mean`
+SNAPSHOT_YEAR_TO_WEIGHT = {
+    year: sum(
+        weight / 2
+        for span, weight in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.items()
+        if year in SPAN_TO_MAPSPAM_SPAN[span]
+    )
+    / sum(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values())
+    for year in MAPSPAM_SNAPSHOT_YEARS
+}
+assert math.isclose(sum(SNAPSHOT_YEAR_TO_WEIGHT.values()), 1)
+
+
+def get_herd_heads_column(year: int) -> str:
+    return f"herd_heads_{year:d}"
+
+
+HERD_HEADS_COLUMNS = tuple(
+    get_herd_heads_column(year=year) for year in MAPSPAM_SNAPSHOT_YEARS
+)
 
 
 def get_discounted_snapshot_mean(
@@ -390,9 +413,9 @@ def get_commodity_name_to_totals(
         emit.SpanType, dict[Commodity, xarray.DataArray]
     ],
     span_to_commodity_to_share: dict[emit.SpanType, dict[Commodity, xarray.DataArray]],
-    species_to_year_to_kg_per_head: dict[gpw_livestock.Species, dict[int, float]],
 ) -> dict[str, dict[str, float]]:
-    """Each commodity's emissions, area and production, summed over a jurisdiction's cells.
+    """Each commodity's emissions and area, a crop's production and a herd's heads, summed over a
+    jurisdiction's cells.
 
     Both share mappings are keyed by MapSPAM span. Each emissions span uses the shares of the
     MapSPAM span that contains it (`SPAN_TO_MAPSPAM_SPAN`).
@@ -454,8 +477,8 @@ def get_commodity_name_to_totals(
         }
 
         # Peat occupation and production: a livestock commodity takes its grazing share of the
-        # pasture peat band and reports its herd's carcass weight; a crop takes its area share of
-        # the cropland peat band and reports MapSPAM's production
+        # pasture peat band and reports its herd; a crop takes its area share of the cropland peat
+        # band and reports MapSPAM's production
         if isinstance(commodity, Livestock):
             occupation = pastureland_occupation * occupation_shares[commodity]
             if commodity in LIVESTOCK_TO_SPECIES:
@@ -466,22 +489,14 @@ def get_commodity_name_to_totals(
                 # rangeland -- produce nothing. Counting production where the herd stands, as a
                 # crop's is counted where it grows, keeps it on the same animals the grazing split
                 # weighs.
-                year_to_kg_per_ha = {
-                    year: sum(
-                        (
-                            dset[gpw_livestock.get_band_name(species=one, year=year)]
-                            * species_to_year_to_kg_per_head[one][year]
-                            for one in sorted(LIVESTOCK_TO_SPECIES[commodity])
-                        ),
-                        start=xarray.DataArray(numpy.float32(0)),
-                    ).where(dset[f"pasture:fraction:{year:d}"] > 0, other=0)
+                (species,) = LIVESTOCK_TO_SPECIES[commodity]
+                totals |= {
+                    get_herd_heads_column(year=year): dset[
+                        gpw_livestock.get_band_name(species=species, year=year)
+                    ].where(dset[f"pasture:fraction:{year:d}"] > 0, other=0)
+                    * hectares
                     for year in MAPSPAM_SNAPSHOT_YEARS
                 }
-                totals["production_mt"] = (
-                    get_discounted_snapshot_mean(year_to_value=year_to_kg_per_ha)
-                    * hectares
-                    / faostat.KG_PER_TONNE
-                )
         else:
             occupation = cropland_occupation * occupation_shares[commodity]
             totals["production_mt"] = get_discounted_snapshot_mean(
@@ -565,7 +580,9 @@ def get_commodity_name_to_totals(
     # NB: the residual pasture row names no herd, so it carries no production and `trace` declines
     # to publish an emission factor for it rather than dividing by zero
     return {
-        name: {"production_mt": numpy.nan} | totals
+        name: {"production_mt": numpy.nan}
+        | dict.fromkeys(HERD_HEADS_COLUMNS, numpy.nan)
+        | totals
         for name, totals in utils.get_sum_totals(
             enum_to_name_to_darray=commodity_to_totals
         ).items()
@@ -617,7 +634,7 @@ SCHEMA = {
     "peatland_conversion_emissions_mt": float,
     "peatland_occupation_emissions_mt": float,
     "production_mt": float,
-}
+} | dict.fromkeys(HERD_HEADS_COLUMNS, float)
 
 
 @storage.cache_to_parquet(version=2)
@@ -647,7 +664,6 @@ def workflow(
         ),
     )
 
-    stocks = faostat.load(dataset=faostat.LIVESTOCK_DATASET)
     # Each grazer's livestock units per head, as FAOSTAT counts them for this country
     merged = merged.assign(
         get_band_name_to_livestock_units(
@@ -659,7 +675,7 @@ def workflow(
                     livestock_units=faostat.load(
                         dataset=faostat.LIVESTOCK_PATTERNS_DATASET
                     ),
-                    stocks=stocks,
+                    stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
                 ).items()
             },
         )
@@ -667,26 +683,6 @@ def workflow(
     # NB: usually we avoid dumping to local mmemory, but since this xarray is small there is no
     # OOM risk.  Doing so speeds up the many downstream reads for each jurisdiction
     merged = merged.load()
-
-    # National carcass weight per standing head. A year FAOSTAT reports no meat for gets a rate of
-    # 0, which is what `attribute` would make of a missing production anyway.
-    livestock = stocks.reset_index()
-    livestock = livestock[
-        (livestock["admin_id"] == iso_3166)
-        & livestock["year"].isin(MAPSPAM_SNAPSHOT_YEARS)
-    ]
-    kg_per_head = (livestock["production_kg"] / livestock["stocks_head"]).fillna(0)
-    species_to_year_to_kg_per_head = {
-        species: dict.fromkeys(MAPSPAM_SNAPSHOT_YEARS, 0.0)
-        for species in gpw_livestock.Species
-    }
-    for name, year, value in zip(
-        livestock["commodity_name"].astype(str),
-        livestock["year"].astype(int),
-        kg_per_head.astype(float),
-        strict=True,
-    ):
-        species_to_year_to_kg_per_head[gpw_livestock.Species[name]][year] = value
 
     def it() -> collections.abc.Iterator[dict[str, float | str]]:
         for (
@@ -743,7 +739,6 @@ def workflow(
                     ),
                     span_to_commodity_to_peatland_conversion_share=span_to_commodity_to_peatland_conversion_share,
                     span_to_commodity_to_share=span_to_commodity_to_share,
-                    species_to_year_to_kg_per_head=species_to_year_to_kg_per_head,
                 )
                 for commodity_name, totals in commodity_name_to_totals.items():
                     yield totals | {
