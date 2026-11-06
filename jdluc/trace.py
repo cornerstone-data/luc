@@ -207,7 +207,7 @@ def derive_proxy_production_kg(
     if unplaced.sum() > 0:
         logger.warning(
             f"{len(unplaced):d} FAOSTAT (country, item) production(s), "
-            f"{unplaced.sum() / KG_PER_TONNE**2:.3f} Mt in all, have no CROPGRIDS area to "
+            f"{unplaced.sum() / KG_PER_TONNE**2:.3f} kt in all, have no CROPGRIDS area to "
             f"split them by: {sorted(unplaced.index)}"
         )
 
