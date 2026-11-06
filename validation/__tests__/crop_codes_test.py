@@ -5,8 +5,11 @@ import pytest
 
 from jdluc import statistical
 from jdluc.attribute import Methodology
-from jdluc.datasets import ifpri_mapspam
-from jdluc.taxonomy import METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID, CommodityId
+from jdluc.datasets import faostat, ifpri_mapspam
+from jdluc.taxonomy import (
+    METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID,
+    InventedCommodityId,
+)
 from validation import prepare
 
 STATISTICAL_NAME_TO_COMMODITY_ID = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
@@ -24,7 +27,7 @@ STATISTICAL_NAME_TO_COMMODITY_ID = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID
     ids=lambda crop: crop.name.lower(),
 )
 def test_a_crop_with_its_own_item_keeps_its_own_code(crop: statistical.Crop) -> None:
-    commodity_id = CommodityId(STATISTICAL_NAME_TO_COMMODITY_ID[crop.name])
+    commodity_id = STATISTICAL_NAME_TO_COMMODITY_ID[crop.name]
     assert prepare.COMMODITY_ID_TO_CROP_CODE[commodity_id] == crop.value
 
 
@@ -56,7 +59,7 @@ def test_a_crop_with_its_own_item_keeps_its_own_code(crop: statistical.Crop) -> 
 def test_a_split_crop_is_compared_under_its_combined_code(
     crop: statistical.Crop, combined_crop_code: str
 ) -> None:
-    commodity_id = CommodityId(STATISTICAL_NAME_TO_COMMODITY_ID[crop.name])
+    commodity_id = STATISTICAL_NAME_TO_COMMODITY_ID[crop.name]
     assert prepare.COMMODITY_ID_TO_CROP_CODE[commodity_id] == combined_crop_code
     assert (
         prepare.SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE[crop.value] == combined_crop_code
@@ -74,7 +77,7 @@ def test_a_split_crop_is_compared_under_its_combined_code(
     ids=lambda crop: crop.name.lower(),
 )
 def test_faostat_items_match_taxonomy_codes(crop: statistical.Crop) -> None:
-    commodity_id = CommodityId(STATISTICAL_NAME_TO_COMMODITY_ID[crop.name])
+    commodity_id = STATISTICAL_NAME_TO_COMMODITY_ID[crop.name]
     assert prepare.FAOSTAT_ITEM_CODE_TO_CROP_CODE[commodity_id] == crop.value
 
 
@@ -82,12 +85,12 @@ def test_with_crop_codes_keeps_only_crop_rows() -> None:
     frame = pandas.DataFrame(
         {
             "commodity_id": [
-                CommodityId.MAIZE,
-                CommodityId.COFFEE_GREEN,
-                CommodityId.CATTLE_MEAT,
-                CommodityId.PASTURE,
-                CommodityId.DROPPED,
-                CommodityId.UNATTRIBUTED,
+                56,  # maize
+                656,  # coffee
+                faostat.SPECIES_TO_MEAT_ITEM_CODE[faostat.Species.CATTLE],
+                InventedCommodityId.PASTURE,
+                InventedCommodityId.DROPPED,
+                InventedCommodityId.UNATTRIBUTED,
             ]
         }
     ).astype({"commodity_id": int})

@@ -5,11 +5,12 @@ import pytest
 from jdluc.attribute import Methodology
 from jdluc.datasets.worldbank_jurisdictions import AdminLevel
 from jdluc.statistical import HERD_HEADS_COLUMNS
-from jdluc.taxonomy import CommodityId
+from jdluc.taxonomy import InventedCommodityId
 from jdluc.trace import (
     attach_ratios,
     derive_jurisdictional_production_kg,
     derive_statistical_production_kg,
+    get_commodity_id_to_name,
     iter_national_from_provincials,
     with_commodity_ids,
 )
@@ -138,7 +139,7 @@ def test_iter_national_from_provincials_single_province() -> None:
         [
             {
                 "commodity_hectares": 1,
-                "commodity_id": CommodityId.SOYA_BEANS.value,
+                "commodity_id": 236,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -159,8 +160,7 @@ def test_iter_national_from_provincials_single_province() -> None:
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
         "commodity_hectares": 1,
-        "commodity_id": CommodityId.SOYA_BEANS.value,
-        "commodity_name": "Soya beans",
+        "commodity_id": 236,
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 1,
         "forest_emissions_mt": 1,
@@ -181,7 +181,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
             {
                 "admin_id": "ADM_0",
                 "commodity_hectares": 1,
-                "commodity_id": CommodityId.MAIZE.value,
+                "commodity_id": 56,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -193,7 +193,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
             {
                 "admin_id": "ADM_0",
                 "commodity_hectares": 1,
-                "commodity_id": CommodityId.SOYA_BEANS.value,
+                "commodity_id": 236,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -205,7 +205,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
             {
                 "admin_id": "ADM_1",
                 "commodity_hectares": 1,
-                "commodity_id": CommodityId.MAIZE.value,
+                "commodity_id": 56,
                 "emissions_mt": 1,
                 "forest_emissions_mt": 1,
                 "grassland_emissions_mt": 1,
@@ -226,8 +226,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
         "commodity_hectares": 2,
-        "commodity_id": CommodityId.MAIZE.value,
-        "commodity_name": "Maize (corn)",
+        "commodity_id": 56,
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 2,
         "forest_emissions_mt": 2,
@@ -244,8 +243,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
         "commodity_hectares": 1,
-        "commodity_id": CommodityId.SOYA_BEANS.value,
-        "commodity_name": "Soya beans",
+        "commodity_id": 236,
         "emissions_factor_kgco2e_per_kg": 1000,
         "emissions_mt": 1,
         "forest_emissions_mt": 1,
@@ -485,15 +483,13 @@ def test_with_commodity_ids_adds_together_the_names_sharing_an_item() -> None:
     ).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
     result = with_commodity_ids(df=emissions, methodology=Methodology.STATISTICAL)
     assert result.to_dict(orient="index") == {
-        ("PROVINCIAL", "BRA001", CommodityId.MAIZE, "STATISTICAL"): {
+        ("PROVINCIAL", "BRA001", 56, "STATISTICAL"): {
             "commodity_hectares": 4.0,
-            "commodity_name": "Maize (corn)",
             "jurisdiction_name": "Acre",
             "production_kg": 40.0,
         },
-        ("PROVINCIAL", "BRA001", CommodityId.COFFEE_GREEN, "STATISTICAL"): {
+        ("PROVINCIAL", "BRA001", 656, "STATISTICAL"): {
             "commodity_hectares": 3.0,
-            "commodity_name": "Coffee, green",
             "jurisdiction_name": "Acre",
             "production_kg": 30.0,
         },
@@ -509,7 +505,24 @@ def test_with_commodity_ids_keeps_a_missing_yield_missing() -> None:
     )
     assert pandas.isna(
         result.loc[
-            ("PROVINCIAL", "USA016", CommodityId.WHEAT, "JURISDICTIONAL_DIRECT"),
+            ("PROVINCIAL", "USA016", 15, "JURISDICTIONAL_DIRECT"),
             "production_kg",
         ]
     )
+
+
+def test_get_commodity_id_to_name_takes_crops_from_the_table_and_the_rest_from_taxonomy() -> (
+    None
+):
+    crops = pandas.DataFrame(
+        {
+            "commodity_id": [56, 56, 236],
+            "commodity_name": ["Maize (corn)", "Maize (corn)", "Soya beans"],
+            "year": [2019, 2020, 2020],
+        }
+    ).set_index(["commodity_id", "year"])
+    commodity_id_to_name = get_commodity_id_to_name(crops=crops)
+    assert commodity_id_to_name[56] == "Maize (corn)"
+    assert commodity_id_to_name[236] == "Soya beans"
+    assert commodity_id_to_name[InventedCommodityId.DROPPED] == "DROPPED"
+    assert commodity_id_to_name[InventedCommodityId.ALFALFA] == "Alfalfa"

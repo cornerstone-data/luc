@@ -9,7 +9,8 @@ each commodity's total production — the only step that depends on methodology:
 It then derives, identically for both, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
 pandas.DataFrame indexed by (admin_level, admin_id, commodity_id, methodology), where
-`commodity_id` is a `taxonomy.CommodityId` and the `commodity_name` column holds its name.
+`commodity_id` is a FAOSTAT item code or a `taxonomy.InventedCommodityId`, and the `commodity_name`
+column holds its name: FAOSTAT's, from its crop table, or `taxonomy`'s.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -114,8 +115,8 @@ def derive_statistical_production_kg(
 def with_commodity_ids(
     df: pandas.DataFrame, methodology: attribute.Methodology
 ) -> pandas.DataFrame:
-    """Re-key rows named by the leg's own map onto `taxonomy.CommodityId`, adding together the rows
-    that share a code, such as arabica and robusta coffee.
+    """Re-key rows named by the leg's own map onto `taxonomy`'s codes, adding together the rows that
+    share a code, such as arabica and robusta coffee.
     """
     commodity_name_to_commodity_id = (
         taxonomy.METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[methodology]
@@ -127,14 +128,26 @@ def with_commodity_ids(
     ]
     grouped = flat.drop(columns="commodity_name").groupby(by=list(CANONICAL_KEY))
     # min_count keeps a row with no production at all, such as one NASS has no yield for, at NaN
-    ret = grouped.sum(min_count=1, numeric_only=True).assign(
+    return grouped.sum(min_count=1, numeric_only=True).assign(
         jurisdiction_name=grouped["jurisdiction_name"].first()
     )
-    ret["commodity_name"] = [
-        taxonomy.COMMODITY_ID_TO_NAME[taxonomy.CommodityId(commodity_id)]
-        for commodity_id in ret.index.get_level_values("commodity_id")
-    ]
-    return ret
+
+
+def get_commodity_id_to_name(crops: pandas.DataFrame) -> dict[int, str]:
+    """Every code's name: FAOSTAT's for its crop items, from its crop table, and `taxonomy`'s for
+    the rest.
+    """
+    pairs = crops.reset_index()[["commodity_id", "commodity_name"]].drop_duplicates()
+    assert pairs["commodity_id"].is_unique
+    crop_id_to_name = dict(
+        zip(
+            map(int, pairs["commodity_id"]),
+            map(str, pairs["commodity_name"]),
+            strict=True,
+        )
+    )
+    assert not set(crop_id_to_name) & set(taxonomy.COMMODITY_ID_TO_NAME)
+    return crop_id_to_name | taxonomy.COMMODITY_ID_TO_NAME
 
 
 def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
@@ -157,8 +170,7 @@ def iter_national_from_provincials(
     national_name: str,
     provincials: pandas.DataFrame,
 ) -> collections.abc.Iterator[dict[str, str | float]]:
-    for key, group in sorted(provincials.groupby(by="commodity_id")):
-        commodity_id = taxonomy.CommodityId(typing.cast(int, key))
+    for commodity_id, group in sorted(provincials.groupby(by="commodity_id")):
 
         def safe_div(numer: float, denom: float) -> float:
             return float("nan") if denom == 0 else numer / denom
@@ -169,8 +181,7 @@ def iter_national_from_provincials(
         }
         yield ret | {
             "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
-            "commodity_id": int(commodity_id),
-            "commodity_name": taxonomy.COMMODITY_ID_TO_NAME[commodity_id],
+            "commodity_id": int(typing.cast(int, commodity_id)),
             "jurisdiction_name": national_name,
             "admin_id": iso_3166,
             "yield_kg_per_ha": safe_div(
@@ -237,7 +248,7 @@ def workflow(
             ],
         )
     )
-    return pandas.concat(
+    ret = pandas.concat(
         [
             provincials,
             pandas.DataFrame.from_records(iter_national).set_index(
@@ -245,6 +256,14 @@ def workflow(
             ),
         ]
     )
+    commodity_id_to_name = get_commodity_id_to_name(
+        crops=faostat.load(dataset=faostat.CROP_DATASET)
+    )
+    ret["commodity_name"] = [
+        commodity_id_to_name[int(commodity_id)]
+        for commodity_id in ret.index.get_level_values("commodity_id")
+    ]
+    return ret
 
 
 def main() -> int:

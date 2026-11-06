@@ -11,7 +11,7 @@ import zipfile
 import numpy
 import pandas
 
-from jdluc import attribute, taxonomy, trace
+from jdluc import attribute, trace
 from jdluc.datasets import worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
@@ -77,52 +77,54 @@ PROVINCE_NAME_BLOCKLIST = {
     "Brazil | Name Unknown",
 }
 
+# FAOSTAT items: 15 wheat, 27 rice, 56 maize, 83 sorghum, 156 sugar cane, 236 soya beans, 254 oil
+# palm fruit, 486 bananas and 489 plantains
 METHODOLOGY_TO_ISO_3166_TO_COMMODITY_IDS = {
     attribute.Methodology.JURISDICTIONAL_DIRECT: {
         "USA": (
-            taxonomy.CommodityId.MAIZE,
-            taxonomy.CommodityId.SOYA_BEANS,
-            taxonomy.CommodityId.WHEAT,
+            56,
+            236,
+            15,
         )
     },
     attribute.Methodology.STATISTICAL: {
         "BRA": (
-            taxonomy.CommodityId.MAIZE,
-            taxonomy.CommodityId.SOYA_BEANS,
-            taxonomy.CommodityId.OIL_PALM_FRUIT,
+            56,
+            236,
+            254,
         ),
         "BOL": (
-            taxonomy.CommodityId.SOYA_BEANS,
-            taxonomy.CommodityId.PLANTAINS,
-            taxonomy.CommodityId.BANANAS,
+            236,
+            489,
+            486,
         ),
-        "ARG": (taxonomy.CommodityId.SOYA_BEANS,),
-        "CAN": (taxonomy.CommodityId.SOYA_BEANS,),
-        "IDN": (taxonomy.CommodityId.OIL_PALM_FRUIT,),
-        "PNG": (taxonomy.CommodityId.OIL_PALM_FRUIT,),
-        "GHA": (taxonomy.CommodityId.RICE, taxonomy.CommodityId.WHEAT),
-        "VNM": (taxonomy.CommodityId.RICE, taxonomy.CommodityId.SORGHUM),
+        "ARG": (236,),
+        "CAN": (236,),
+        "IDN": (254,),
+        "PNG": (254,),
+        "GHA": (27, 15),
+        "VNM": (27, 83),
         "MYS": (
-            taxonomy.CommodityId.RICE,
-            taxonomy.CommodityId.SORGHUM,
-            taxonomy.CommodityId.OIL_PALM_FRUIT,
+            27,
+            83,
+            254,
         ),
         "CUB": (
-            taxonomy.CommodityId.SUGAR_CANE,
-            taxonomy.CommodityId.RICE,
-            taxonomy.CommodityId.BANANAS,
+            156,
+            27,
+            486,
         ),
         "ZAF": (
-            taxonomy.CommodityId.RICE,
-            taxonomy.CommodityId.WHEAT,
-            taxonomy.CommodityId.SORGHUM,
+            27,
+            15,
+            83,
         ),
     },
 }
 
 
 def subset_to_commodity_ids(
-    commodity_ids: tuple[taxonomy.CommodityId, ...], df: pandas.DataFrame
+    commodity_ids: tuple[int, ...], df: pandas.DataFrame
 ) -> pandas.DataFrame:
     ret = df[df.index.get_level_values("commodity_id").isin(commodity_ids)]
     missing = sorted(
@@ -134,7 +136,7 @@ def subset_to_commodity_ids(
 
 
 def iter_dfs(
-    iso_3166_to_commodity_ids: dict[str, tuple[taxonomy.CommodityId, ...]],
+    iso_3166_to_commodity_ids: dict[str, tuple[int, ...]],
     methodology: attribute.Methodology,
 ) -> collections.abc.Iterator[pandas.DataFrame]:
     # The full commodity list, so this reuses the caches an ordinary trace.py run populates

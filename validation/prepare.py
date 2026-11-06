@@ -760,36 +760,36 @@ def read_efs() -> pandas.DataFrame | None:
 # FAOSTAT has one item each for coffee and millet where MapSPAM 2005 onward has two, so those two
 # take MapSPAM 2000's combined codes.
 COMMODITY_ID_TO_CROP_CODE = {
-    taxonomy.CommodityId.BANANAS: statistical.Crop.BANANA.value,
-    taxonomy.CommodityId.BARLEY: statistical.Crop.BARLEY.value,
-    taxonomy.CommodityId.BEANS_DRY: statistical.Crop.BEAN.value,
-    taxonomy.CommodityId.CASSAVA: statistical.Crop.CASSAVA.value,
-    taxonomy.CommodityId.CHICK_PEAS: statistical.Crop.CHICKPEA.value,
-    taxonomy.CommodityId.COCONUTS: statistical.Crop.COCONUT.value,
-    taxonomy.CommodityId.COFFEE_GREEN: ifpri_mapspam.Crop2000.COFF.name,
-    taxonomy.CommodityId.COW_PEAS: statistical.Crop.COWPEA.value,
-    taxonomy.CommodityId.GROUNDNUTS: statistical.Crop.GROUNDNUT.value,
-    taxonomy.CommodityId.LENTILS: statistical.Crop.LENTIL.value,
-    taxonomy.CommodityId.MAIZE: statistical.Crop.MAIZE.value,
-    taxonomy.CommodityId.MILLET: ifpri_mapspam.Crop2000.MILL.name,
-    taxonomy.CommodityId.OIL_PALM_FRUIT: statistical.Crop.OILPALM.value,
-    taxonomy.CommodityId.OTHER_OILCROPS: statistical.Crop.OTHER_OILCROPS.value,
-    taxonomy.CommodityId.OTHER_PULSES: statistical.Crop.OTHER_PULSES.value,
-    taxonomy.CommodityId.PIGEON_PEAS: statistical.Crop.PIGEONPEA.value,
-    taxonomy.CommodityId.PLANTAINS: statistical.Crop.PLANTAIN.value,
-    taxonomy.CommodityId.POTATOES: statistical.Crop.POTATO.value,
-    taxonomy.CommodityId.RAPE_OR_COLZA_SEED: statistical.Crop.RAPESEED.value,
-    taxonomy.CommodityId.RICE: statistical.Crop.RICE.value,
-    taxonomy.CommodityId.SEED_COTTON: statistical.Crop.COTTON.value,
-    taxonomy.CommodityId.SESAME_SEED: statistical.Crop.SESAME_SEED.value,
-    taxonomy.CommodityId.SORGHUM: statistical.Crop.SORGHUM.value,
-    taxonomy.CommodityId.SOYA_BEANS: statistical.Crop.SOYBEAN.value,
-    taxonomy.CommodityId.SUGAR_BEET: statistical.Crop.SUGARBEET.value,
-    taxonomy.CommodityId.SUGAR_CANE: statistical.Crop.SUGARCANE.value,
-    taxonomy.CommodityId.SUNFLOWER_SEED: statistical.Crop.SUNFLOWER.value,
-    taxonomy.CommodityId.SWEET_POTATOES: statistical.Crop.SWEET_POTATO.value,
-    taxonomy.CommodityId.WHEAT: statistical.Crop.WHEAT.value,
-    taxonomy.CommodityId.YAMS: statistical.Crop.YAM.value,
+    486: statistical.Crop.BANANA.value,
+    44: statistical.Crop.BARLEY.value,
+    176: statistical.Crop.BEAN.value,
+    125: statistical.Crop.CASSAVA.value,
+    191: statistical.Crop.CHICKPEA.value,
+    249: statistical.Crop.COCONUT.value,
+    656: ifpri_mapspam.Crop2000.COFF.name,
+    195: statistical.Crop.COWPEA.value,
+    242: statistical.Crop.GROUNDNUT.value,
+    201: statistical.Crop.LENTIL.value,
+    56: statistical.Crop.MAIZE.value,
+    79: ifpri_mapspam.Crop2000.MILL.name,
+    254: statistical.Crop.OILPALM.value,
+    taxonomy.InventedCommodityId.OTHER_OILCROPS: statistical.Crop.OTHER_OILCROPS.value,
+    taxonomy.InventedCommodityId.OTHER_PULSES: statistical.Crop.OTHER_PULSES.value,
+    197: statistical.Crop.PIGEONPEA.value,
+    489: statistical.Crop.PLANTAIN.value,
+    116: statistical.Crop.POTATO.value,
+    270: statistical.Crop.RAPESEED.value,
+    27: statistical.Crop.RICE.value,
+    328: statistical.Crop.COTTON.value,
+    289: statistical.Crop.SESAME_SEED.value,
+    83: statistical.Crop.SORGHUM.value,
+    236: statistical.Crop.SOYBEAN.value,
+    157: statistical.Crop.SUGARBEET.value,
+    156: statistical.Crop.SUGARCANE.value,
+    267: statistical.Crop.SUNFLOWER.value,
+    122: statistical.Crop.SWEET_POTATO.value,
+    15: statistical.Crop.WHEAT.value,
+    137: statistical.Crop.YAM.value,
 }
 assert set(COMMODITY_ID_TO_CROP_CODE) == {
     taxonomy.METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
@@ -873,7 +873,7 @@ def with_crop_codes(frame: pandas.DataFrame) -> pandas.DataFrame:
     """
     crops = frame[frame["commodity_id"].isin(COMMODITY_ID_TO_CROP_CODE)].copy()
     crops["crop_code"] = [
-        COMMODITY_ID_TO_CROP_CODE[taxonomy.CommodityId(commodity_id)]
+        COMMODITY_ID_TO_CROP_CODE[int(commodity_id)]
         for commodity_id in crops["commodity_id"]
     ]
     return crops
