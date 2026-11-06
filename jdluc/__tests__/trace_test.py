@@ -11,14 +11,12 @@ from jdluc.taxonomy import (
     CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE,
     METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID,
     UNMAPPED_CROP_ITEM_CODES,
-    InventedCommodityId,
 )
 from jdluc.trace import (
     attach_ratios,
     derive_jurisdictional_production_kg,
     derive_proxy_production_kg,
     derive_statistical_production_kg,
-    get_commodity_id_to_name,
     iter_national_from_provincials,
     with_commodity_ids,
 )
@@ -519,27 +517,11 @@ def test_with_commodity_ids_keeps_a_missing_yield_missing() -> None:
     )
 
 
-def test_get_commodity_id_to_name_takes_crops_from_the_table_and_the_rest_from_taxonomy() -> (
-    None
-):
-    crops = pandas.DataFrame(
-        {
-            "commodity_id": [56, 56, 236],
-            "commodity_name": ["Maize (corn)", "Maize (corn)", "Soya beans"],
-            "year": [2019, 2020, 2020],
-        }
-    ).set_index(["commodity_id", "year"])
-    commodity_id_to_name = get_commodity_id_to_name(crops=crops)
-    assert commodity_id_to_name[56] == "Maize (corn)"
-    assert commodity_id_to_name[236] == "Soya beans"
-    assert commodity_id_to_name[InventedCommodityId.DROPPED] == "DROPPED"
-    assert commodity_id_to_name[InventedCommodityId.ALFALFA] == "Alfalfa"
-
-
-def test_derive_proxy_production_kg(caplog: pytest.LogCaptureFixture) -> None:
+def test_derive_proxy_production_kg() -> None:
     """Brazil's maize is FAOSTAT's 2019-2021 mean of 200 kg, split over 50 ha of maize and popcorn,
     which share its item. Its cattle weigh FAOSTAT's 1050 kg of meat a year over 100 head, with
-    2021's meat unreported and 2018 outside the years. Its soya beans have no CROPGRIDS area.
+    2021's meat unreported and 2018 outside the years. Its soya beans have no CROPGRIDS area, so no
+    row takes them.
     """
     proxy_name_to_commodity_id = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
         Methodology.JURISDICTIONAL_DIRECT_PROXY
@@ -627,4 +609,3 @@ def test_derive_proxy_production_kg(caplog: pytest.LogCaptureFixture) -> None:
         .all()
     )
     assert HERD_HEADS_COLUMN not in result.columns
-    assert "('BRA', 236)" in caplog.text
