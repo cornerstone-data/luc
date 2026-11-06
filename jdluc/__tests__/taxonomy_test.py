@@ -2,6 +2,7 @@ import pytest
 
 from jdluc import jurisdictional_direct, statistical
 from jdluc.attribute import Methodology
+from jdluc.datasets import tang_cropgrids
 from jdluc.taxonomy import METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID
 
 JURISDICTIONAL_DIRECT_NAME_TO_COMMODITY_ID = (
@@ -9,6 +10,9 @@ JURISDICTIONAL_DIRECT_NAME_TO_COMMODITY_ID = (
 )
 STATISTICAL_NAME_TO_COMMODITY_ID = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
     Methodology.STATISTICAL
+]
+PROXY_NAME_TO_COMMODITY_ID = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
+    Methodology.JURISDICTIONAL_DIRECT_PROXY
 ]
 
 
@@ -23,3 +27,36 @@ def test_jurisdictional_direct_codes_match_statistical_codes(
         JURISDICTIONAL_DIRECT_NAME_TO_COMMODITY_ID[crop.name]
         == STATISTICAL_NAME_TO_COMMODITY_ID[statistical.Crop[crop.name].name]
     )
+
+
+@pytest.mark.parametrize(
+    "crop",
+    [crop for crop in tang_cropgrids.Crop if crop.name in statistical.Crop.__members__],
+    ids=lambda crop: crop.name.lower(),
+)
+def test_proxy_codes_match_statistical_codes(crop: tang_cropgrids.Crop) -> None:
+    assert (
+        PROXY_NAME_TO_COMMODITY_ID[crop.name]
+        == STATISTICAL_NAME_TO_COMMODITY_ID[crop.name]
+    )
+
+
+def test_only_kapok_and_maize_share_a_proxy_code() -> None:
+    commodity_id_to_crop_names = {
+        commodity_id: {
+            crop.name
+            for crop in tang_cropgrids.Crop
+            if PROXY_NAME_TO_COMMODITY_ID[crop.name] == commodity_id
+        }
+        for commodity_id in {
+            PROXY_NAME_TO_COMMODITY_ID[crop.name] for crop in tang_cropgrids.Crop
+        }
+    }
+    assert {
+        commodity_id: crop_names
+        for commodity_id, crop_names in commodity_id_to_crop_names.items()
+        if len(crop_names) > 1
+    } == {
+        56: {tang_cropgrids.Crop.MAIZE.name, tang_cropgrids.Crop.POPCORN.name},
+        310: {tang_cropgrids.Crop.KAPOKFIBER.name, tang_cropgrids.Crop.KAPOKSEED.name},
+    }
