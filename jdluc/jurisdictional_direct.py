@@ -167,15 +167,12 @@ def workflow(
     )
     merged = merged.assign(
         {
-            f"{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
-                span_to_value={
-                    span: component_to_emissions[component]
-                    for span, component_to_emissions in emit.get_span_to_component_to_emissions(
-                        dset=merged
-                    ).items()
-                }
+            f"{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                conversion_year=merged["conversion-year"], darray=emissions
             )
-            for component in emit.EmissionComponent
+            for component, emissions in emit.get_component_to_emissions(
+                dset=merged
+            ).items()
         }
         | {
             "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(

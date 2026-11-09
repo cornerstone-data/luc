@@ -83,10 +83,6 @@ Conversion = emit.Conversion
 # The lookback opens at the assessment year less twenty, and nothing can have departed in that
 # first year -- a departure needs the year before it to compare against
 LOOKBACK_YEARS = emit.LOOKBACK_YEARS_RANGE[1:]
-# A conversion is charged to the span holding its year, and each span carries its own discount
-# weight, so colouring by span says what a continuous ramp could not: how heavily that pixel
-# counts. Sorted oldest first, and shaded light to dark with recency.
-SPANS = sorted(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
 
 
 # Hotter reads as more carbon released: forest sources red and orange, grassland tan and olive
@@ -199,47 +195,27 @@ def draw_conversion(ax: plt.Axes, layer: Layer, title: str) -> None:
     _style_geo_axes(ax, title, layer.extent)
 
 
-def span_artists() -> tuple[
-    matplotlib.colors.ListedColormap, matplotlib.colors.BoundaryNorm, list[Line2D]
-]:
-    """Discrete colormap keyed to the span index, plus legend handles reading oldest first."""
-    colours = matplotlib.colormaps["magma"](numpy.linspace(0.75, 0.2, len(SPANS)))
+def draw_conversion_year(
+    ax: plt.Axes, layer: Layer, title: str
+) -> matplotlib.image.AxesImage:
+    """Each converted pixel's year, one colour per year, darker as the discount weighs it more."""
+    colours = matplotlib.colormaps["magma"](
+        numpy.linspace(0.75, 0.2, len(LOOKBACK_YEARS))
+    )
     cmap = matplotlib.colors.ListedColormap(colours).with_extremes(bad=TRANSPARENT)
     norm = matplotlib.colors.BoundaryNorm(
-        [index - 0.5 for index in range(len(SPANS) + 1)], cmap.N
+        [*(year - 0.5 for year in LOOKBACK_YEARS), LOOKBACK_YEARS[-1] + 0.5], cmap.N
     )
-    handles = [
-        Line2D(
-            [],
-            [],
-            label=f"{before + 1:d}-{after:d}",
-            linestyle="",
-            marker="s",
-            markeredgecolor="none",
-            markerfacecolor=colours[index],
-            markersize=10,
-        )
-        for index, (before, after) in enumerate(SPANS)
-    ]
-    return cmap, norm, handles
-
-
-def draw_conversion_span(ax: plt.Axes, layer: Layer, title: str) -> None:
-    """Which five-year span each converted pixel was charged to; zero means it never converted."""
-    cmap, norm, _ = span_artists()
-    data = numpy.full(layer.data.shape, numpy.nan)
-    for index, (before, after) in enumerate(SPANS):
-        # Open below and closed above, exactly as `emit.get_span_to_charge` bins them
-        data = numpy.where((layer.data > before) & (layer.data <= after), index, data)
-    ax.imshow(
-        data,
+    im = ax.imshow(
+        numpy.where(numpy.isin(layer.data, LOOKBACK_YEARS), layer.data, numpy.nan),
         cmap=cmap,
         extent=layer.extent,
         interpolation="nearest",
         norm=norm,
         origin="upper",
     )
-    _style_geo_axes(ax, title, layer.extent)
+    _style_geo_axes(ax=ax, extent=layer.extent, title=title)
+    return im
 
 
 def draw_emissions(
@@ -375,11 +351,15 @@ def main() -> None:
     ax_sy0, ax_sy1 = fig.add_subplot(left[1, 0]), fig.add_subplot(left[1, 1])
     ax_em = fig.add_subplot(outer[0, 1])
 
-    draw_conversion_span(ax_lc0, conversion_year, "")
-    _, _, span_handles = span_artists()
-    ax_lc0.legend(
-        fontsize=7, framealpha=0.85, handles=span_handles, loc="lower left", ncol=2
+    im_year = draw_conversion_year(ax=ax_lc0, layer=conversion_year, title="")
+    # NB: inset where a legend would sit, so this panel keeps the size of the one beside it
+    year_bar = fig.colorbar(
+        im_year,
+        cax=ax_lc0.inset_axes((0.05, 0.1, 0.5, 0.04)),
+        orientation="horizontal",
+        ticks=(LOOKBACK_YEARS[0], *LOOKBACK_YEARS[4::5]),
     )
+    year_bar.ax.tick_params(labelsize=7)
     draw_conversion(ax_lc1, conversion, "")
     ax_lc1.legend(fontsize=7, framealpha=0.85, handles=legend_handles, loc="lower left")
 
