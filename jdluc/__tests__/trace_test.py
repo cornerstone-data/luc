@@ -111,10 +111,22 @@ RAW_YIELDS = pandas.DataFrame.from_records(
 ).set_index(["admin_level", "admin_id", "jurisdiction_name", "commodity_name", "year"])
 
 
+def test_derive_jurisdictional_production_kg_needs_every_year_of_its_window() -> None:
+    # The yields stop at 2020, so a window reaching 2021 has a year to average that NASS never gave
+    with pytest.raises(AssertionError, match="NASS yields are missing a year"):
+        derive_jurisdictional_production_kg(
+            emissions=JURISDICTIONAL_EMISSIONS,
+            raw_yields=RAW_YIELDS,
+            years=(2018, 2019, 2020, 2021),
+        )
+
+
 def test_derive_jurisdictional_production_kg_then_attach_ratios() -> None:
     result = attach_ratios(
         df=derive_jurisdictional_production_kg(
-            emissions=JURISDICTIONAL_EMISSIONS, raw_yields=RAW_YIELDS
+            emissions=JURISDICTIONAL_EMISSIONS,
+            raw_yields=RAW_YIELDS,
+            years=(2017, 2018, 2019, 2020),
         )
     )
     assert isinstance(result, pandas.DataFrame)
@@ -451,7 +463,9 @@ def test_derive_statistical_production_kg_prices_a_herd_at_each_snapshots_rate()
 def test_methodologies_share_a_schema() -> None:
     jurisdictional = attach_ratios(
         df=derive_jurisdictional_production_kg(
-            emissions=JURISDICTIONAL_EMISSIONS, raw_yields=RAW_YIELDS
+            emissions=JURISDICTIONAL_EMISSIONS,
+            raw_yields=RAW_YIELDS,
+            years=(2017, 2018, 2019, 2020),
         )
     )
     statistical = attach_ratios(
@@ -517,7 +531,9 @@ def test_with_commodity_ids_adds_together_the_names_sharing_an_item() -> None:
 def test_with_commodity_ids_keeps_a_missing_yield_missing() -> None:
     result = with_commodity_ids(
         df=derive_jurisdictional_production_kg(
-            emissions=JURISDICTIONAL_EMISSIONS, raw_yields=RAW_YIELDS
+            emissions=JURISDICTIONAL_EMISSIONS,
+            raw_yields=RAW_YIELDS,
+            years=(2017, 2018, 2019, 2020),
         ),
         methodology=Methodology.JURISDICTIONAL_DIRECT,
     )
@@ -609,7 +625,9 @@ def test_derive_proxy_production_kg() -> None:
     emissions = emissions.set_index(
         ["admin_level", "admin_id", "commodity_name", "methodology"]
     )
-    result = derive_proxy_production_kg(crops=crops, emissions=emissions, stocks=stocks)
+    result = derive_proxy_production_kg(
+        crops=crops, emissions=emissions, stocks=stocks, years=(2019, 2020, 2021)
+    )
     production_kg = result["production_kg"].droplevel(["admin_level", "methodology"])
     assert production_kg[("BRA001", "MAIZE")] == pytest.approx(120.0)
     assert production_kg[("BRA002", "MAIZE")] == pytest.approx(40.0)

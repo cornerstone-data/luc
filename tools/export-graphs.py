@@ -11,7 +11,7 @@ import zipfile
 import numpy
 import pandas
 
-from jdluc import attribute, trace
+from jdluc import attribute, emit, trace
 from jdluc.datasets import worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
@@ -149,6 +149,7 @@ def iter_dfs(
         yield subset_to_commodity_ids(
             commodity_ids=commodity_ids,
             df=trace.workflow(
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
                 commodity_names=workflow_commodity_names,
                 iso_3166s=(iso_3166,),
                 methodology=methodology,

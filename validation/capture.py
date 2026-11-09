@@ -39,7 +39,7 @@ import pathlib
 
 import pandas
 
-from jdluc import attribute, trace
+from jdluc import attribute, emit, trace
 from jdluc.datasets import worldbank_jurisdictions
 from validation import pull, schema, targets
 
@@ -166,8 +166,9 @@ def workflow(iso_3166s: tuple[str, ...], repo_root: pathlib.Path) -> pandas.Data
         )
         frames.append(
             trace.workflow(
-                concurrency=attribute.DEFAULT_CONCURRENCY,
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
                 commodity_names=commodity_names,
+                concurrency=attribute.DEFAULT_CONCURRENCY,
                 iso_3166s=wanted,
                 methodology=methodology,
             )

@@ -61,7 +61,7 @@ import typing
 
 import pandas
 
-from jdluc import attribute, config, storage, taxonomy, trace
+from jdluc import attribute, config, emit, storage, taxonomy, trace
 
 logger = logging.getLogger(__name__)
 
@@ -928,6 +928,7 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
         retired = {"skip_glad_crop_filter": False}
         parameters = inspect.signature(trace.workflow).parameters
         df = trace.workflow(
+            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
             commodity_names=commodity_names,
             concurrency=attribute.DEFAULT_CONCURRENCY,
             iso_3166s=(target.iso_3166,),
