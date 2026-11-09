@@ -33,7 +33,9 @@ DATASET_NAMES = (DatasetName.GPW_LIVESTOCK, DatasetName.TANG_CROPGRIDS_CROP_AREA
 HERD_HEADS_COLUMN = statistical.get_herd_heads_column(year=tang_cropgrids.YEAR)
 
 
-def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
+def get_name_to_band(
+    assessment_year: int, dset: xarray.Dataset
+) -> dict[str, xarray.DataArray]:
     """The 30 m bands this leg divides, each per hectare or a fraction of the pixel.
 
     Each emissions component is discounted by its pixel's conversion year and split by the land
@@ -42,7 +44,7 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
     """
     component_to_emissions = {
         component: emit.get_linear_discounted(
-            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+            assessment_year=assessment_year,
             conversion_year=dset["conversion-year"],
             darray=emissions,
         )
@@ -68,7 +70,7 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
         }
         | {
             "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(
-                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+                assessment_year=assessment_year,
                 conversion_year=dset["conversion-year"],
                 darray=dset["dropped-emissions:tco2e-per-ha"],
             )
@@ -88,7 +90,7 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
 
 
 @storage.cache_to_zarr(version=0)
-def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
+def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.Dataset:
     logger.info("Computing emissions on the GLAD grid")
     luc_and_emissions = geo.exact_merge(
         harmonize.workflow(
@@ -100,7 +102,7 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(assessment_year=emit.DEFAULT_ASSESSMENT_YEAR, tile_id=tile_id),
+        emit.workflow(assessment_year=assessment_year, tile_id=tile_id),
     )
 
     logger.info("Downsampling emissions from the GLAD grid to the CROPGRIDS grid")
@@ -118,7 +120,9 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
                 transform=grid.transform,
                 width=grid.resolution.x,
             )
-            for name, band in get_name_to_band(dset=luc_and_emissions).items()
+            for name, band in get_name_to_band(
+                assessment_year=assessment_year, dset=luc_and_emissions
+            ).items()
         }
     )
 
@@ -282,6 +286,7 @@ SCHEMA = {
 
 @storage.cache_to_parquet(version=0)
 def workflow(
+    assessment_year: int,
     commodity_names: tuple[str, ...],
     iso_3166: str,
     tile_id: str,
@@ -297,9 +302,11 @@ def workflow(
         for commodity in commodities
         if isinstance(commodity, tang_cropgrids.Crop)
     )
-    logger.info(f"Computing emissions for {commodities=:} and {tile_id=:s}")
+    logger.info(
+        f"Computing emissions for {commodities=:}, {assessment_year=:d} and {tile_id=:s}"
+    )
     merged = geo.exact_merge(
-        get_downscaled_luc_emissions(tile_id=tile_id),
+        get_downscaled_luc_emissions(assessment_year=assessment_year, tile_id=tile_id),
         harmonize.workflow(
             dataset_names=DATASET_NAMES,
             ignore_missing_tiles=True,

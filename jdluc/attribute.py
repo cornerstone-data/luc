@@ -74,7 +74,10 @@ def workflow(
                 assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
             )
         case Methodology.JURISDICTIONAL_DIRECT_PROXY:
-            workflow_for_tile = jurisdictional_direct_proxy.workflow
+            workflow_for_tile = functools.partial(
+                jurisdictional_direct_proxy.workflow,
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+            )
         case Methodology.STATISTICAL:
             workflow_for_tile = statistical.workflow
         case _:

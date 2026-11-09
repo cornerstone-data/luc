@@ -12,6 +12,7 @@ from jdluc.datasets.tang_cropgrids import YEAR as CROPGRIDS_YEAR
 from jdluc.datasets.tang_cropgrids import Crop
 from jdluc.emit import (
     CROPLAND,
+    DEFAULT_ASSESSMENT_YEAR,
     PASTURELAND,
     PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA,
     Conversion,
@@ -122,9 +123,10 @@ def test_get_name_to_band_splits_each_component_by_land_class(
     conversion: Conversion, is_peat: bool, name_to_expected: dict[str, float]
 ) -> None:
     name_to_band = get_name_to_band(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_pixel(
             conversion=conversion, grassland=float(Grassland.OTHER), is_peat=is_peat
-        )
+        ),
     )
     # Every other land class and component is charged nothing
     assert {
@@ -140,9 +142,10 @@ def test_get_name_to_band_charges_every_conversion_exactly_once(
     conversion: Conversion, is_peat: bool
 ) -> None:
     name_to_band = get_name_to_band(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_pixel(
             conversion=conversion, grassland=float(Grassland.OTHER), is_peat=is_peat
-        )
+        ),
     )
     charged = sum(name_to_band[name].item() for name in LAND_CLASS_COMPONENT_NAMES)
     assert charged == pytest.approx(0.0 if conversion == Conversion.NONE else 110.0)
@@ -160,9 +163,10 @@ def test_get_name_to_band_charges_every_conversion_exactly_once(
 )
 def test_get_name_to_band_pasture_fraction(grassland: float, expected: float) -> None:
     name_to_band = get_name_to_band(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_pixel(
             conversion=Conversion.NONE, grassland=grassland, is_peat=False
-        )
+        ),
     )
     assert name_to_band[f"pasture:fraction:{CROPGRIDS_YEAR:d}"].item() == expected
 
