@@ -71,8 +71,8 @@ TOOL_NAME = pathlib.Path(__file__).name
 # a tropical forest frontier, and tropical peat. Every added country multiplies capture cost, so
 # widen this deliberately -- and use --iso to work on a subset meanwhile. HND and NIC are the
 # cheap exception: both fall entirely inside the one ten-degree tile 20N_090W, and the expensive
-# layer -- statistical.get_downscaled_luc_emissions -- is keyed on tile_id alone, so whichever
-# of the two runs second pays for little beyond its province clips.
+# layer -- statistical.get_downscaled_luc_emissions -- is keyed on the tile and the assessment year
+# alone, so whichever of the two runs second pays for little beyond its province clips.
 #
 # Central America earns five slots because it carries every 2000 crop group ifpri_mapspam still
 # decomposes, and the weight sits in different groups either side of a border: 44% of Honduran

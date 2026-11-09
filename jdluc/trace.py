@@ -117,7 +117,9 @@ def get_herd_production_kg(
 
 
 def derive_statistical_production_kg(
-    emissions: pandas.DataFrame, stocks: pandas.DataFrame
+    emissions: pandas.DataFrame,
+    snapshot_year_to_weight: dict[int, float],
+    stocks: pandas.DataFrame,
 ) -> pandas.DataFrame:
     """A crop's production is MapSPAM's, carried through `attribute`. A herd's is its heads at
     each snapshot times FAOSTAT's national carcass weight per standing head that year, reduced
@@ -135,7 +137,7 @@ def derive_statistical_production_kg(
                 stocks=stocks,
                 years=(year,),
             )
-            for year, weight in statistical.SNAPSHOT_YEAR_TO_WEIGHT.items()
+            for year, weight in snapshot_year_to_weight.items()
         )
     return ret.drop(columns=["production_mt", *statistical.HERD_HEADS_COLUMNS])
 
@@ -340,6 +342,9 @@ def workflow(
         case attribute.Methodology.STATISTICAL:
             production = derive_statistical_production_kg(
                 emissions=emissions,
+                snapshot_year_to_weight=statistical.get_snapshot_year_to_weight(
+                    assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
+                ),
                 stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
             )
         case _:

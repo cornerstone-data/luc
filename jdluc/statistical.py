@@ -115,8 +115,8 @@ assert set(POOLED_COMPONENTS) == set(emit.EmissionComponent) - {
 }
 
 
-@storage.cache_to_zarr(version=2)
-def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
+@storage.cache_to_zarr(version=0)
+def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.Dataset:
     logger.info("Computing emissions on the GLAD grid")
     luc_and_emissions = geo.exact_merge(
         harmonize.workflow(
@@ -128,14 +128,14 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(assessment_year=emit.DEFAULT_ASSESSMENT_YEAR, tile_id=tile_id),
+        emit.workflow(assessment_year=assessment_year, tile_id=tile_id),
     )
 
     logger.info("Discounting emissions by component and splitting them by MapSPAM span")
     conversion_year = luc_and_emissions["conversion-year"]
     component_to_emissions = {
         component: emit.get_linear_discounted(
-            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+            assessment_year=assessment_year,
             conversion_year=conversion_year,
             darray=emissions,
         )
@@ -144,8 +144,18 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
         ).items()
     }
     derived_variable_names: list[str] = []
+    # NB: nothing departs in the lookback's opening year, so every other year can date a conversion
+    _, *conversion_years = emit.get_lookback_years_range(
+        assessment_year=assessment_year
+    )
     for before, after in MAPSPAM_SPANS:
-        in_span = (conversion_year > before) & (conversion_year <= after)
+        in_span = conversion_year.isin(
+            [
+                year
+                for year in conversion_years
+                if get_mapspam_span(year=year) == (before, after)
+            ]
+        )
         for component in POOLED_COMPONENTS:
             name = f"{component!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"
             luc_and_emissions[name] = component_to_emissions[component].where(
@@ -169,7 +179,7 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
     logger.info("Discounting the source carbon no destination claimed")
     name = "dropped-emissions:tco2e-per-ha"
     luc_and_emissions[name] = emit.get_linear_discounted(
-        assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+        assessment_year=assessment_year,
         conversion_year=conversion_year,
         darray=luc_and_emissions[name],
     )
@@ -380,34 +390,54 @@ def get_commodity_to_peatland_conversion_share(
     } | get_livestock_to_grazing_share(dset=dset, year=after)
 
 
-# A conversion takes the shares of the MapSPAM span holding its year, open below and closed above.
-# MapSPAM has no 2015 snapshot, so every conversion from 2011 to 2020 takes the one expansion
-# between 2010 and 2020.
 MAPSPAM_SPANS = ((2000, 2005), (2005, 2010), (2010, 2020))
-assert all(
-    sum(before < year <= after for before, after in MAPSPAM_SPANS) == 1
-    for year in emit.get_year_to_linear_discount_weight(
-        assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
-    )
-)
 MAPSPAM_SNAPSHOT_YEARS = tuple(
     sorted({year for span in MAPSPAM_SPANS for year in span})
 )
 assert set(MAPSPAM_SNAPSHOT_YEARS).issubset(gpw_livestock.YEARS)
-# Each snapshot's weight in `get_discounted_snapshot_mean`: every conversion year's discount weight,
-# split evenly between the two snapshots of the MapSPAM span holding that year
-SNAPSHOT_YEAR_TO_WEIGHT = {
-    snapshot_year: sum(
-        weight / 2
-        for year, weight in emit.get_year_to_linear_discount_weight(
-            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
-        ).items()
+
+
+def get_mapspam_span(year: int) -> tuple[int, int]:
+    """The MapSPAM span whose shares a conversion in `year` takes: the one holding it, open below
+    and closed above.
+
+    MapSPAM has no 2015 snapshot, so every conversion from 2011 to 2020 takes the one expansion
+    between 2010 and 2020, and it has none after 2020, so every later conversion takes it too.
+    """
+    *_, last_snapshot_year = MAPSPAM_SNAPSHOT_YEARS
+    (span,) = (
+        (before, after)
         for before, after in MAPSPAM_SPANS
-        if before < year <= after and snapshot_year in (before, after)
+        if before < min(year, last_snapshot_year) <= after
     )
-    for snapshot_year in MAPSPAM_SNAPSHOT_YEARS
-}
-assert math.isclose(sum(SNAPSHOT_YEAR_TO_WEIGHT.values()), 1)
+    return span
+
+
+def get_snapshot_year_to_weight(assessment_year: int) -> dict[int, float]:
+    """Each snapshot's weight in `get_discounted_snapshot_mean`: every conversion year's discount
+    weight, split evenly between the two snapshots of its MapSPAM span. A year after the last
+    snapshot gives its whole weight to that snapshot instead.
+    """
+    *_, last_snapshot_year = MAPSPAM_SNAPSHOT_YEARS
+    year_to_weight = emit.get_year_to_linear_discount_weight(
+        assessment_year=assessment_year
+    )
+    year_to_snapshot_years = {
+        year: (last_snapshot_year,)
+        if year > last_snapshot_year
+        else get_mapspam_span(year=year)
+        for year in year_to_weight
+    }
+    snapshot_year_to_weight = {
+        snapshot_year: sum(
+            weight / len(year_to_snapshot_years[year])
+            for year, weight in year_to_weight.items()
+            if snapshot_year in year_to_snapshot_years[year]
+        )
+        for snapshot_year in MAPSPAM_SNAPSHOT_YEARS
+    }
+    assert math.isclose(sum(snapshot_year_to_weight.values()), 1)
+    return snapshot_year_to_weight
 
 
 def get_herd_heads_column(year: int) -> str:
@@ -420,12 +450,13 @@ HERD_HEADS_COLUMNS = tuple(
 
 
 def get_discounted_snapshot_mean(
+    snapshot_year_to_weight: dict[int, float],
     year_to_value: dict[int, xarray.DataArray],
 ) -> xarray.DataArray:
     """A level -- area, production -- as a mean over the windows emissions are summed on."""
     return sum(
         (
-            SNAPSHOT_YEAR_TO_WEIGHT[year] * year_to_value[year]
+            snapshot_year_to_weight[year] * year_to_value[year]
             for year in MAPSPAM_SNAPSHOT_YEARS
         ),
         start=xarray.DataArray(numpy.float32(0)),
@@ -436,6 +467,7 @@ def get_commodity_name_to_totals(
     commodities: tuple[Commodity, ...],
     dset: xarray.Dataset,
     occupation_shares: dict[Commodity, xarray.DataArray],
+    snapshot_year_to_weight: dict[int, float],
     span_to_commodity_to_peatland_conversion_share: dict[
         tuple[int, int], dict[Commodity, xarray.DataArray]
     ],
@@ -527,6 +559,7 @@ def get_commodity_name_to_totals(
         else:
             occupation = cropland_occupation * occupation_shares[commodity]
             totals["production_mt"] = get_discounted_snapshot_mean(
+                snapshot_year_to_weight=snapshot_year_to_weight,
                 year_to_value={
                     year: ifpri_mapspam.get_canonical_quantity(
                         canonical_crop_name=commodity.value,
@@ -539,6 +572,7 @@ def get_commodity_name_to_totals(
             )
 
         totals["commodity_hectares"] = get_discounted_snapshot_mean(
+            snapshot_year_to_weight=snapshot_year_to_weight,
             year_to_value={
                 year: get_commodity_hectares(commodity=commodity, dset=dset, year=year)
                 for year in MAPSPAM_SNAPSHOT_YEARS
@@ -662,8 +696,9 @@ SCHEMA = {
 } | dict.fromkeys(HERD_HEADS_COLUMNS, float)
 
 
-@storage.cache_to_parquet(version=2)
+@storage.cache_to_parquet(version=0)
 def workflow(
+    assessment_year: int,
     commodity_names: tuple[str, ...],
     iso_3166: str,
     tile_id: str,
@@ -675,10 +710,15 @@ def workflow(
         for name in commodity_names
     )
     crops = tuple(commodity for commodity in commodities if isinstance(commodity, Crop))
-    logger.info(f"Computing emissions for {commodities=:} and {tile_id=:s}")
+    logger.info(
+        f"Computing emissions for {commodities=:}, {assessment_year=:d} and {tile_id=:s}"
+    )
+    snapshot_year_to_weight = get_snapshot_year_to_weight(
+        assessment_year=assessment_year
+    )
     merged = geo.exact_merge(
         # NB: this is deferred because it is expensive and would like to cache it
-        get_downscaled_luc_emissions(tile_id=tile_id),
+        get_downscaled_luc_emissions(assessment_year=assessment_year, tile_id=tile_id),
         # MAPSPAM
         harmonize.workflow(
             dataset_names=DATASET_NAMES,
@@ -762,6 +802,7 @@ def workflow(
                     | get_livestock_to_grazing_share(
                         dset=clipped, year=max(ifpri_mapspam.YEARS)
                     ),
+                    snapshot_year_to_weight=snapshot_year_to_weight,
                     span_to_commodity_to_peatland_conversion_share=span_to_commodity_to_peatland_conversion_share,
                     span_to_commodity_to_share=span_to_commodity_to_share,
                 )

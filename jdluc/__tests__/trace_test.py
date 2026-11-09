@@ -359,6 +359,12 @@ STATISTICAL_EMISSIONS = pandas.DataFrame.from_records(
         "herd_heads_2020",
     ],
 ).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
+
+
+# The 2020 assessment's snapshot weights
+SNAPSHOT_YEAR_TO_WEIGHT = {2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.375}
+
+
 # Brazil's cattle rate doubles each snapshot, and its sheep rate catches a herd priced as another
 # species. Paraguay reports meat for its herd only in 2020.
 STOCKS = pandas.DataFrame.from_records(
@@ -397,7 +403,9 @@ STOCKS = pandas.DataFrame.from_records(
 
 def test_derive_statistical_production_kg_stays_indexed() -> None:
     result = derive_statistical_production_kg(
-        emissions=STATISTICAL_EMISSIONS, stocks=STOCKS
+        emissions=STATISTICAL_EMISSIONS,
+        snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
+        stocks=STOCKS,
     )
     # regression guard: must return an indexed frame like its jurisdictional twin
     assert result.index.names == [
@@ -420,7 +428,9 @@ def test_derive_statistical_production_kg_prices_a_herd_at_each_snapshots_rate()
     None
 ):
     result = derive_statistical_production_kg(
-        emissions=STATISTICAL_EMISSIONS, stocks=STOCKS
+        emissions=STATISTICAL_EMISSIONS,
+        snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
+        stocks=STOCKS,
     )
     # 100 heads at 10, 20, 40 and 80 kg, weighted 3.125%, 12.5%, 46.875% and 37.5%
     assert result.loc[
@@ -446,7 +456,9 @@ def test_methodologies_share_a_schema() -> None:
     )
     statistical = attach_ratios(
         df=derive_statistical_production_kg(
-            emissions=STATISTICAL_EMISSIONS, stocks=STOCKS
+            emissions=STATISTICAL_EMISSIONS,
+            snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
+            stocks=STOCKS,
         )
     )
     assert set(jurisdictional.reset_index().columns) == set(

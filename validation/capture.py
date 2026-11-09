@@ -12,8 +12,8 @@ rule out.
 **Every commodity, not just the targets.** `attribute.get_commodity_names` fixes the commodity
 set per leg, so a capture covers every commodity the leg models rather than only the pairs
 `targets.json` names. It is cheaper than it looks:
-`statistical.get_downscaled_luc_emissions` is keyed on `tile_id` alone, so the expensive
-per-tile layer is shared and a crop adds only its share arithmetic.
+`statistical.get_downscaled_luc_emissions` is keyed on the tile and the assessment year alone, so
+the expensive per-tile layer is shared and a crop adds only its share arithmetic.
 
 **Merging is per (ISO, methodology), and rows keep their own `code_version`.** A capture scoped with
 `--isos` leaves other countries in place, so the artifact can span versions and a reader has to be

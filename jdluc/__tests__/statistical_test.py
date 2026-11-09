@@ -12,7 +12,6 @@ from jdluc.datasets import gpw_livestock, ifpri_mapspam
 from jdluc.statistical import (
     HERD_HEADS_COLUMNS,
     MAPSPAM_SPANS,
-    SNAPSHOT_YEAR_TO_WEIGHT,
     Commodity,
     Crop,
     Livestock,
@@ -22,6 +21,8 @@ from jdluc.statistical import (
     get_commodity_to_share,
     get_crop_to_area_share,
     get_livestock_to_grazing_share,
+    get_mapspam_span,
+    get_snapshot_year_to_weight,
 )
 
 AREA = ifpri_mapspam.Quantity.PHYSICAL_AREA
@@ -534,11 +535,41 @@ def test_get_canonical_quantity_conserves_the_group_total(group_name: str) -> No
 # those: a test that redoes the weighting can agree with a wrong implementation.
 
 
-def test_snapshot_year_to_weight() -> None:
-    assert (
-        pytest.approx({2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.375})
-        == SNAPSHOT_YEAR_TO_WEIGHT
+@pytest.mark.parametrize(
+    ("assessment_year", "expected"),
+    (
+        pytest.param(
+            2020,
+            {2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.375},
+            id="each year split between its span's snapshots",
+        ),
+        # 2005 alone splits between 2000 and 2005, and 2021-2024 give their 36% to 2020 whole
+        pytest.param(
+            2024,
+            {2000: 0.00125, 2005: 0.045, 2010: 0.31875, 2020: 0.635},
+            id="years after the last snapshot weigh on it alone",
+        ),
+    ),
+)
+def test_get_snapshot_year_to_weight(
+    assessment_year: int, expected: dict[int, float]
+) -> None:
+    assert pytest.approx(expected) == get_snapshot_year_to_weight(
+        assessment_year=assessment_year
     )
+
+
+@pytest.mark.parametrize(
+    ("year", "span"),
+    (
+        pytest.param(2001, (2000, 2005), id="spans are open below"),
+        pytest.param(2005, (2000, 2005), id="and closed above"),
+        pytest.param(2015, (2010, 2020), id="the decade without a 2015 snapshot"),
+        pytest.param(2024, (2010, 2020), id="years after the last snapshot"),
+    ),
+)
+def test_get_mapspam_span(year: int, span: tuple[int, int]) -> None:
+    assert get_mapspam_span(year=year) == span
 
 
 # The default for `get_name_to_totals`'s shares, read-only so every call can share it
@@ -599,6 +630,9 @@ def get_name_to_totals(
             }
         ),
         occupation_shares=get_shares(shares=occupation_shares),
+        snapshot_year_to_weight=get_snapshot_year_to_weight(
+            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
+        ),
         span_to_commodity_to_peatland_conversion_share=dict.fromkeys(
             MAPSPAM_SPANS, get_shares(shares=peatland_conversion_shares)
         ),

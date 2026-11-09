@@ -25,7 +25,6 @@ import argparse
 import collections.abc
 import concurrent.futures
 import enum
-import functools
 import logging
 
 import pandas
@@ -66,18 +65,11 @@ def workflow(
     iso_3166s: collections.abc.Iterable[str],
     methodology: Methodology,
 ) -> pandas.DataFrame:
-    workflow_for_tile: collections.abc.Callable[..., pandas.DataFrame]
     match methodology:
         case Methodology.JURISDICTIONAL_DIRECT:
-            workflow_for_tile = functools.partial(
-                jurisdictional_direct.workflow,
-                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
-            )
+            workflow_for_tile = jurisdictional_direct.workflow
         case Methodology.JURISDICTIONAL_DIRECT_PROXY:
-            workflow_for_tile = functools.partial(
-                jurisdictional_direct_proxy.workflow,
-                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
-            )
+            workflow_for_tile = jurisdictional_direct_proxy.workflow
         case Methodology.STATISTICAL:
             workflow_for_tile = statistical.workflow
         case _:
@@ -97,6 +89,7 @@ def workflow(
     def workflow_for_tile_id(tile_id: str) -> list[pandas.DataFrame]:
         return [
             workflow_for_tile(
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
                 commodity_names=commodity_names,
                 iso_3166=iso_3166,
                 tile_id=tile_id,
