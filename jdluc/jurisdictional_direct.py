@@ -39,7 +39,7 @@ class Crop(enum.Enum):
 
 DATASET_NAMES = (DatasetName.USDA_NASS_CDL,)
 CROP_CLASS_BAND_NAME = usda_nass_cdl.DATASET.fully_qualified_band_names[
-    usda_nass_cdl.YEARS.index(emit.ASSESSMENT_YEAR)
+    usda_nass_cdl.YEARS.index(emit.DEFAULT_ASSESSMENT_YEAR)
 ]
 
 
@@ -158,7 +158,7 @@ def workflow(
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(tile_id=tile_id),
+        emit.workflow(assessment_year=emit.DEFAULT_ASSESSMENT_YEAR, tile_id=tile_id),
         # CDL
         harmonize.workflow(
             dataset_names=DATASET_NAMES,
@@ -171,7 +171,9 @@ def workflow(
     merged = merged.assign(
         {
             f"{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted(
-                conversion_year=merged["conversion-year"], darray=emissions
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+                conversion_year=merged["conversion-year"],
+                darray=emissions,
             )
             for component, emissions in emit.get_component_to_emissions(
                 dset=merged
@@ -179,6 +181,7 @@ def workflow(
         }
         | {
             "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
                 conversion_year=merged["conversion-year"],
                 darray=merged["dropped-emissions:tco2e-per-ha"],
             )

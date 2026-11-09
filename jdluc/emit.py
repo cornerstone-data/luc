@@ -17,11 +17,10 @@ from `tiling.GLOBAL_NATURE_WATCH_TILE_IDS`.
 
 Example invocations:
   uv run python jdluc/emit.py USA
-  uv run python jdluc/emit.py --backfill
+  uv run python jdluc/emit.py --assessment-year 2024 --backfill
 """
 
 import argparse
-import collections.abc
 import dataclasses
 import enum
 import logging
@@ -228,19 +227,40 @@ def get_mineral_soil_emissions(
 
 
 LOOKBACK_YEARS = 20
-ASSESSMENT_YEAR = 2020
-LOOKBACK_YEARS_RANGE = tuple(
-    range(ASSESSMENT_YEAR - LOOKBACK_YEARS, ASSESSMENT_YEAR + 1)
-)
+# Bounded by the years the input datasets cover; see "Source datasets" in docs/methodology.md
+ASSESSMENT_YEARS = (2020, 2022, 2024)
+DEFAULT_ASSESSMENT_YEAR = 2020
+assert DEFAULT_ASSESSMENT_YEAR in ASSESSMENT_YEARS
 
-# The LSR Guidance's linear amortization factor for a conversion in each year (Table 7.11): 9.75% in
-# the assessment year, falling 0.5 points a year to 0.25% nineteen years before it
-YEAR_TO_LINEAR_DISCOUNT_WEIGHT: dict[int, float] = {
-    year: (39 - 2 * (ASSESSMENT_YEAR - year)) / 400
-    # NB: nothing can depart in the lookback's first year, which has no year before it to compare with
-    for year in LOOKBACK_YEARS_RANGE[1:]
-}
-assert math.isclose(sum(YEAR_TO_LINEAR_DISCOUNT_WEIGHT.values()), 1)
+
+def get_lookback_years_range(assessment_year: int) -> tuple[int, ...]:
+    assert assessment_year in ASSESSMENT_YEARS, f"{assessment_year=:d} is unsupported"
+    return tuple(range(assessment_year - LOOKBACK_YEARS, assessment_year + 1))
+
+
+def get_year_to_linear_discount_weight(assessment_year: int) -> dict[int, float]:
+    """The LSR Guidance's linear amortization factor for a conversion in each year (Table 7.11):
+    9.75% in the assessment year, falling 0.5 points a year to 0.25% nineteen years before it.
+    """
+    year_to_weight = {
+        year: (39 - 2 * (assessment_year - year)) / 400
+        # NB: nothing can depart in the lookback's first year, which has no year before it to
+        # compare with
+        for year in get_lookback_years_range(assessment_year=assessment_year)[1:]
+    }
+    assert math.isclose(sum(year_to_weight.values()), 1)
+    return year_to_weight
+
+
+assert all(
+    set(get_lookback_years_range(assessment_year=assessment_year)[1:])
+    <= set(gnw_tcl.LOSS_YEARS)
+    and set(get_lookback_years_range(assessment_year=assessment_year))
+    <= set(gpw_grassland.YEARS)
+    and assessment_year in liao_gaced30.YEARS
+    and assessment_year in fdap.YEARS
+    for assessment_year in ASSESSMENT_YEARS
+)
 
 
 class Conversion(enum.IntEnum):
@@ -289,45 +309,49 @@ class DestinationDataset(enum.IntFlag):
     GPW_GRASSLAND = enum.auto()
 
 
-DESTINATION_DATASET_TO_PREDICATE: dict[
-    DestinationDataset, collections.abc.Callable[[xarray.Dataset], xarray.DataArray]
-] = {
-    DestinationDataset.DESCALS_OIL_PALM: lambda dset: (
+class DestinationPredicate(typing.Protocol):
+    def __call__(
+        self, assessment_year: int, dset: xarray.Dataset
+    ) -> xarray.DataArray: ...
+
+
+DESTINATION_DATASET_TO_PREDICATE: dict[DestinationDataset, DestinationPredicate] = {
+    DestinationDataset.DESCALS_OIL_PALM: lambda assessment_year, dset: (
         # NB: zero is "no oil palm"
         (
             (planting_year := dset[descals_oil_palm.DATASET.fully_qualified_band_name])
             > 0
         )
-        & (planting_year <= ASSESSMENT_YEAR)
+        & (planting_year <= assessment_year)
     ),
-    DestinationDataset.FDAP_COCOA: lambda dset: (
+    DestinationDataset.FDAP_COCOA: lambda assessment_year, dset: (
         dset[
             fdap.COCOA_DATASET.fully_qualified_band_names[
-                fdap.YEARS.index(ASSESSMENT_YEAR)
+                fdap.YEARS.index(assessment_year)
             ]
         ]
         == 1
     ),
-    DestinationDataset.FDAP_COFFEE: lambda dset: (
+    DestinationDataset.FDAP_COFFEE: lambda assessment_year, dset: (
         dset[
             fdap.COFFEE_DATASET.fully_qualified_band_names[
-                fdap.YEARS.index(ASSESSMENT_YEAR)
+                fdap.YEARS.index(assessment_year)
             ]
         ]
         == 1
     ),
-    DestinationDataset.LIAO_GACED30: lambda dset: (
+    DestinationDataset.LIAO_GACED30: lambda assessment_year, dset: (
         dset[
             liao_gaced30.DATASET.fully_qualified_band_names[
-                liao_gaced30.YEARS.index(ASSESSMENT_YEAR)
+                liao_gaced30.YEARS.index(assessment_year)
             ]
         ]
         == liao_gaced30.Cropland.CROPLAND
     ),
-    DestinationDataset.GPW_GRASSLAND: lambda dset: (
+    DestinationDataset.GPW_GRASSLAND: lambda assessment_year, dset: (
         dset[
             gpw_grassland.DATASET.fully_qualified_band_names[
-                gpw_grassland.YEARS.index(ASSESSMENT_YEAR)
+                gpw_grassland.YEARS.index(assessment_year)
             ]
         ]
         == gpw_grassland.Grassland.CULTIVATED
@@ -355,7 +379,8 @@ PEATLAND_OCCUPATION = "peatland-occupation"
 def get_last_departure_year(is_source: xarray.DataArray) -> xarray.DataArray:
     """The last year a pixel left the class it held the year before, or 0 where it never did."""
     assert "year" in is_source.coords
-    assert tuple(is_source.year.values) == LOOKBACK_YEARS_RANGE
+    # NB: the shift compares each year with the one before, so no year may be missing
+    assert (numpy.diff(is_source.year.values) == 1).all()
     departed = is_source.shift(fill_value=False, year=1) & ~is_source
     return departed.year.where(departed).max(dim="year").fillna(0)
 
@@ -379,8 +404,12 @@ class ConversionRecord:
     year: xarray.DataArray
 
 
-def get_conversion_record(dset: xarray.Dataset) -> ConversionRecord:
+def get_conversion_record(
+    assessment_year: int, dset: xarray.Dataset
+) -> ConversionRecord:
     """Which conversion fired on each pixel, and the year its source class ended."""
+    lookback_years_range = get_lookback_years_range(assessment_year=assessment_year)
+    opening_year, *_ = lookback_years_range
     grassland = xarray.concat(
         [
             dset[band_name]
@@ -389,9 +418,9 @@ def get_conversion_record(dset: xarray.Dataset) -> ConversionRecord:
                 gpw_grassland.DATASET.fully_qualified_band_names,
                 strict=True,
             )
-            if year in LOOKBACK_YEARS_RANGE
+            if year in lookback_years_range
         ],
-        dim=xarray.DataArray(list(LOOKBACK_YEARS_RANGE), dims="year", name="year"),
+        dim=xarray.DataArray(list(lookback_years_range), dims="year", name="year"),
     )
 
     rangeland_departure_year = get_last_departure_year(
@@ -411,17 +440,18 @@ def get_conversion_record(dset: xarray.Dataset) -> ConversionRecord:
     from_forest = (
         # NB: Zero means no loss rather than a loss in the base year
         (year_of_loss > gnw_tcl.LOSS_YEAR_OFFSET)
-        # NB: the same bound as the line above while the lookback opens at the offset, so no test
-        # can tell them apart; they stop coinciding the moment the assessment year moves
-        & (year_of_loss > LOOKBACK_YEARS_RANGE[0])
-        & (year_of_loss <= ASSESSMENT_YEAR)
+        # NB: the same bound as the line above for 2020, whose lookback opens at the offset, and
+        # the tighter one for every later year
+        & (year_of_loss > opening_year)
+        & (year_of_loss <= assessment_year)
     )
     from_rangeland = ~from_forest & (rangeland_departure_year > pasture_departure_year)
     from_pasture = ~from_forest & (pasture_departure_year > rangeland_departure_year)
 
     # NB: destinations are flags, so we can superpose them to track intersections
     destination_dataset = sum(
-        predicate(dset) * numpy.uint8(destination_dataset)
+        predicate(assessment_year=assessment_year, dset=dset)
+        * numpy.uint8(destination_dataset)
         for destination_dataset, predicate in DESTINATION_DATASET_TO_PREDICATE.items()
     )
     assert isinstance(destination_dataset, xarray.DataArray)
@@ -555,16 +585,18 @@ def get_peatland_occupation_emissions(
 
 
 def get_linear_discounted_values(
-    conversion_years: numpy.ndarray, values: numpy.ndarray
+    conversion_years: numpy.ndarray, values: numpy.ndarray, *, assessment_year: int
 ) -> numpy.ndarray:
     """`values` times the discount weight of each one's conversion year, or zero where the year is
     zero (no conversion)."""
     indices = conversion_years.astype(numpy.int64)
     assert (
-        (indices == conversion_years) & (indices >= 0) & (indices <= ASSESSMENT_YEAR)
-    ).all(), f"Conversion years must be whole years from 0 to {ASSESSMENT_YEAR:d}"
-    lookup = numpy.zeros(ASSESSMENT_YEAR + 1, dtype=numpy.float32)
-    for year, weight in YEAR_TO_LINEAR_DISCOUNT_WEIGHT.items():
+        (indices == conversion_years) & (indices >= 0) & (indices <= assessment_year)
+    ).all(), f"Conversion years must be whole years from 0 to {assessment_year:d}"
+    lookup = numpy.zeros(assessment_year + 1, dtype=numpy.float32)
+    for year, weight in get_year_to_linear_discount_weight(
+        assessment_year=assessment_year
+    ).items():
         lookup[year] = weight
     weights = lookup[indices]
     # NB: emissions without a weight -- no year, or one before the lookback -- would be zeroed
@@ -576,7 +608,7 @@ def get_linear_discounted_values(
 
 
 def get_linear_discounted(
-    conversion_year: xarray.DataArray, darray: xarray.DataArray
+    assessment_year: int, conversion_year: xarray.DataArray, darray: xarray.DataArray
 ) -> xarray.DataArray:
     """`darray` times the discount weight of each pixel's conversion year, or zero without one."""
     return xarray.apply_ufunc(
@@ -586,6 +618,7 @@ def get_linear_discounted(
         dask="parallelized",
         # NB: arithmetic would align on an inner join, silently dropping pixels the grids don't share
         join="exact",
+        kwargs={"assessment_year": assessment_year},
         output_dtypes=[numpy.result_type(darray.dtype, numpy.float32)],
     ).rename(darray.name)
 
@@ -697,9 +730,12 @@ def get_dset_for_output(name_to_darray: dict[str, xarray.DataArray]) -> xarray.D
     )
 
 
-@storage.cache_to_zarr(version=2)
-def workflow(tile_id: str) -> xarray.Dataset:
-    logger.info(f"Running the land conversion and emissions worflow for {tile_id=:s}")
+@storage.cache_to_zarr(version=0)
+def workflow(assessment_year: int, tile_id: str) -> xarray.Dataset:
+    logger.info(
+        f"Running the land conversion and emissions worflow for {assessment_year=:d} and "
+        f"{tile_id=:s}"
+    )
     dset = geo.exact_merge(
         harmonize.workflow(
             dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
@@ -718,7 +754,9 @@ def workflow(tile_id: str) -> xarray.Dataset:
     )
 
     logger.info("Resolving which conversion each pixel underwent, and when")
-    conversion_record: ConversionRecord = get_conversion_record(dset=dset)
+    conversion_record: ConversionRecord = get_conversion_record(
+        assessment_year=assessment_year, dset=dset
+    )
 
     logger.info("Quantifying the carbon each source class holds")
     aboveground_biomass = dset[gnw_harris_agb.DATASET.fully_qualified_band_name]
@@ -802,6 +840,12 @@ def main() -> int:
         nargs=argparse.ZERO_OR_MORE,
         type=worldbank_jurisdictions.iso_3166_str,
     )
+    parser.add_argument(
+        "--assessment-year",
+        choices=ASSESSMENT_YEARS,
+        default=DEFAULT_ASSESSMENT_YEAR,
+        type=int,
+    )
     parser.add_argument("--backfill", action="store_true", help="cover all GNW tiles")
     parser.add_argument(
         "--modulus",
@@ -831,7 +875,7 @@ def main() -> int:
             )
         ),
     ):
-        workflow(tile_id=tile_id)
+        workflow(assessment_year=int(args.assessment_year), tile_id=tile_id)
     return 0
 
 

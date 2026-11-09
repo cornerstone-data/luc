@@ -20,12 +20,11 @@ from jdluc.datasets.liao_gaced30 import DATASET as CROPLAND
 from jdluc.datasets.liao_gaced30 import YEARS as CROPLAND_YEARS
 from jdluc.datasets.liao_gaced30 import Cropland
 from jdluc.emit import (
-    ASSESSMENT_YEAR,
     CARBON_PER_BIOMASS_LIVE_WOOD,
     CLIMATE_ZONE_TO_SOC_RETENTION_FRACTION,
     CO2E_PER_CARBON,
+    DEFAULT_ASSESSMENT_YEAR,
     FROM_FOREST,
-    LOOKBACK_YEARS_RANGE,
     PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA,
     PEATLAND_EMISSIONS_PULSE_TCO2E_PER_HA,
     Conversion,
@@ -45,9 +44,12 @@ from jdluc.emit import (
     get_last_departure_year,
     get_linear_discounted,
     get_linear_discounted_values,
+    get_lookback_years_range,
     get_mineral_soil_emissions,
     get_peatland_occupation_emissions,
 )
+
+LOOKBACK_YEARS_RANGE = get_lookback_years_range(assessment_year=DEFAULT_ASSESSMENT_YEAR)
 
 
 def get_darray_for_data(
@@ -187,7 +189,7 @@ def get_record_for(conversion: Conversion, width: int = 1) -> ConversionRecord:
         ),
         to_cropland=mask(to_cropland),
         to_pasture=mask(to_pasture),
-        year=get_darray_for_data(data=[[ASSESSMENT_YEAR] * width]),
+        year=get_darray_for_data(data=[[DEFAULT_ASSESSMENT_YEAR] * width]),
     )
 
 
@@ -226,7 +228,7 @@ def test_a_half_resolved_pixel_is_charged_nothing() -> None:
             from_rangeland=mask(False),
             to_cropland=mask(to_cropland),
             to_pasture=mask(False),
-            year=get_darray_for_data(data=[[ASSESSMENT_YEAR]]),
+            year=get_darray_for_data(data=[[DEFAULT_ASSESSMENT_YEAR]]),
         )
 
     for from_forest, to_cropland in ((True, False), (False, True)):
@@ -445,14 +447,32 @@ def test_get_dset_for_output_appends_each_band_its_units() -> None:
     }
 
 
-def test_get_linear_discounted() -> None:
-    # Each year takes its own factor, from 0.25% in 2001 to 9.75% in 2020, and a pixel with no year
-    # takes none even where its value is missing
-    result = get_linear_discounted(
-        conversion_year=get_darray_for_data(
-            data=[[2001, 2005, 2006, 2011, 2020, 0, numpy.nan]]
+@pytest.mark.parametrize(
+    ("assessment_year", "conversion_years", "values"),
+    (
+        pytest.param(
+            2020,
+            [2001, 2005, 2006, 2011, 2020, 0, numpy.nan],
+            [8, 8, 8, 8, 8, numpy.nan, numpy.nan],
+            id="a pixel with no year takes no factor even where its value is missing",
         ),
-        darray=get_darray_for_data(data=[[8, 8, 8, 8, 8, numpy.nan, numpy.nan]]),
+        pytest.param(
+            2024,
+            [2005, 2009, 2010, 2015, 2024, 2004, numpy.nan],
+            [8, 8, 8, 8, 8, numpy.nan, numpy.nan],
+            id="the factors move with the assessment year, leaving its opening year out",
+        ),
+    ),
+)
+def test_get_linear_discounted(
+    assessment_year: int, conversion_years: list[float], values: list[float]
+) -> None:
+    # Each year takes its own factor, from 0.25% nineteen years before the assessment year to 9.75%
+    # in it
+    result = get_linear_discounted(
+        assessment_year=assessment_year,
+        conversion_year=get_darray_for_data(data=[conversion_years]),
+        darray=get_darray_for_data(data=[values]),
     )
     numpy.testing.assert_allclose(result.data, [[0.02, 0.18, 0.22, 0.42, 0.78, 0, 0]])
 
@@ -472,6 +492,7 @@ def test_get_linear_discounted_values_rejects_emissions_it_cannot_date(
 ) -> None:
     with pytest.raises(AssertionError):
         get_linear_discounted_values(
+            assessment_year=2020,
             conversion_years=numpy.array([2012, conversion_year]),
             values=numpy.array([1.0, 5.0]),
         )
@@ -481,6 +502,7 @@ def test_get_linear_discounted_rejects_inputs_on_different_grids() -> None:
     conversion_year = get_darray_for_data(data=[[2012, 2013]])
     with pytest.raises(ValueError):
         get_linear_discounted(
+            assessment_year=2020,
             conversion_year=conversion_year,
             darray=get_darray_for_data(data=[[1, 1]]).assign_coords(
                 x=conversion_year.x + 1
@@ -613,6 +635,7 @@ NO_GRASSLAND = [float(Grassland.OTHER)] * len(LOOKBACK_YEARS_RANGE)
 
 
 def get_dset_for_one_pixel(
+    assessment_year: int,
     grassland_by_year: list[float],
     is_cocoa: bool,
     is_coffee: bool,
@@ -625,19 +648,21 @@ def get_dset_for_one_pixel(
             GRASSLAND.fully_qualified_band_names[
                 GRASSLAND_YEARS.index(grassland_year)
             ]: get_darray_for_data(data=[[grassland_by_year[offset]]])
-            for offset, grassland_year in enumerate(LOOKBACK_YEARS_RANGE)
+            for offset, grassland_year in enumerate(
+                get_lookback_years_range(assessment_year=assessment_year)
+            )
         }
         | {
             CROPLAND.fully_qualified_band_names[
-                CROPLAND_YEARS.index(ASSESSMENT_YEAR)
+                CROPLAND_YEARS.index(assessment_year)
             ]: get_darray_for_data(
                 data=[[Cropland.CROPLAND if is_cropland else Cropland.NOT_CROPLAND]]
             ),
             COCOA.fully_qualified_band_names[
-                FDAP_YEARS.index(ASSESSMENT_YEAR)
+                FDAP_YEARS.index(assessment_year)
             ]: get_darray_for_data(data=[[int(is_cocoa)]]),
             COFFEE.fully_qualified_band_names[
-                FDAP_YEARS.index(ASSESSMENT_YEAR)
+                FDAP_YEARS.index(assessment_year)
             ]: get_darray_for_data(data=[[int(is_coffee)]]),
             OIL_PALM.fully_qualified_band_name: get_darray_for_data(
                 data=[[planting_year]]
@@ -819,9 +844,9 @@ def get_dset_for_one_pixel(
         pytest.param(
             NO_GRASSLAND,
             True,
-            ASSESSMENT_YEAR,
+            DEFAULT_ASSESSMENT_YEAR,
             Conversion.FOREST_TO_CROPLAND,
-            ASSESSMENT_YEAR,
+            DEFAULT_ASSESSMENT_YEAR,
             id="loss in the assessment year is inside the lookback",
         ),
         pytest.param(
@@ -874,14 +899,64 @@ def test_get_conversion_record(
     year: int,
 ) -> None:
     result = get_conversion_record(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_one_pixel(
+            assessment_year=DEFAULT_ASSESSMENT_YEAR,
             grassland_by_year=grassland_by_year,
             is_cocoa=False,
             is_coffee=False,
             is_cropland=is_cropland,
             loss_year=loss_year,
             planting_year=0,
-        )
+        ),
+    )
+    assert result.conversion.data == [[conversion]]
+    assert result.year.data == [[year]]
+
+
+@pytest.mark.parametrize(
+    ("loss_year", "conversion", "year"),
+    (
+        pytest.param(
+            2004,
+            Conversion.NONE,
+            0,
+            id="loss in the opening year, after the layer's base year, is outside the lookback",
+        ),
+        pytest.param(
+            2005,
+            Conversion.FOREST_TO_CROPLAND,
+            2005,
+            id="the year after the opening year is inside it",
+        ),
+        pytest.param(
+            2024,
+            Conversion.FOREST_TO_CROPLAND,
+            2024,
+            id="and so is the assessment year",
+        ),
+        pytest.param(
+            2025,
+            Conversion.NONE,
+            0,
+            id="loss after the assessment year is outside it",
+        ),
+    ),
+)
+def test_get_conversion_record_in_a_later_assessment_year(
+    loss_year: int, conversion: Conversion, year: int
+) -> None:
+    result = get_conversion_record(
+        assessment_year=2024,
+        dset=get_dset_for_one_pixel(
+            assessment_year=2024,
+            grassland_by_year=NO_GRASSLAND,
+            is_cocoa=False,
+            is_coffee=False,
+            is_cropland=True,
+            loss_year=loss_year,
+            planting_year=0,
+        ),
     )
     assert result.conversion.data == [[conversion]]
     assert result.year.data == [[year]]
@@ -962,7 +1037,7 @@ def test_get_conversion_record(
             False,
             False,
             False,
-            ASSESSMENT_YEAR,
+            DEFAULT_ASSESSMENT_YEAR,
             DestinationDataset.DESCALS_OIL_PALM,
             True,
             False,
@@ -973,7 +1048,7 @@ def test_get_conversion_record(
             False,
             False,
             False,
-            ASSESSMENT_YEAR + 1,
+            DEFAULT_ASSESSMENT_YEAR + 1,
             0,
             False,
             False,
@@ -1028,7 +1103,9 @@ def test_get_conversion_record_destination(
 ) -> None:
     """A destination keeps every bit that fired, but resolves to the earliest one."""
     result = get_conversion_record(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_one_pixel(
+            assessment_year=DEFAULT_ASSESSMENT_YEAR,
             grassland_by_year=[
                 *NO_GRASSLAND[:-1],
                 float(Grassland.CULTIVATED if is_cultivated else Grassland.OTHER),
@@ -1038,7 +1115,7 @@ def test_get_conversion_record_destination(
             is_cropland=is_cropland,
             loss_year=2012,
             planting_year=planting_year,
-        )
+        ),
     )
     assert result.destination_dataset.data == [[destination_dataset]]
     assert result.to_cropland.data == [[to_cropland]]
@@ -1148,14 +1225,16 @@ def test_the_halves_a_conversion_record_resolves(
     # The halves outlive the conversion they resolve into: one without the other names no
     # conversion, but each still drives something -- the dropped total and peat occupation.
     result = get_conversion_record(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_one_pixel(
+            assessment_year=DEFAULT_ASSESSMENT_YEAR,
             grassland_by_year=grassland_by_year,
             is_cocoa=False,
             is_coffee=False,
             is_cropland=is_cropland,
             loss_year=loss_year,
             planting_year=0,
-        )
+        ),
     )
     assert bool(result.from_forest) == from_forest
     assert bool(result.from_rangeland | result.from_pasture) == from_grassland
@@ -1194,14 +1273,16 @@ def test_a_conversion_record_tells_pasture_from_rangeland_sources(
 ) -> None:
     # Pasture and rangeland sources carry different vegetation carbon, so the record keeps them apart
     result = get_conversion_record(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_one_pixel(
+            assessment_year=DEFAULT_ASSESSMENT_YEAR,
             grassland_by_year=grassland_by_year,
             is_cocoa=False,
             is_coffee=False,
             is_cropland=True,
             loss_year=loss_year,
             planting_year=0,
-        )
+        ),
     )
     assert bool(result.from_pasture) == from_pasture
     assert bool(result.from_rangeland) == from_rangeland

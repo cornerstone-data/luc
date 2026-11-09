@@ -15,6 +15,7 @@ from jdluc import tiling, utils
 from jdluc.datasets import base
 
 LOSS_YEAR_OFFSET = 2000
+LOSS_YEARS = tuple(range(LOSS_YEAR_OFFSET + 1, 2026))
 
 
 def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:

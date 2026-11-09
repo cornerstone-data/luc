@@ -128,14 +128,16 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(tile_id=tile_id),
+        emit.workflow(assessment_year=emit.DEFAULT_ASSESSMENT_YEAR, tile_id=tile_id),
     )
 
     logger.info("Discounting emissions by component and splitting them by MapSPAM span")
     conversion_year = luc_and_emissions["conversion-year"]
     component_to_emissions = {
         component: emit.get_linear_discounted(
-            conversion_year=conversion_year, darray=emissions
+            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+            conversion_year=conversion_year,
+            darray=emissions,
         )
         for component, emissions in emit.get_component_to_emissions(
             dset=luc_and_emissions
@@ -167,7 +169,9 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
     logger.info("Discounting the source carbon no destination claimed")
     name = "dropped-emissions:tco2e-per-ha"
     luc_and_emissions[name] = emit.get_linear_discounted(
-        conversion_year=conversion_year, darray=luc_and_emissions[name]
+        assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+        conversion_year=conversion_year,
+        darray=luc_and_emissions[name],
     )
     derived_variable_names.append(name)
 
@@ -382,7 +386,9 @@ def get_commodity_to_peatland_conversion_share(
 MAPSPAM_SPANS = ((2000, 2005), (2005, 2010), (2010, 2020))
 assert all(
     sum(before < year <= after for before, after in MAPSPAM_SPANS) == 1
-    for year in emit.YEAR_TO_LINEAR_DISCOUNT_WEIGHT
+    for year in emit.get_year_to_linear_discount_weight(
+        assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
+    )
 )
 MAPSPAM_SNAPSHOT_YEARS = tuple(
     sorted({year for span in MAPSPAM_SPANS for year in span})
@@ -393,7 +399,9 @@ assert set(MAPSPAM_SNAPSHOT_YEARS).issubset(gpw_livestock.YEARS)
 SNAPSHOT_YEAR_TO_WEIGHT = {
     snapshot_year: sum(
         weight / 2
-        for year, weight in emit.YEAR_TO_LINEAR_DISCOUNT_WEIGHT.items()
+        for year, weight in emit.get_year_to_linear_discount_weight(
+            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
+        ).items()
         for before, after in MAPSPAM_SPANS
         if before < year <= after and snapshot_year in (before, after)
     )

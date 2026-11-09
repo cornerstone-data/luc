@@ -42,7 +42,9 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
     """
     component_to_emissions = {
         component: emit.get_linear_discounted(
-            conversion_year=dset["conversion-year"], darray=emissions
+            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+            conversion_year=dset["conversion-year"],
+            darray=emissions,
         )
         for component, emissions in emit.get_component_to_emissions(dset=dset).items()
     }
@@ -66,6 +68,7 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
         }
         | {
             "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
                 conversion_year=dset["conversion-year"],
                 darray=dset["dropped-emissions:tco2e-per-ha"],
             )
@@ -97,7 +100,7 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(tile_id=tile_id),
+        emit.workflow(assessment_year=emit.DEFAULT_ASSESSMENT_YEAR, tile_id=tile_id),
     )
 
     logger.info("Downsampling emissions from the GLAD grid to the CROPGRIDS grid")
