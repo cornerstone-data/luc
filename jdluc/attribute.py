@@ -25,11 +25,13 @@ import argparse
 import collections.abc
 import concurrent.futures
 import enum
+import functools
 import logging
 
 import pandas
 
 from jdluc import (
+    emit,
     jurisdictional_direct,
     jurisdictional_direct_proxy,
     statistical,
@@ -64,9 +66,13 @@ def workflow(
     iso_3166s: collections.abc.Iterable[str],
     methodology: Methodology,
 ) -> pandas.DataFrame:
+    workflow_for_tile: collections.abc.Callable[..., pandas.DataFrame]
     match methodology:
         case Methodology.JURISDICTIONAL_DIRECT:
-            workflow_for_tile = jurisdictional_direct.workflow
+            workflow_for_tile = functools.partial(
+                jurisdictional_direct.workflow,
+                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+            )
         case Methodology.JURISDICTIONAL_DIRECT_PROXY:
             workflow_for_tile = jurisdictional_direct_proxy.workflow
         case Methodology.STATISTICAL:
