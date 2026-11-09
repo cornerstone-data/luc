@@ -227,7 +227,7 @@ def get_mineral_soil_emissions(
 
 
 LOOKBACK_YEARS = 20
-# Bounded by the years the input datasets cover; see "Source datasets" in docs/methodology.md
+# Bounded by the years the input datasets cover; see "Assessment years" in docs/methodology.md
 ASSESSMENT_YEARS = (2020, 2022, 2024)
 DEFAULT_ASSESSMENT_YEAR = 2020
 assert DEFAULT_ASSESSMENT_YEAR in ASSESSMENT_YEARS
