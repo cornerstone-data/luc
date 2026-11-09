@@ -9,9 +9,10 @@ Dispatches each ten-degree tile to a per-methodology workflow once per overlappi
     by whether each pixel became cropland or pasture, and divides cropland's part among CROPGRIDS'
     crops by their 2020 crop-area shares and pasture's part among grazers.
 All three clip to provincial (World Bank admin-1) polygons and sum commodity area, peatland
-commodity area, peatland-occupation emissions, and total emissions. Returns a pandas.DataFrame indexed by
-(admin_level, admin_id, commodity_name, methodology); the per-(country, tile) sub-workflows are
-cached and `--concurrency` bounds how many tiles are in flight at once.
+commodity area, peatland-occupation emissions, and total emissions. Returns a pandas.DataFrame
+indexed by `INDEX_NAMES`, (admin_id, admin_level, assessment_year, commodity_name, methodology);
+the per-(country, tile) sub-workflows are cached and `--concurrency` bounds how many tiles are in
+flight at once.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -44,6 +45,15 @@ class Methodology(enum.IntEnum):
     JURISDICTIONAL_DIRECT = enum.auto()
     JURISDICTIONAL_DIRECT_PROXY = enum.auto()
     STATISTICAL = enum.auto()
+
+
+INDEX_NAMES = (
+    "admin_id",
+    "admin_level",
+    "assessment_year",
+    "commodity_name",
+    "methodology",
+)
 
 
 def merge_dfs(*dfs: pandas.DataFrame) -> pandas.DataFrame:
@@ -127,8 +137,9 @@ def workflow(
 
     ret = (
         merge_dfs(all_jurisdiction_commodities, *dfs)
-        .assign(methodology=methodology.name)
-        .set_index("methodology", append=True)
+        .assign(assessment_year=assessment_year, methodology=methodology.name)
+        .set_index(["assessment_year", "methodology"], append=True)
+        .reorder_levels(list(INDEX_NAMES))
         .sort_index()
     )
     assert not ret.index.duplicated().any()

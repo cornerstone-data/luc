@@ -13,9 +13,9 @@ each commodity's total production — the only step that depends on methodology:
 
 It then derives, identically for all three, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
-pandas.DataFrame indexed by (admin_level, admin_id, commodity_id, methodology), where
-`commodity_id` is a FAOSTAT item code or a `taxonomy.InventedCommodityId`, and the `commodity_name`
-column holds its name: FAOSTAT's, from its crop table, or `taxonomy`'s.
+pandas.DataFrame indexed by `CANONICAL_KEY`, (admin_id, admin_level, assessment_year, commodity_id,
+methodology), where `commodity_id` is a FAOSTAT item code or a `taxonomy.InventedCommodityId`,
+and the `commodity_name` column holds its name: FAOSTAT's, from its crop table, or `taxonomy`'s.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
@@ -53,7 +53,13 @@ logger = logging.getLogger(__name__)
 
 
 KG_PER_TONNE = 1000
-CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
+CANONICAL_KEY = (
+    "admin_id",
+    "admin_level",
+    "assessment_year",
+    "commodity_id",
+    "methodology",
+)
 ADDITIVE_COLUMNS = (
     "commodity_hectares",
     "emissions_mt",
@@ -291,6 +297,7 @@ def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
 
 
 def iter_national_from_provincials(
+    assessment_year: int,
     iso_3166: str,
     methodology: attribute.Methodology,
     national_name: str,
@@ -317,6 +324,7 @@ def iter_national_from_provincials(
                 numer=ret["emissions_mt"] * KG_PER_TONNE, denom=ret["production_kg"]
             ),
             "methodology": methodology.name,
+            "assessment_year": assessment_year,
         }  # type: ignore
 
 
@@ -335,12 +343,7 @@ def workflow(
         iso_3166s=iso_3166s,
         methodology=methodology,
     )
-    assert emissions.index.names == [
-        "admin_level",
-        "admin_id",
-        "commodity_name",
-        "methodology",
-    ]
+    assert emissions.index.names == list(attribute.INDEX_NAMES)
     match methodology:
         case attribute.Methodology.JURISDICTIONAL_DIRECT:
             production = derive_jurisdictional_production_kg(
@@ -378,6 +381,7 @@ def workflow(
         national
         for iso_3166 in iso_3166s
         for national in iter_national_from_provincials(
+            assessment_year=assessment_year,
             iso_3166=iso_3166,
             methodology=methodology,
             national_name=str(

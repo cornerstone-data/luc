@@ -25,61 +25,67 @@ JURISDICTIONAL_EMISSIONS = pandas.DataFrame.from_records(
     [
         # normal row
         (
-            "PROVINCIAL",
-            "MAIZE",
-            "Delaware",
-            "JURISDICTIONAL_DIRECT",
             "USA008",
+            "PROVINCIAL",
+            2020,
             100.0,
-            10.0,
-            50.0,
+            "MAIZE",
             200.0,
             120.0,
+            "Delaware",
+            "JURISDICTIONAL_DIRECT",
+            10.0,
             30.0,
+            50.0,
         ),
         # zero production (commodity_hectares == 0)
         (
-            "PROVINCIAL",
-            "SOYBEAN",
-            "Delaware",
-            "JURISDICTIONAL_DIRECT",
             "USA008",
+            "PROVINCIAL",
+            2020,
             0.0,
-            0.0,
-            0.0,
+            "SOYBEAN",
             80.0,
             50.0,
+            "Delaware",
+            "JURISDICTIONAL_DIRECT",
+            0.0,
             30.0,
+            0.0,
         ),
         # unmatched yield + zero emissions
         (
+            "USA016",
             "PROVINCIAL",
+            2020,
+            50.0,
             "WHEAT",
+            0.0,
+            0.0,
             "Iowa",
             "JURISDICTIONAL_DIRECT",
-            "USA016",
-            50.0,
-            0.0,
-            0.0,
             0.0,
             0.0,
             0.0,
         ),
     ],
     columns=[
-        "admin_level",
-        "commodity_name",
-        "jurisdiction_name",
-        "methodology",
         "admin_id",
+        "admin_level",
+        "assessment_year",
         "commodity_hectares",
-        "peatland_commodity_hectares",
-        "peatland_occupation_emissions_mt",
+        "commodity_name",
         "emissions_mt",
         "forest_emissions_mt",
+        "jurisdiction_name",
+        "methodology",
+        "peatland_commodity_hectares",
         "peatland_conversion_emissions_mt",
+        "peatland_occupation_emissions_mt",
     ],
-).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
+).set_index(
+    ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
+)
 RAW_YIELDS = pandas.DataFrame.from_records(
     [
         # MAIZE: 2016 must be excluded; mean(8, 10, 12, 10) over 2017-2020 == 10
@@ -133,20 +139,20 @@ def test_derive_jurisdictional_production_kg_then_attach_ratios() -> None:
 
     iter_result = result.iterrows()
     key, corn = next(iter_result)
-    assert key == ("PROVINCIAL", "USA008", "MAIZE", "JURISDICTIONAL_DIRECT")
+    assert key == ("USA008", "PROVINCIAL", 2020, "MAIZE", "JURISDICTIONAL_DIRECT")
     assert corn["yield_kg_per_ha"] == 10.0  # 4-year mean, 2016 excluded
     assert corn["production_kg"] == 1000.0  # 100 ha x 10
     assert corn["emissions_factor_kgco2e_per_kg"] == 200.0  # 200 t x 1000 / 1000 kg
 
     # zero production -> EF guarded to NaN rather than inf
     key, soy = next(iter_result)
-    assert key == ("PROVINCIAL", "USA008", "SOYBEAN", "JURISDICTIONAL_DIRECT")
+    assert key == ("USA008", "PROVINCIAL", 2020, "SOYBEAN", "JURISDICTIONAL_DIRECT")
     assert soy["production_kg"] == 0.0
     assert numpy.isnan(soy["emissions_factor_kgco2e_per_kg"])
 
     # unmatched yield -> NaN yield, production and EF
     key, wheat = next(iter_result)
-    assert key == ("PROVINCIAL", "USA016", "WHEAT", "JURISDICTIONAL_DIRECT")
+    assert key == ("USA016", "PROVINCIAL", 2020, "WHEAT", "JURISDICTIONAL_DIRECT")
     assert numpy.isnan(wheat["yield_kg_per_ha"])
     assert numpy.isnan(wheat["production_kg"])
     assert numpy.isnan(wheat["emissions_factor_kgco2e_per_kg"])
@@ -169,6 +175,7 @@ def test_iter_national_from_provincials_single_province() -> None:
         ]
     )
     (result,) = iter_national_from_provincials(
+        assessment_year=2020,
         iso_3166="ISO_A3",
         methodology=Methodology.STATISTICAL,
         national_name="NAME",
@@ -177,6 +184,7 @@ def test_iter_national_from_provincials_single_province() -> None:
     assert result == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
+        "assessment_year": 2020,
         "commodity_hectares": 1,
         "commodity_id": 236,
         "emissions_factor_kgco2e_per_kg": 1000,
@@ -235,6 +243,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
         ]
     )
     (maize, soya_beans) = iter_national_from_provincials(
+        assessment_year=2020,
         iso_3166="ISO_A3",
         methodology=Methodology.STATISTICAL,
         national_name="NAME",
@@ -243,6 +252,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
     assert maize == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
+        "assessment_year": 2020,
         "commodity_hectares": 2,
         "commodity_id": 56,
         "emissions_factor_kgco2e_per_kg": 1000,
@@ -260,6 +270,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
     assert soya_beans == {
         "admin_id": "ISO_A3",
         "admin_level": AdminLevel.NATIONAL.name,
+        "assessment_year": 2020,
         "commodity_hectares": 1,
         "commodity_id": 236,
         "emissions_factor_kgco2e_per_kg": 1000,
@@ -279,98 +290,105 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
 STATISTICAL_EMISSIONS = pandas.DataFrame.from_records(
     [
         (
+            "USA008",
             "PROVINCIAL",
+            2020,
+            100.0,
             "CORN",
+            200.0,
+            120.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
             "Delaware",
             "STATISTICAL",
-            "USA008",
-            100.0,
             10.0,
-            50.0,
-            200.0,
-            5.0,
-            120.0,
             30.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            50.0,
+            5.0,
         ),
         (
+            "BRA001",
             "PROVINCIAL",
+            2020,
+            100.0,
             "BEEF_CATTLE",
+            200.0,
+            200.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
             "Acre",
             "STATISTICAL",
-            "BRA001",
-            100.0,
             0.0,
             0.0,
-            200.0,
             0.0,
-            200.0,
             0.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
         ),
         # A country FAOSTAT reports no herd for
         (
+            "NIU001",
             "PROVINCIAL",
+            2020,
+            100.0,
             "BEEF_CATTLE",
+            200.0,
+            200.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
             "Niue",
             "STATISTICAL",
-            "NIU001",
-            100.0,
             0.0,
             0.0,
-            200.0,
             0.0,
-            200.0,
             0.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
         ),
         (
+            "PRY001",
             "PROVINCIAL",
+            2020,
+            100.0,
             "BEEF_CATTLE",
+            200.0,
+            200.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
             "Concepción",
             "STATISTICAL",
-            "PRY001",
-            100.0,
             0.0,
             0.0,
-            200.0,
             0.0,
-            200.0,
             0.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
         ),
     ],
     columns=[
-        "admin_level",
-        "commodity_name",
-        "jurisdiction_name",
-        "methodology",
         "admin_id",
+        "admin_level",
+        "assessment_year",
         "commodity_hectares",
-        "peatland_commodity_hectares",
-        "peatland_occupation_emissions_mt",
+        "commodity_name",
         "emissions_mt",
-        "production_mt",
         "forest_emissions_mt",
-        "peatland_conversion_emissions_mt",
         "herd_heads_2000",
         "herd_heads_2005",
         "herd_heads_2010",
         "herd_heads_2020",
+        "jurisdiction_name",
+        "methodology",
+        "peatland_commodity_hectares",
+        "peatland_conversion_emissions_mt",
+        "peatland_occupation_emissions_mt",
+        "production_mt",
     ],
-).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
+).set_index(
+    ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
+)
 
 
 # The 2020 assessment's snapshot weights
@@ -421,15 +439,18 @@ def test_derive_statistical_production_kg_stays_indexed() -> None:
     )
     # regression guard: must return an indexed frame like its jurisdictional twin
     assert result.index.names == [
-        "admin_level",
         "admin_id",
+        "admin_level",
+        "assessment_year",
         "commodity_name",
         "methodology",
     ]
     assert "production_mt" not in result.columns
     assert not set(HERD_HEADS_COLUMNS) & set(result.columns)
     assert (
-        result.loc[("PROVINCIAL", "USA008", "CORN", "STATISTICAL"), "production_kg"]
+        result.loc[
+            ("USA008", "PROVINCIAL", 2020, "CORN", "STATISTICAL"), "production_kg"
+        ]
         == 5000.0  # 5 mt x 1000
     )
     # .copy() guard: attach_ratios mutates in place, so the source frame must be untouched
@@ -446,17 +467,18 @@ def test_derive_statistical_production_kg_prices_a_herd_at_each_snapshots_rate()
     )
     # 100 heads at 10, 20, 40 and 80 kg, weighted 3.125%, 12.5%, 46.875% and 37.5%
     assert result.loc[
-        ("PROVINCIAL", "BRA001", "BEEF_CATTLE", "STATISTICAL"), "production_kg"
+        ("BRA001", "PROVINCIAL", 2020, "BEEF_CATTLE", "STATISTICAL"), "production_kg"
     ] == pytest.approx(5156.25)
     assert (
         result.loc[
-            ("PROVINCIAL", "NIU001", "BEEF_CATTLE", "STATISTICAL"), "production_kg"
+            ("NIU001", "PROVINCIAL", 2020, "BEEF_CATTLE", "STATISTICAL"),
+            "production_kg",
         ]
         == 0.0
     )
     # 100 heads at 80 kg, weighted 37.5%, in 2020 alone
     assert result.loc[
-        ("PROVINCIAL", "PRY001", "BEEF_CATTLE", "STATISTICAL"), "production_kg"
+        ("PRY001", "PROVINCIAL", 2020, "BEEF_CATTLE", "STATISTICAL"), "production_kg"
     ] == pytest.approx(3000.0)
 
 
@@ -488,6 +510,7 @@ def test_with_commodity_ids_adds_together_the_names_sharing_an_item() -> None:
                 "BRA001",
                 "ARABICA_COFFEE",
                 "STATISTICAL",
+                2020,
                 "Acre",
                 1.0,
                 10.0,
@@ -497,30 +520,34 @@ def test_with_commodity_ids_adds_together_the_names_sharing_an_item() -> None:
                 "BRA001",
                 "ROBUSTA_COFFEE",
                 "STATISTICAL",
+                2020,
                 "Acre",
                 2.0,
                 20.0,
             ),
-            ("PROVINCIAL", "BRA001", "MAIZE", "STATISTICAL", "Acre", 4.0, 40.0),
+            ("PROVINCIAL", "BRA001", "MAIZE", "STATISTICAL", 2020, "Acre", 4.0, 40.0),
         ],
         columns=[
             "admin_level",
             "admin_id",
             "commodity_name",
             "methodology",
+            "assessment_year",
             "jurisdiction_name",
             "commodity_hectares",
             "production_kg",
         ],
-    ).set_index(["admin_level", "admin_id", "commodity_name", "methodology"])
+    ).set_index(
+        ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
+    )
     result = with_commodity_ids(df=emissions, methodology=Methodology.STATISTICAL)
     assert result.to_dict(orient="index") == {
-        ("PROVINCIAL", "BRA001", 56, "STATISTICAL"): {
+        ("BRA001", "PROVINCIAL", 2020, 56, "STATISTICAL"): {
             "commodity_hectares": 4.0,
             "jurisdiction_name": "Acre",
             "production_kg": 40.0,
         },
-        ("PROVINCIAL", "BRA001", 656, "STATISTICAL"): {
+        ("BRA001", "PROVINCIAL", 2020, 656, "STATISTICAL"): {
             "commodity_hectares": 3.0,
             "jurisdiction_name": "Acre",
             "production_kg": 30.0,
@@ -539,7 +566,7 @@ def test_with_commodity_ids_keeps_a_missing_yield_missing() -> None:
     )
     assert pandas.isna(
         result.loc[
-            ("PROVINCIAL", "USA016", 15, "JURISDICTIONAL_DIRECT"),
+            ("USA016", "PROVINCIAL", 2020, 15, "JURISDICTIONAL_DIRECT"),
             "production_kg",
         ]
     )
@@ -621,14 +648,20 @@ def test_derive_proxy_production_kg() -> None:
             ("BRA001", "DROPPED", 0.0, numpy.nan),
         ],
         columns=["admin_id", "commodity_name", "commodity_hectares", HERD_HEADS_COLUMN],
-    ).assign(admin_level="PROVINCIAL", methodology="JURISDICTIONAL_DIRECT_PROXY")
+    ).assign(
+        admin_level="PROVINCIAL",
+        assessment_year=2020,
+        methodology="JURISDICTIONAL_DIRECT_PROXY",
+    )
     emissions = emissions.set_index(
-        ["admin_level", "admin_id", "commodity_name", "methodology"]
+        ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
     )
     result = derive_proxy_production_kg(
         crops=crops, emissions=emissions, stocks=stocks, years=(2019, 2020, 2021)
     )
-    production_kg = result["production_kg"].droplevel(["admin_level", "methodology"])
+    production_kg = result["production_kg"].droplevel(
+        ["admin_level", "methodology", "assessment_year"]
+    )
     assert production_kg[("BRA001", "MAIZE")] == pytest.approx(120.0)
     assert production_kg[("BRA002", "MAIZE")] == pytest.approx(40.0)
     assert production_kg[("BRA001", "POPCORN")] == pytest.approx(40.0)
