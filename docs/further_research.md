@@ -244,6 +244,14 @@ The 2010 snapshot ends the 2005–2010 span and starts the expansion both later 
 
 **Potential impact:** This issue affects only the spatial distribution of emissions within each state, but could be significant at county-level.
 
+## Oil palm planted after 2021
+
+**Issue**: The Descals oil palm layer maps the plantations standing in 2021, so the 2022 and 2024 assessments cannot see palm planted after 2021. Forest cleared for those plantations takes cropland as its destination only where GACED30 calls the pixel cropland, and GACED30 recovers only a small fraction of tropical woody perennials (see `methodology.md`). Elsewhere the clearance resolves to no destination and is reported in `dropped-emissions`, so a later assessment year undercounts oil palm's conversion emissions.
+
+**Potential impact:** Not measured. It grows with the years between 2021 and the assessment year, and is largest where palm expanded fastest after 2021.
+
+**Potential improvement path:** Measure it first, by comparing the oil palm destination's converted area for 2022 with 2020's on a palm frontier tile. Then take a later release of the layer if one is published, or admit a second palm layer that maps after 2021.
+
 ## Forest cleared for built-up land is charged to nobody
 
 **Superseded in part.** There is no built-up destination in the conversion matrix, so forest cleared for settlement now resolves to no destination and is reported in `dropped-emissions` rather than charged. That keeps it out of every published total. What remains open is that the carbon is real, is emitted, and is attributable to no commodity — bucket 5 in `methodology.md`.

@@ -7,9 +7,9 @@ each commodity's total production — the only step that depends on methodology:
   - STATISTICAL: production = MAPSPAM production for crops, carried straight through the
     attribute, and the attribute's GPW heads x FAOSTAT carcass weight per head for livestock.
   - JURISDICTIONAL_DIRECT_PROXY: production = FAOSTAT national production over the 3 years
-    centered on the assessment year, split among provinces by CROPGRIDS crop area for crops, and
-    the attribute's 2020 GPW heads x FAOSTAT carcass weight per head over the same years for
-    livestock.
+    centered on the assessment year (2024 alone until FAOSTAT publishes 2025), split among
+    provinces by CROPGRIDS crop area for crops, and the attribute's 2020 GPW heads x FAOSTAT
+    carcass weight per head over the same years for livestock.
 
 It then derives, identically for all three, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
@@ -356,7 +356,13 @@ def workflow(
                 crops=faostat.load(dataset=faostat.CROP_DATASET),
                 emissions=emissions,
                 stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
-                years=tuple(range(assessment_year - 1, assessment_year + 2)),
+                # TODO: center 2024 like every other year once FAOSTAT publishes 2025's
+                # production; until then it takes its own year alone
+                years=(
+                    (assessment_year,)
+                    if assessment_year == 2024
+                    else tuple(range(assessment_year - 1, assessment_year + 2))
+                ),
             )
         case attribute.Methodology.STATISTICAL:
             production = derive_statistical_production_kg(

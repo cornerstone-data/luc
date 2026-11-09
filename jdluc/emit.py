@@ -317,7 +317,9 @@ class DestinationPredicate(typing.Protocol):
 
 DESTINATION_DATASET_TO_PREDICATE: dict[DestinationDataset, DestinationPredicate] = {
     DestinationDataset.DESCALS_OIL_PALM: lambda assessment_year, dset: (
-        # NB: zero is "no oil palm"
+        # NB: zero is "no oil palm". The layer maps the plantations standing in 2021, so a later
+        # assessment year misses palm planted since; see "Oil palm planted after 2021" in
+        # docs/further_research.md
         (
             (planting_year := dset[descals_oil_palm.DATASET.fully_qualified_band_name])
             > 0
