@@ -317,8 +317,9 @@ def workflow(
     methodology: attribute.Methodology,
 ) -> pandas.DataFrame:
     emissions = attribute.workflow(
-        concurrency=concurrency,
+        assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
         commodity_names=commodity_names,
+        concurrency=concurrency,
         iso_3166s=iso_3166s,
         methodology=methodology,
     )

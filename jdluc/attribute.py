@@ -18,7 +18,7 @@ from every country in the World Bank admin-0 layer.
 
 Example invocations:
   uv run python jdluc/attribute.py --methodology-name STATISTICAL USA
-  uv run python jdluc/attribute.py --methodology-name STATISTICAL --backfill
+  uv run python jdluc/attribute.py --assessment-year 2024 --methodology-name STATISTICAL --backfill
 """
 
 import argparse
@@ -60,8 +60,9 @@ def merge_dfs(*dfs: pandas.DataFrame) -> pandas.DataFrame:
 
 
 def workflow(
-    concurrency: int,
+    assessment_year: int,
     commodity_names: tuple[str, ...],
+    concurrency: int,
     iso_3166s: collections.abc.Iterable[str],
     methodology: Methodology,
 ) -> pandas.DataFrame:
@@ -89,7 +90,7 @@ def workflow(
     def workflow_for_tile_id(tile_id: str) -> list[pandas.DataFrame]:
         return [
             workflow_for_tile(
-                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+                assessment_year=assessment_year,
                 commodity_names=commodity_names,
                 iso_3166=iso_3166,
                 tile_id=tile_id,
@@ -168,6 +169,12 @@ def main() -> int:
         type=worldbank_jurisdictions.iso_3166_str,
     )
     parser.add_argument(
+        "--assessment-year",
+        choices=emit.ASSESSMENT_YEARS,
+        default=emit.DEFAULT_ASSESSMENT_YEAR,
+        type=int,
+    )
+    parser.add_argument(
         "--backfill",
         action="store_true",
         help="attribute every country in the World Bank admin-0 layer",
@@ -186,8 +193,9 @@ def main() -> int:
 
     methodology = Methodology[str(args.methodology_name)]
     df = workflow(
-        concurrency=int(args.concurrency),
+        assessment_year=int(args.assessment_year),
         commodity_names=get_commodity_names(methodology=methodology),
+        concurrency=int(args.concurrency),
         iso_3166s=(
             worldbank_jurisdictions.get_all_iso_3166s()
             if args.backfill
