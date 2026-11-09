@@ -2,8 +2,8 @@
 
 Starting from the per-(admin, commodity) attribution rollup (`attribute.workflow`), determines
 each commodity's total production — the only step that depends on methodology:
-  - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield, averaged over the 4
-    years ending at the assessment year.
+  - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield, averaged over the 3
+    years centered on the assessment year.
   - STATISTICAL: production = MAPSPAM production for crops, carried straight through the
     attribute, and the attribute's GPW heads x FAOSTAT carcass weight per head for livestock.
   - JURISDICTIONAL_DIRECT_PROXY: production = FAOSTAT national production over the 3 years
@@ -346,7 +346,7 @@ def workflow(
             production = derive_jurisdictional_production_kg(
                 emissions=emissions,
                 raw_yields=usda_nass_quickstats.load(),
-                years=tuple(range(assessment_year - 3, assessment_year + 1)),
+                years=tuple(range(assessment_year - 1, assessment_year + 2)),
             )
         case attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY:
             production = derive_proxy_production_kg(
