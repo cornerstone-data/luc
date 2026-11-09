@@ -44,6 +44,7 @@ from jdluc.emit import (
     get_grassland_carbon,
     get_hectares_per_pixel,
     get_last_departure_year,
+    get_linear_discounted,
     get_linear_discounted_total,
     get_mineral_soil_emissions,
     get_peatland_occupation_emissions,
@@ -456,20 +457,18 @@ def test_get_span_to_charge(conversion_year: int, spans: set[SpanType]) -> None:
 
 def test_get_dset_for_output_appends_each_band_its_units() -> None:
     # Every emitted band is keyed on this name, so a change here strands the zarr caches keyed on
-    # the old one and KeyErrors the two legs that read it. The units come off the DataArray and
-    # slot in after the first colon, which is what puts the span last.
+    # the old one and KeyErrors the legs that read it. The units come off the DataArray and slot in
+    # after the first colon.
     result = get_dset_for_output(
         name_to_darray={
             "conversion": get_darray_for_data(data=[[1]]).rename(None),
-            "soil-emissions:2015-2020": get_darray_for_data(data=[[1]]).rename(
-                "tco2e-per-ha"
-            ),
+            "soil-emissions": get_darray_for_data(data=[[1]]).rename("tco2e-per-ha"),
             "hectares-per-pixel": get_darray_for_data(data=[[1]]).rename("ha"),
         }
     )
     assert set(result) == {
         "conversion",
-        "soil-emissions:tco2e-per-ha:2015-2020",
+        "soil-emissions:tco2e-per-ha",
         "hectares-per-pixel:ha",
     }
 
@@ -484,6 +483,17 @@ def test_get_linear_discounted_total() -> None:
         }
     )
     assert numpy.array_equal(result.data, [[0.625]])
+
+
+def test_get_linear_discounted() -> None:
+    # A pixel with no conversion, or no year, takes no weight
+    result = get_linear_discounted(
+        conversion_year=get_darray_for_data(
+            data=[[2001, 2010, 2011, 2020, 0, numpy.nan]]
+        ),
+        darray=get_darray_for_data(data=[[8] * 6]),
+    )
+    numpy.testing.assert_allclose(result.data, [[0.1, 0.3, 0.5, 0.7, 0, 0]])
 
 
 def test_get_hectares_per_pixel() -> None:
@@ -524,19 +534,16 @@ SOIL = 100.0
 
 
 def get_dset_for_pixel(conversion: Conversion, is_peat: float) -> xarray.Dataset:
-    """One pixel, charged the same emissions in every span."""
+    """One pixel, converted in 2012."""
     return xarray.Dataset(
         {
             "conversion": get_darray_for_data(data=[[conversion]]),
+            "conversion-year": get_darray_for_data(data=[[2012]]),
             PEATLANDS.fully_qualified_band_name: get_darray_for_data(data=[[is_peat]]),
-        }
-        | {
-            name: get_darray_for_data(data=[[value]])
-            for before, after in SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-            for name, value in (
-                (f"vegetation-emissions:tco2e-per-ha:{before:d}-{after:d}", VEGETATION),
-                (f"soil-emissions:tco2e-per-ha:{before:d}-{after:d}", SOIL),
-            )
+            "soil-emissions:tco2e-per-ha": get_darray_for_data(data=[[SOIL]]),
+            "vegetation-emissions:tco2e-per-ha": get_darray_for_data(
+                data=[[VEGETATION]]
+            ),
         }
     )
 
@@ -581,22 +588,39 @@ def get_dset_for_pixel(conversion: Conversion, is_peat: float) -> xarray.Dataset
 def test_get_span_to_component_to_emissions(
     conversion: Conversion, is_peat: float, source_to_expected: dict[str, float]
 ) -> None:
-    # `emissions_mt` is computed from the span totals rather than by summing the component columns,
-    # so the columns decompose it only if the sources claim every unit exactly once. Each case
-    # names the sources that fire and must account for the whole pixel, which makes a pool
-    # dropped, double-counted, or gated on the wrong conversion fail here.
+    # The legs sum the components into `emissions_mt`, so a pool dropped, double-counted or gated
+    # on the wrong conversion fails here.
     assert sum(source_to_expected.values()) == VEGETATION + SOIL
     span_to_component_to_emissions = get_span_to_component_to_emissions(
         dset=get_dset_for_pixel(conversion=conversion, is_peat=is_peat)
     )
     assert set(span_to_component_to_emissions) == set(SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
-    for component_to_emissions in span_to_component_to_emissions.values():
+    for span, component_to_emissions in span_to_component_to_emissions.items():
         assert set(component_to_emissions) == set(EmissionComponent)
         assert {
             component: float(darray.sum())
             for component, darray in component_to_emissions.items()
             if float(darray.sum())
-        } == source_to_expected
+        } == (source_to_expected if span == (2010, 2015) else {})
+
+
+def test_get_span_to_component_to_emissions_charges_each_pixel_to_its_year() -> None:
+    dset = xarray.Dataset(
+        {
+            "conversion": get_darray_for_data(
+                data=[[Conversion.FOREST_TO_CROPLAND] * 3]
+            ),
+            "conversion-year": get_darray_for_data(data=[[2003, 2012, 2020]]),
+            PEATLANDS.fully_qualified_band_name: get_darray_for_data(data=[[0] * 3]),
+            "soil-emissions:tco2e-per-ha": get_darray_for_data(data=[[10, 20, 30]]),
+            "vegetation-emissions:tco2e-per-ha": get_darray_for_data(data=[[1, 2, 3]]),
+        }
+    )
+    result = get_span_to_component_to_emissions(dset=dset)
+    assert {
+        span: float(component_to_emissions[EmissionComponent.FOREST].sum())
+        for span, component_to_emissions in result.items()
+    } == {(2000, 2005): 11, (2005, 2010): 0, (2010, 2015): 22, (2015, 2020): 33}
 
 
 @pytest.mark.parametrize(

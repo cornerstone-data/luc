@@ -104,7 +104,6 @@ DATASET_NAMES = (
 
 EMIT_VARIABLE_NAMES = [
     f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
-    "dropped-emissions:tco2e-per-ha",
     f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
 ]
 
@@ -152,6 +151,14 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
                 emit.EmissionComponent.PEATLAND_CONVERSION
             ].where(luc_and_emissions["conversion"].isin(conversions), other=0)
             derived_variable_names.append(name)
+
+    logger.info("Discounting the source carbon no destination claimed")
+    name = "dropped-emissions:tco2e-per-ha"
+    luc_and_emissions[name] = emit.get_linear_discounted(
+        conversion_year=luc_and_emissions["conversion-year"],
+        darray=luc_and_emissions[name],
+    )
+    derived_variable_names.append(name)
 
     logger.info("Measuring pasture extent at each MAPSPAM snapshot")
     for year in MAPSPAM_SNAPSHOT_YEARS:

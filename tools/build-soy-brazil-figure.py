@@ -23,8 +23,8 @@ resolution for the soybean areas.  Every step below runs from the repo root.
     ``--overview-resampling mode``: the default averages, the decimated read below pulls from
     those overviews, and one converted pixel among a hundred averages to a fraction, which
     survives the "is it NONE" test and lands in the first class -- painting the whole frame.
-    ``emissions-per-hectare:tco2e-per-ha`` and the two soybean bands are continuous, so they take
-    the default.  Three runs per tile::
+    ``vegetation-emissions:tco2e-per-ha``, ``soil-emissions:tco2e-per-ha`` and the two soybean
+    bands are continuous, so they take the default.  Three runs per tile::
 
         DUMP="uv run python tools/dump-zarr-to-cogs.py"
         $DUMP --overview-resampling mode <emit zarr for 00N_050W>     cogs/00N_050W
@@ -37,7 +37,8 @@ resolution for the soybean areas.  Every step below runs from the repo root.
     `.tif`, so nothing has to be renamed::
 
         cd cogs
-        for band in conversion conversion-year emissions-per-hectare:tco2e-per-ha \
+        for band in conversion conversion-year \
+                    vegetation-emissions:tco2e-per-ha soil-emissions:tco2e-per-ha \
                     ifpri:mapspam-physical-area-2000:soybean:ha \
                     ifpri:mapspam-physical-area-2020:soybean:ha; do
             gdalbuildvrt "$band.tif.vrt" 00N_050W/"$band".tif 10S_050W/"$band".tif
@@ -52,7 +53,8 @@ resolution for the soybean areas.  Every step below runs from the repo root.
 `emit` publishes no land class per year, so the categorical panel is the `conversion` band
 -- which of the five conversions fired on each pixel -- and the panel beside it is
 `conversion-year`, the year that pixel's source class ended.  Both the conversion codes and the
-lookback are imported rather than mirrored, so a change to either cannot leave this behind.
+lookback are imported rather than mirrored, so a change to either cannot leave this behind.  The
+emissions panel is vegetation plus soil, undiscounted.
 """
 
 import argparse
@@ -97,7 +99,9 @@ CONVERSION_COLOR = {
 }
 # Fully transparent RGBA, for the pixels no conversion reached
 TRANSPARENT = (0.0, 0.0, 0.0, 0.0)
-EMISSIONS_LABEL = "Land-use-change emissions (tonnes CO₂-equivalent per hectare)"
+EMISSIONS_LABEL = (
+    "Land-use-change emissions before discounting (tonnes CO₂-equivalent per hectare)"
+)
 SOYBEAN_LABEL = "Soybean area (hectares per 10-kilometre cell)"
 
 CONVERSION_LABEL = {
@@ -335,9 +339,15 @@ def main() -> None:
     # --- read layers (windowed, decimated) ---
     conversion = read_window(cog("conversion.tif"), bbox, args.width)
     conversion_year = read_window(cog("conversion-year.tif"), bbox, args.width)
-    emissions = read_window(
-        cog("emissions-per-hectare:tco2e-per-ha.tif"), bbox, args.width
+    vegetation = read_window(
+        bbox=bbox,
+        path=cog(name="vegetation-emissions:tco2e-per-ha.tif"),
+        width=args.width,
     )
+    soil = read_window(
+        bbox=bbox, path=cog(name="soil-emissions:tco2e-per-ha.tif"), width=args.width
+    )
+    emissions = Layer(data=vegetation.data + soil.data, extent=vegetation.extent)
     # MapSPAM is ~10 km, so give it a coarser read at the same extent
     soy_pair = {
         y: read_window(

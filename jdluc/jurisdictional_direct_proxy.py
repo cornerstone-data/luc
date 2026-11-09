@@ -37,7 +37,8 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
     """The 30 m bands this leg divides, each per hectare or a fraction of the pixel.
 
     Each emissions component is split by the land class its pixel became, and discounted over
-    the spans: the shares that divide it come from one year, so no span needs its own band.
+    the spans: the shares that divide it come from one year, so no span needs its own band. The
+    source carbon no destination claimed is discounted the same way.
     """
     span_to_component_to_emissions = emit.get_span_to_component_to_emissions(dset=dset)
     return (
@@ -60,8 +61,13 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
             name: dset[name]
             for name in (
                 f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
-                "dropped-emissions:tco2e-per-ha",
                 f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
+            )
+        }
+        | {
+            "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                conversion_year=dset["conversion-year"],
+                darray=dset["dropped-emissions:tco2e-per-ha"],
             )
         }
         | {

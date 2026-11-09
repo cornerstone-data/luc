@@ -34,16 +34,16 @@ def test_get_commodity_name_to_totals() -> None:
         },
         # crop pixels: (0,0), (0,1), (1,1); of those, peatland at (0,0) and (1,1).
         crop_class=get_darray_for_data([[1, 1, 0], [0, 1, 0]]),
+        cropland_occupation_per_hectare=get_darray_for_data(
+            data=[[5, 5, 5], [5, 5, 5]]
+        ),
         crops=(Crop.MAIZE,),
         dropped_per_hectare=get_darray_for_data([[1, 0, 1], [0, 1, 0]]),
-        # 99s sit on non-crop pixels — they must be excluded by the mask.
-        emissions_per_hectare=get_darray_for_data([[1, 2, 99], [99, 4, 99]]),
         hectares_per_pixel=get_darray_for_data([[10, 10, 10], [10, 10, 10]]),
         is_peatland=get_darray_for_data([[True, False, False], [False, True, False]]),
         pastureland_occupation_per_hectare=get_darray_for_data(
             data=[[0, 0, 0], [0, 0, 0]]
         ),
-        peatland_occupation_per_hectare=get_darray_for_data([[5, 5, 5], [5, 5, 5]]),
     )
     assert set(result) == {
         Crop.MAIZE.name,
@@ -56,7 +56,7 @@ def test_get_commodity_name_to_totals() -> None:
     }  # (1+1+1) x 10
     assert result[Crop.MAIZE.name] == {
         "commodity_hectares": 30,  # 3 crop pixels x 10 ha
-        "emissions_mt": 70,  # (1+2+4) x 10; non-crop 99s excluded
+        "emissions_mt": 340,  # (9+11+14) x 10; components plus occupation
         "forest_emissions_mt": 100,  # (2+3+5) x 10; non-crop 99s excluded
         "grassland_emissions_mt": 30,  # (1+1+1) x 10; non-crop 99s excluded
         "peatland_commodity_hectares": 20,  # only (0,0) and (1,1) are crop AND peatland
@@ -71,13 +71,12 @@ def test_get_commodity_name_to_totals_with_no_crop_pixels() -> None:
             emit.EmissionComponent, get_darray_for_data([[1, 2], [3, 4]])
         ),
         crop_class=get_darray_for_data([[0, 0], [0, 0]]),
+        cropland_occupation_per_hectare=get_darray_for_data(data=[[5, 5], [5, 5]]),
         crops=(Crop.SOYBEAN, Crop.WHEAT),
         dropped_per_hectare=get_darray_for_data([[0, 0, 0], [0, 0, 0]]),
-        emissions_per_hectare=get_darray_for_data([[1, 2], [3, 4]]),
         hectares_per_pixel=get_darray_for_data([[10, 10], [10, 10]]),
         is_peatland=get_darray_for_data([[True, True], [True, True]]),
         pastureland_occupation_per_hectare=get_darray_for_data(data=[[0, 0], [0, 0]]),
-        peatland_occupation_per_hectare=get_darray_for_data([[5, 5], [5, 5]]),
     )
     assert result[emit.NonCommodity.DROPPED.name] == {"emissions_mt": 0}
     zeros = {
@@ -98,8 +97,9 @@ def test_get_commodity_name_to_totals_with_no_crop_pixels() -> None:
 def test_the_crop_rows_and_the_unattributed_row_sum_to_the_charged_total() -> None:
     # Pixel by pixel: maize, a class no modeled crop names, and maize again on land that became
     # pasture over drained peat. The middle pixel goes to UNATTRIBUTED whole, and from the last
-    # only the pasture peat does, since no crop row takes peat drained under pasture.
-    emissions_per_hectare = get_darray_for_data(data=[[10, 20, 30]])
+    # only the pasture peat does, since no crop row takes peat drained under pasture. Each pixel's
+    # charge is its components plus both occupation bands.
+    charged_per_hectare = get_darray_for_data(data=[[10, 20, 30]])
     result = get_commodity_name_to_totals(
         component_to_per_hectare={
             emit.EmissionComponent.FOREST: get_darray_for_data(data=[[5, 10, 12]]),
@@ -109,13 +109,12 @@ def test_the_crop_rows_and_the_unattributed_row_sum_to_the_charged_total() -> No
             ),
         },
         crop_class=get_darray_for_data(data=[[1, 0, 1]]),
+        cropland_occupation_per_hectare=get_darray_for_data(data=[[2, 0, 0]]),
         crops=(Crop.MAIZE,),
         dropped_per_hectare=get_darray_for_data(data=[[7, 7, 7]]),
-        emissions_per_hectare=emissions_per_hectare,
         hectares_per_pixel=get_darray_for_data(data=[[1, 1, 1]]),
         is_peatland=get_darray_for_data(data=[[True, True, True]]),
         pastureland_occupation_per_hectare=get_darray_for_data(data=[[0, 4, 6]]),
-        peatland_occupation_per_hectare=get_darray_for_data(data=[[2, 0, 0]]),
     )
     assert result[Crop.MAIZE.name]["emissions_mt"] == 34  # 10 + (30 - 6)
     assert result[emit.NonCommodity.UNATTRIBUTED.name] == {
@@ -127,7 +126,7 @@ def test_the_crop_rows_and_the_unattributed_row_sum_to_the_charged_total() -> No
     }
     assert result[Crop.MAIZE.name]["emissions_mt"] + result[
         emit.NonCommodity.UNATTRIBUTED.name
-    ]["emissions_mt"] == float(emissions_per_hectare.sum())
+    ]["emissions_mt"] == float(charged_per_hectare.sum())
     # DROPPED was never charged, so it is no part of that total
     assert result[emit.NonCommodity.DROPPED.name] == {"emissions_mt": 21}
 
