@@ -151,6 +151,7 @@ def iter_dfs(
             df=trace.workflow(
                 assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
                 commodity_names=workflow_commodity_names,
+                concurrency=attribute.DEFAULT_CONCURRENCY,
                 iso_3166s=(iso_3166,),
                 methodology=methodology,
             ),

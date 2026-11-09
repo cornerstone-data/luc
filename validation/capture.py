@@ -162,8 +162,12 @@ def merge_efs(
     return pandas.concat([existing[keep], captured]).sort_index()
 
 
-def workflow(iso_3166s: tuple[str, ...], repo_root: pathlib.Path) -> pandas.DataFrame:
-    """Both legs over the given countries, stamped with the code that produced them."""
+def workflow(
+    assessment_year: int, iso_3166s: tuple[str, ...], repo_root: pathlib.Path
+) -> pandas.DataFrame:
+    """Both legs over the given countries in `assessment_year`, stamped with the code that
+    produced them.
+    """
     frames = []
     for methodology, wanted in iter_methodologies(iso_3166s=iso_3166s):
         commodity_names = attribute.get_commodity_names(methodology=methodology)
@@ -173,7 +177,7 @@ def workflow(iso_3166s: tuple[str, ...], repo_root: pathlib.Path) -> pandas.Data
         )
         frames.append(
             trace.workflow(
-                assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
+                assessment_year=assessment_year,
                 commodity_names=commodity_names,
                 concurrency=attribute.DEFAULT_CONCURRENCY,
                 iso_3166s=wanted,
@@ -224,6 +228,13 @@ def main() -> int:
     )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--assessment-year",
+        choices=emit.ASSESSMENT_YEARS,
+        default=schema.ASSESSMENT_YEAR,
+        help="the assessment year to capture; the comparisons read only schema.ASSESSMENT_YEAR",
+        type=int,
+    )
+    parser.add_argument(
         "--isos",
         default=(),
         help="capture only these countries and merge them into the existing artifact; "
@@ -249,7 +260,11 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    captured = workflow(iso_3166s=iso_3166s, repo_root=args.repo_root)
+    captured = workflow(
+        assessment_year=int(args.assessment_year),
+        iso_3166s=iso_3166s,
+        repo_root=args.repo_root,
+    )
     merged = merge_efs(captured=captured, existing=read_efs())
     pull.CAPTURE.mkdir(exist_ok=True, parents=True)
     merged.to_parquet(pull.EFS)

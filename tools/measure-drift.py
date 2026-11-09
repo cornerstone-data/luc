@@ -61,7 +61,7 @@ import typing
 
 import pandas
 
-from jdluc import attribute, config, emit, storage, taxonomy, trace
+from jdluc import attribute, config, storage, taxonomy, trace
 
 logger = logging.getLogger(__name__)
 
@@ -923,15 +923,25 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
             f"({index:d}/{len(targets):d})"
         )
 
-        retired = {"skip_glad_crop_filter": False}
+        # NB: a baseline runs this copy of the tool against its own code, so each of these goes
+        # only to a `trace.workflow` that takes it: one argument retired since, one introduced since
+        name_to_value = {
+            # NB: written out, since a baseline's `emit` may predate its default; drift is measured
+            # in 2020, which every table before the assessment year became a parameter holds
+            "assessment_year": 2020,
+            "skip_glad_crop_filter": False,
+        }
         parameters = inspect.signature(trace.workflow).parameters
         df = trace.workflow(
-            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR,
             commodity_names=commodity_names,
             concurrency=attribute.DEFAULT_CONCURRENCY,
             iso_3166s=(target.iso_3166,),
             methodology=target.methodology,
-            **{name: value for name, value in retired.items() if name in parameters},
+            **{
+                name: value
+                for name, value in name_to_value.items()
+                if name in parameters
+            },
         )
         path = directory / f"{target.slug:s}.parquet"
         df.to_parquet(path)
