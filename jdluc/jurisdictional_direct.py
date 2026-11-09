@@ -38,6 +38,9 @@ class Crop(enum.Enum):
 
 
 DATASET_NAMES = (DatasetName.USDA_NASS_CDL,)
+CROP_CLASS_BAND_NAME = usda_nass_cdl.DATASET.fully_qualified_band_names[
+    usda_nass_cdl.YEARS.index(emit.ASSESSMENT_YEAR)
+]
 
 
 EMISSIONS_AND_CROP_VARIABLE_NAMES = [
@@ -50,7 +53,7 @@ EMISSIONS_AND_CROP_VARIABLE_NAMES = [
     f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     *(f"{component!s}-emissions:tco2e-per-ha" for component in emit.EmissionComponent),
     # Crop
-    usda_nass_cdl.DATASET.fully_qualified_band_name,
+    CROP_CLASS_BAND_NAME,
 ]
 
 
@@ -207,7 +210,7 @@ def workflow(
                         component: clipped[f"{component!s}-emissions:tco2e-per-ha"]
                         for component in emit.EmissionComponent
                     },
-                    crop_class=clipped[usda_nass_cdl.DATASET.fully_qualified_band_name],
+                    crop_class=clipped[CROP_CLASS_BAND_NAME],
                     cropland_occupation_per_hectare=clipped[
                         f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
                     ],

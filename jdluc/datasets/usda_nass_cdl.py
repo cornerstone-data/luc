@@ -21,76 +21,105 @@ import os
 import tempfile
 import zipfile
 
-import numpy
+import rasterio
 import rasterio.enums
 import rasterio.transform
-import xarray
+import rasterio.vrt
+import rasterio.windows
 
-from jdluc import geo, tiling, utils
+from jdluc import tiling, utils
 from jdluc.datasets import base
 
 logger = logging.getLogger(__name__)
 
 
-YEAR = 2020
+YEARS = tuple(range(2020, 2026))
+BAND_NAMES = [f"{year=:d}" for year in YEARS]
 
 
-# All tiles share one (expensive) download+reproject, so cache it
+# A shorter warp reads the source more times; a taller one holds more of the tile in memory
+DESTINATION_BLOCK_ROWS = 2048
+
+
+# All tiles share each year's (expensive) download, so cache it
 @utils.threadsafe_cache
-def _get_dataarray() -> xarray.DataArray:
-    import rioxarray
+def get_path_to_geotiff_for_year(year: int) -> str:
+    """The path to `year`'s source GeoTIFF, extracted from its zip to a local directory.
 
-    with tempfile.TemporaryDirectory() as local_dir:
-        path_to_zip = os.path.join(local_dir, "data.zip")
-        utils.save_remote_url_to_local_path(
-            local_path=path_to_zip,
-            params={},
-            remote_url=f"https://www.nass.usda.gov/Research_and_Science/Cropland/Release/datasets/{YEAR:d}_30m_cdls.zip",
-        )
-        logger.info(f"Extracting .tif from {path_to_zip=:s}")
-        path_to_geotiff: str | None = None
-        with zipfile.ZipFile(file=path_to_zip) as zf:
-            for name in zf.namelist():
-                if name.endswith(f"{YEAR:d}_30m_cdls.tif"):
-                    path_to_geotiff = zf.extract(name, local_dir)
-                    break
-        assert path_to_geotiff is not None
-        logger.info(f"Loading {path_to_geotiff=:s} into xarray")
-        darray = rioxarray.open_rasterio(
-            path_to_geotiff,
-            chunks=geo.get_chunk_size(dtypes=[numpy.dtype("uint8")]),
-        )
-        assert isinstance(darray, xarray.DataArray)
-        logger.info(f"Reprojecting from {darray.rio.crs.to_epsg():d} to 4326")
-        return (
-            darray.isel(band=0)
-            .drop_vars("band")
-            .rio.reproject(
-                dst_crs=4326,
-                nodata=DATASET.no_data,
-                resampling=rasterio.enums.Resampling.nearest,
-            )
-        )
+    The zip's external overviews stay behind, so a warp can only read full resolution.
+    """
+    # NB: deliberately not a TemporaryDirectory, so that the GeoTIFF outlives this call
+    local_dir = tempfile.mkdtemp()
+    path_to_zip = os.path.join(local_dir, "data.zip")
+    utils.save_remote_url_to_local_path(
+        local_path=path_to_zip,
+        params={},
+        remote_url=f"https://www.nass.usda.gov/sites/default/files/Research_and_Science/Cropland/Release/datasets/{year:d}_30m_cdls.zip",
+    )
+    logger.info(f"Extracting {year=:d}'s .tif from {path_to_zip=:s}")
+    basename = f"{year:d}_30m_cdls.tif"
+    with zipfile.ZipFile(file=path_to_zip) as zf:
+        zf.extract(basename, local_dir)
+    os.remove(path_to_zip)
+    return os.path.join(local_dir, basename)
 
 
 def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
-    darray = _get_dataarray()
     max_lat, min_lon = tiling.get_lat_lon_for_tile_id(tile_id=tile_id)
-    tiled = darray.rio.reproject(
-        dst_crs=4326,
-        nodata=DATASET.no_data,
-        resampling=rasterio.enums.Resampling.nearest,
-        shape=(tiling.TileResolution.GLAD.x, tiling.TileResolution.GLAD.y),
-        transform=rasterio.transform.from_origin(
-            min_lon, max_lat, *tiling.TileResolution.GLAD.degrees_per_pixel
-        ),
+    transform = rasterio.transform.from_origin(
+        min_lon, max_lat, *tiling.TileResolution.GLAD.degrees_per_pixel
     )
-    logger.info(f"Saving xarray to {local_path=:s} for {tile_id=:s}")
-    tiled.rio.to_raster(local_path, driver="GTiff", recalc_transform=False)
+    with rasterio.open(
+        BIGTIFF="YES",
+        NUM_THREADS="ALL_CPUS",
+        compress="deflate",
+        count=len(YEARS),
+        crs=4326,
+        driver="GTiff",
+        dtype=DATASET.dtype,
+        fp=local_path,
+        height=tiling.TileResolution.GLAD.y,
+        interleave="band",
+        mode="w",
+        nodata=DATASET.no_data,
+        tiled=True,
+        transform=transform,
+        width=tiling.TileResolution.GLAD.x,
+    ) as dataset:
+        for band_idx, year in enumerate(YEARS, start=1):
+            path_to_geotiff = get_path_to_geotiff_for_year(year=year)
+            logger.info(f"Warping {path_to_geotiff=:s} onto {tile_id=:s}")
+            with (
+                rasterio.open(fp=path_to_geotiff) as source,
+                rasterio.vrt.WarpedVRT(
+                    source,
+                    crs=4326,
+                    height=tiling.TileResolution.GLAD.y,
+                    nodata=DATASET.no_data,
+                    resampling=rasterio.enums.Resampling.nearest,
+                    src_nodata=DATASET.no_data,
+                    transform=transform,
+                    width=tiling.TileResolution.GLAD.x,
+                ) as warped,
+            ):
+                for top in range(
+                    0, tiling.TileResolution.GLAD.y, DESTINATION_BLOCK_ROWS
+                ):
+                    window = rasterio.windows.Window(
+                        col_off=0,
+                        height=min(
+                            DESTINATION_BLOCK_ROWS, tiling.TileResolution.GLAD.y - top
+                        ),
+                        row_off=top,
+                        width=tiling.TileResolution.GLAD.x,
+                    )
+                    dataset.write(
+                        warped.read(1, window=window), band_idx, window=window
+                    )
 
 
 DATASET = base.RasterDataset(
-    band_names=["crop-class"],
+    band_names=BAND_NAMES,
     band_type=base.BandType.CATEGORICAL,
     dtype="uint8",
     no_data=0,
@@ -99,7 +128,8 @@ DATASET = base.RasterDataset(
     save_tile_id_to_local_path=_save_tile_id_to_local_path,
     source_name="usda-nass",
     # v1: reproject data so that when it doesn't cover a full tile it doesn't get stretched
-    version="v1",
+    # v2: a band per year, 2020-2025, each warped straight from the source projection onto the tile
+    version="v2",
 )
 
 
