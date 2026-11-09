@@ -37,5 +37,6 @@ DATASET = base.RasterDataset(
     product_name="tree-cover-loss",
     save_tile_id_to_local_path=_save_tile_id_to_local_path,
     source_name="gnw",
+    # v1: include 2025
     version="v1",
 )

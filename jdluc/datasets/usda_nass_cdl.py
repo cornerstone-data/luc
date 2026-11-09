@@ -98,6 +98,7 @@ DATASET = base.RasterDataset(
     product_name="cdl",
     save_tile_id_to_local_path=_save_tile_id_to_local_path,
     source_name="usda-nass",
+    # v1: reproject data so that when it doesn't cover a full tile it doesn't get stretched
     version="v1",
 )
 
