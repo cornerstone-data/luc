@@ -26,8 +26,8 @@ from jdluc.jurisdictional_direct_proxy import (
 )
 from jdluc.statistical import Livestock
 
-# A conversion in 2012 takes the 2010-2015 weight of 0.0625, so 160 and 1600 discount to 10 and 100
-CONVERSION_YEAR = 2012
+# A conversion in 2013 takes a factor of 0.0625, so 160 and 1600 discount to 10 and 100
+CONVERSION_YEAR = 2013
 VEGETATION = 160.0
 SOIL = 1600.0
 LAND_CLASS_COMPONENT_NAMES = [

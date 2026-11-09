@@ -233,16 +233,13 @@ LOOKBACK_YEARS_RANGE = tuple(
     range(ASSESSMENT_YEAR - LOOKBACK_YEARS, ASSESSMENT_YEAR + 1)
 )
 
-# The GHGP linear discount weight by conversion year: the mean of the LSR Guidance's annual factors
-# (Table 7.11) over the five-year span holding that year
-YEAR_TO_LINEAR_DISCOUNT_WEIGHT: dict[int, float] = (
-    dict.fromkeys(range(2001, 2006), 0.0125)
-    | dict.fromkeys(range(2006, 2011), 0.0375)
-    | dict.fromkeys(range(2011, 2016), 0.0625)
-    | dict.fromkeys(range(2016, 2021), 0.0875)
-)
-# NB: nothing can depart in the lookback's first year, which has no year before it to compare with
-assert tuple(YEAR_TO_LINEAR_DISCOUNT_WEIGHT) == LOOKBACK_YEARS_RANGE[1:]
+# The LSR Guidance's linear amortization factor for a conversion in each year (Table 7.11): 9.75% in
+# the assessment year, falling 0.5 points a year to 0.25% nineteen years before it
+YEAR_TO_LINEAR_DISCOUNT_WEIGHT: dict[int, float] = {
+    year: (39 - 2 * (ASSESSMENT_YEAR - year)) / 400
+    # NB: nothing can depart in the lookback's first year, which has no year before it to compare with
+    for year in LOOKBACK_YEARS_RANGE[1:]
+}
 assert math.isclose(sum(YEAR_TO_LINEAR_DISCOUNT_WEIGHT.values()), 1)
 
 

@@ -445,15 +445,15 @@ def test_get_dset_for_output_appends_each_band_its_units() -> None:
 
 
 def test_get_linear_discounted() -> None:
-    # A boundary year takes the weight of the span it closes, and a pixel with no year takes none
-    # even where its value is missing
+    # Each year takes its own factor, from 0.25% in 2001 to 9.75% in 2020, and a pixel with no year
+    # takes none even where its value is missing
     result = get_linear_discounted(
         conversion_year=get_darray_for_data(
             data=[[2001, 2005, 2006, 2011, 2020, 0, numpy.nan]]
         ),
         darray=get_darray_for_data(data=[[8, 8, 8, 8, 8, numpy.nan, numpy.nan]]),
     )
-    numpy.testing.assert_allclose(result.data, [[0.1, 0.1, 0.3, 0.5, 0.7, 0, 0]])
+    numpy.testing.assert_allclose(result.data, [[0.02, 0.18, 0.22, 0.42, 0.78, 0, 0]])
 
 
 def test_get_hectares_per_pixel() -> None:
