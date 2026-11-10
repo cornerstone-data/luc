@@ -8,19 +8,21 @@ import pytest
 import xarray
 
 from jdluc import emit
-from jdluc.datasets import gpw_livestock, ifpri_mapspam
+from jdluc.datasets import faostat, gpw_livestock, ifpri_mapspam
+from jdluc.datasets.gpw_livestock import (
+    Livestock,
+    get_band_name_to_livestock_units,
+    get_livestock_to_grazing_share,
+)
 from jdluc.statistical import (
     HERD_HEADS_COLUMNS,
     MAPSPAM_SPANS,
     Commodity,
     Crop,
-    Livestock,
-    get_band_name_to_livestock_units,
     get_commodity_name_to_totals,
     get_commodity_to_peatland_conversion_share,
     get_commodity_to_share,
     get_crop_to_area_share,
-    get_livestock_to_grazing_share,
     get_mapspam_span,
     get_snapshot_year_to_weight,
 )
@@ -1061,3 +1063,8 @@ def test_the_beef_row_reports_its_herd(
     assert totals["commodity_hectares"] == pytest.approx(
         PIXELS * HECTARES_PER_CELL * pasture_fraction
     )
+
+
+def test_faostat_species_match_gpw_livestock() -> None:
+    """Every grazer GPW maps has FAOSTAT stocks and carcass weights to price it by."""
+    assert {e.name for e in faostat.Species} == {e.name for e in gpw_livestock.Species}

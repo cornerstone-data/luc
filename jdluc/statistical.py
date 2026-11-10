@@ -62,31 +62,9 @@ class Crop(enum.StrEnum):
 assert {e.value for e in Crop} == ifpri_mapspam.RECOVERABLE_CROP_NAMES
 
 
-@enum.unique
-class Livestock(enum.StrEnum):
-    """The commodities dividing pasture's share of a cell; PASTURE keeps what the others don't."""
-
-    BEEF_CATTLE = enum.auto()
-    PASTURE = enum.auto()
-
-
-LIVESTOCK_TO_SPECIES = {
-    Livestock.BEEF_CATTLE: (gpw_livestock.Species.CATTLE,),
-}
-assert set(LIVESTOCK_TO_SPECIES) == set(Livestock) - {Livestock.PASTURE}
-# No grazer may be named by two commodities, or its livestock units would count toward both shares
-assert sum(len(species) for species in LIVESTOCK_TO_SPECIES.values()) == len(
-    set(LIVESTOCK_TO_SPECIES.values())
-)
-# `trace` prices a commodity's herd at one species' carcass weight per head
-assert all(len(species) == 1 for species in LIVESTOCK_TO_SPECIES.values())
-
-assert {e.name for e in faostat.Species} == {e.name for e in gpw_livestock.Species}
-
-
 # `Crop` stays exactly MapSPAM's recoverable crops, because everything that divides by one looks
 # its name up there
-type Commodity = Crop | Livestock
+type Commodity = Crop | gpw_livestock.Livestock
 
 
 DATASET_NAMES = (
@@ -219,57 +197,17 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
     )
 
 
-def get_band_name_to_livestock_units(
-    dset: xarray.Dataset, species_to_units_per_head: dict[gpw_livestock.Species, float]
-) -> dict[str, xarray.DataArray]:
-    """Each grazer's density in livestock units/ha, for assigning beside its density in heads.
-
-    Livestock units weigh how much one head of a species grazes, so they divide pasture between
-    grazers; production counts heads, and reads the heads bands.
-    """
-    return {
-        f"{species:s}:livestock-units-per-ha:{year:d}": dset[
-            gpw_livestock.get_band_name(species=species, year=year)
-        ]
-        * species_to_units_per_head[species]
-        for species, year in gpw_livestock.SPECIES_YEARS
-    }
-
-
-def get_livestock_to_grazing_share(
-    dset: xarray.Dataset, year: int
-) -> dict[Livestock, xarray.DataArray]:
-    """Each commodity's share of a cell's pasture: its grazers' livestock units over all of them.
-
-    Each livestock unit in a cell is taken to graze an equal slice of that cell's pasture. Only the
-    ratios between species' units per head matter, since a share divides each by the cell's total.
-    """
-    species_to_units = {
-        species: dset[f"{species:s}:livestock-units-per-ha:{year:d}"]
-        for species in gpw_livestock.Species
-    }
-    zero = xarray.DataArray(numpy.float32(0))
-    total = sum(species_to_units.values(), start=zero)
-    total = total.where(total > 0)
-    shares = {
-        # Share is zero where no grazer is mapped at all
-        livestock: (
-            sum((species_to_units[one] for one in species), start=zero) / total
-        ).fillna(0)
-        for livestock, species in LIVESTOCK_TO_SPECIES.items()
-    }
-    return shares | {Livestock.PASTURE: 1 - sum(shares.values(), start=zero)}
-
-
 def get_commodity_hectares(
     commodity: Commodity, dset: xarray.Dataset, year: int
 ) -> xarray.DataArray:
-    if isinstance(commodity, Livestock):
+    if isinstance(commodity, gpw_livestock.Livestock):
         pasture_fraction = dset[f"pasture:fraction:{year:d}"]
         return (
             pasture_fraction
             * emit.get_hectares_per_pixel(darray=pasture_fraction)
-            * get_livestock_to_grazing_share(dset=dset, year=year)[commodity]
+            * gpw_livestock.get_livestock_to_grazing_share(dset=dset, year=year)[
+                commodity
+            ]
         )
     else:
         return ifpri_mapspam.get_canonical_quantity(
@@ -359,7 +297,7 @@ def get_commodity_to_share(
         # livestock commodity's own expansion instead would count one grazer replacing another as
         # new pasture.
         livestock: pasture_share * grazing_share
-        for livestock, grazing_share in get_livestock_to_grazing_share(
+        for livestock, grazing_share in gpw_livestock.get_livestock_to_grazing_share(
             dset=dset, year=after
         ).items()
     }
@@ -383,7 +321,7 @@ def get_commodity_to_peatland_conversion_share(
             / cropland_expansion
         ).fillna(0)
         for crop in crops
-    } | get_livestock_to_grazing_share(dset=dset, year=after)
+    } | gpw_livestock.get_livestock_to_grazing_share(dset=dset, year=after)
 
 
 MAPSPAM_SPANS = ((2000, 2005), (2005, 2010), (2010, 2020))
@@ -436,12 +374,8 @@ def get_snapshot_year_to_weight(assessment_year: int) -> dict[int, float]:
     return snapshot_year_to_weight
 
 
-def get_herd_heads_column(year: int) -> str:
-    return f"herd_heads_{year:d}"
-
-
 HERD_HEADS_COLUMNS = tuple(
-    get_herd_heads_column(year=year) for year in MAPSPAM_SNAPSHOT_YEARS
+    gpw_livestock.get_herd_heads_column(year=year) for year in MAPSPAM_SNAPSHOT_YEARS
 )
 
 
@@ -484,7 +418,9 @@ def get_commodity_name_to_totals(
     for commodity in commodities:
         totals = commodity_to_totals[commodity]
         land_class = (
-            emit.PASTURELAND if isinstance(commodity, Livestock) else emit.CROPLAND
+            emit.PASTURELAND
+            if isinstance(commodity, gpw_livestock.Livestock)
+            else emit.CROPLAND
         )
         component_to_emissions = {
             component: sum(
@@ -520,9 +456,9 @@ def get_commodity_name_to_totals(
         # Peat occupation and production: a livestock commodity takes its grazing share of the
         # pasture peat band and reports its herd; a crop takes its area share of the cropland peat
         # band and reports MapSPAM's production
-        if isinstance(commodity, Livestock):
+        if isinstance(commodity, gpw_livestock.Livestock):
             occupation = pastureland_occupation * occupation_shares[commodity]
-            if commodity in LIVESTOCK_TO_SPECIES:
+            if commodity in gpw_livestock.LIVESTOCK_TO_SPECIES:
                 # NB: GPW's density is heads per hectare of the whole cell, so times the cell's
                 # hectares it is the cell's entire herd, all of it grazing the cell's pasture
                 # however little of the cell that is. Scaling by the pasture fraction too would
@@ -530,9 +466,9 @@ def get_commodity_name_to_totals(
                 # rangeland -- produce nothing. Counting production where the herd stands, as a
                 # crop's is counted where it grows, keeps it on the same animals the grazing split
                 # weighs.
-                (species,) = LIVESTOCK_TO_SPECIES[commodity]
+                (species,) = gpw_livestock.LIVESTOCK_TO_SPECIES[commodity]
                 totals |= {
-                    get_herd_heads_column(year=year): dset[
+                    gpw_livestock.get_herd_heads_column(year=year): dset[
                         gpw_livestock.get_band_name(species=species, year=year)
                     ].where(dset[f"pasture:fraction:{year:d}"] > 0, other=0)
                     * hectares
@@ -691,7 +627,7 @@ def workflow(
     from rioxarray.exceptions import NoDataInBounds
 
     commodities: tuple[Commodity, ...] = tuple(
-        Crop[name] if name in Crop.__members__ else Livestock[name]
+        Crop[name] if name in Crop.__members__ else gpw_livestock.Livestock[name]
         for name in commodity_names
     )
     crops = tuple(commodity for commodity in commodities if isinstance(commodity, Crop))
@@ -716,7 +652,7 @@ def workflow(
 
     # Each grazer's livestock units per head, as FAOSTAT counts them for this country
     merged = merged.assign(
-        get_band_name_to_livestock_units(
+        gpw_livestock.get_band_name_to_livestock_units(
             dset=merged,
             species_to_units_per_head={
                 gpw_livestock.Species[species.name]: units_per_head
@@ -784,7 +720,7 @@ def workflow(
                         dset=clipped,
                         year=max(ifpri_mapspam.YEARS),
                     )
-                    | get_livestock_to_grazing_share(
+                    | gpw_livestock.get_livestock_to_grazing_share(
                         dset=clipped, year=max(ifpri_mapspam.YEARS)
                     ),
                     snapshot_year_to_weight=snapshot_year_to_weight,

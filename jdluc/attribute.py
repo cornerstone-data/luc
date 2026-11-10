@@ -36,7 +36,7 @@ from jdluc import (
     jurisdictional_direct_proxy,
     statistical,
 )
-from jdluc.datasets import tang_cropgrids, worldbank_jurisdictions
+from jdluc.datasets import gpw_livestock, tang_cropgrids, worldbank_jurisdictions
 
 logger = logging.getLogger(__name__)
 
@@ -152,11 +152,11 @@ def get_commodity_names(methodology: Methodology) -> tuple[str, ...]:
             return tuple(sorted(e.name for e in jurisdictional_direct.Crop))
         case Methodology.JURISDICTIONAL_DIRECT_PROXY:
             return tuple(
-                sorted(e.name for e in (*tang_cropgrids.Crop, *statistical.Livestock))
+                sorted(e.name for e in (*tang_cropgrids.Crop, *gpw_livestock.Livestock))
             )
         case Methodology.STATISTICAL:
             return tuple(
-                sorted(e.name for e in (*statistical.Crop, *statistical.Livestock))
+                sorted(e.name for e in (*statistical.Crop, *gpw_livestock.Livestock))
             )
         case _:
             raise ValueError(methodology)

@@ -135,12 +135,12 @@ def derive_statistical_production_kg(
     """
     ret = emissions.copy()
     ret["production_kg"] = ret["production_mt"] * KG_PER_TONNE
-    for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+    for livestock, (species,) in gpw_livestock.LIVESTOCK_TO_SPECIES.items():
         is_herd = ret.index.get_level_values("commodity_name") == livestock.name
         ret.loc[is_herd, "production_kg"] = sum(
             weight
             * get_herd_production_kg(
-                heads=ret.loc[is_herd, statistical.get_herd_heads_column(year=year)],
+                heads=ret.loc[is_herd, gpw_livestock.get_herd_heads_column(year=year)],
                 species=species,
                 stocks=stocks,
                 years=(year,),
@@ -233,7 +233,7 @@ def derive_proxy_production_kg(
     ret = flat.drop(columns=["commodity_id", "iso_3166"]).set_index(
         emissions.index.names
     )
-    for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+    for livestock, (species,) in gpw_livestock.LIVESTOCK_TO_SPECIES.items():
         is_herd = ret.index.get_level_values("commodity_name") == livestock.name
         ret.loc[is_herd, "production_kg"] = get_herd_production_kg(
             heads=ret.loc[is_herd, jurisdictional_direct_proxy.HERD_HEADS_COLUMN],

@@ -18,7 +18,7 @@ come from the FAOSTAT crop table in `trace`.
 import enum
 
 from jdluc import attribute, emit, jurisdictional_direct, statistical
-from jdluc.datasets import faostat, tang_cropgrids
+from jdluc.datasets import faostat, gpw_livestock, tang_cropgrids
 
 
 @enum.unique
@@ -137,18 +137,18 @@ METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID: dict[
         statistical.Crop.SWEET_POTATO.name: 122,
         statistical.Crop.WHEAT.name: 15,
         statistical.Crop.YAM.name: 137,
-        statistical.Livestock.BEEF_CATTLE.name: faostat.SPECIES_TO_MEAT_ITEM_CODE[
+        gpw_livestock.Livestock.BEEF_CATTLE.name: faostat.SPECIES_TO_MEAT_ITEM_CODE[
             faostat.Species.CATTLE
         ],
-        statistical.Livestock.PASTURE.name: InventedCommodityId.PASTURE,
+        gpw_livestock.Livestock.PASTURE.name: InventedCommodityId.PASTURE,
     },
     attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY: {
         emit.NonCommodity.DROPPED.name: InventedCommodityId.DROPPED,
         emit.NonCommodity.UNATTRIBUTED.name: InventedCommodityId.UNATTRIBUTED,
-        statistical.Livestock.BEEF_CATTLE.name: faostat.SPECIES_TO_MEAT_ITEM_CODE[
+        gpw_livestock.Livestock.BEEF_CATTLE.name: faostat.SPECIES_TO_MEAT_ITEM_CODE[
             faostat.Species.CATTLE
         ],
-        statistical.Livestock.PASTURE.name: InventedCommodityId.PASTURE,
+        gpw_livestock.Livestock.PASTURE.name: InventedCommodityId.PASTURE,
         # The publisher's crop table (`CROPS_matching_v17.xlsx` in figshare's `CODES.zip`), through
         # the authors' 2020 FAOSTAT extract. Both kapok crops are 310, kapok fruit
         tang_cropgrids.Crop.ABACA.name: 809,
@@ -352,7 +352,7 @@ assert set(
     METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[attribute.Methodology.STATISTICAL]
 ) == {
     *(crop.name for crop in statistical.Crop),
-    *(livestock.name for livestock in statistical.Livestock),
+    *(livestock.name for livestock in gpw_livestock.Livestock),
     *(non_commodity.name for non_commodity in emit.NonCommodity),
 }
 assert set(
@@ -361,7 +361,7 @@ assert set(
     ]
 ) == {
     *(crop.name for crop in tang_cropgrids.Crop),
-    *(livestock.name for livestock in statistical.Livestock),
+    *(livestock.name for livestock in gpw_livestock.Livestock),
     *(non_commodity.name for non_commodity in emit.NonCommodity),
 }
 assert len(

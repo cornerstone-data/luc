@@ -8,7 +8,7 @@ import rasterio.enums
 import xarray
 from rioxarray.exceptions import NoDataInBounds
 
-from jdluc import emit, geo, harmonize, statistical, storage, tiling, utils
+from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
     DatasetName,
     faostat,
@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 assert tang_cropgrids.YEAR in gpw_grassland.YEARS
 assert tang_cropgrids.YEAR in gpw_livestock.YEARS
 
-type Commodity = tang_cropgrids.Crop | statistical.Livestock
+type Commodity = tang_cropgrids.Crop | gpw_livestock.Livestock
 assert not {e.name for e in tang_cropgrids.Crop} & {
-    e.name for e in statistical.Livestock
+    e.name for e in gpw_livestock.Livestock
 }
 
 DATASET_NAMES = (DatasetName.GPW_LIVESTOCK, DatasetName.TANG_CROPGRIDS_CROP_AREA)
-HERD_HEADS_COLUMN = statistical.get_herd_heads_column(year=tang_cropgrids.YEAR)
+HERD_HEADS_COLUMN = gpw_livestock.get_herd_heads_column(year=tang_cropgrids.YEAR)
 
 
 def get_name_to_band(
@@ -189,7 +189,7 @@ def get_commodity_name_to_totals(
     for commodity in commodities:
         totals = commodity_to_totals[commodity]
         share = commodity_to_share[commodity]
-        if isinstance(commodity, statistical.Livestock):
+        if isinstance(commodity, gpw_livestock.Livestock):
             land_class = emit.PASTURELAND
             totals["commodity_hectares"] = (
                 dset[f"pasture:fraction:{tang_cropgrids.YEAR:d}"] * hectares * share
@@ -222,7 +222,7 @@ def get_commodity_name_to_totals(
             gpw_livestock.get_band_name(species=species, year=tang_cropgrids.YEAR)
         ].where(dset[f"pasture:fraction:{tang_cropgrids.YEAR:d}"] > 0, other=0)
         * hectares
-        for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items()
+        for livestock, (species,) in gpw_livestock.LIVESTOCK_TO_SPECIES.items()
         if livestock in commodities
     }
     for livestock, heads in livestock_to_heads.items():
@@ -294,7 +294,7 @@ def workflow(
     commodities: tuple[Commodity, ...] = tuple(
         tang_cropgrids.Crop[name]
         if name in tang_cropgrids.Crop.__members__
-        else statistical.Livestock[name]
+        else gpw_livestock.Livestock[name]
         for name in commodity_names
     )
     crops = tuple(
@@ -317,7 +317,7 @@ def workflow(
     )
     # Each grazer's livestock units per head, as FAOSTAT counts them for this country
     merged = merged.assign(
-        statistical.get_band_name_to_livestock_units(
+        gpw_livestock.get_band_name_to_livestock_units(
             dset=merged,
             species_to_units_per_head={
                 gpw_livestock.Species[species.name]: units_per_head
@@ -359,7 +359,7 @@ def workflow(
                 commodity_name_to_totals = get_commodity_name_to_totals(
                     commodities=commodities,
                     commodity_to_share=get_crop_to_area_share(crops=crops, dset=clipped)
-                    | statistical.get_livestock_to_grazing_share(
+                    | gpw_livestock.get_livestock_to_grazing_share(
                         dset=clipped, year=tang_cropgrids.YEAR
                     ),
                     dset=clipped,

@@ -6,7 +6,7 @@ from jdluc.datasets.gnw_global_peatlands import DATASET as PEATLANDS
 from jdluc.datasets.gpw_grassland import DATASET as GRASSLAND
 from jdluc.datasets.gpw_grassland import YEARS as GRASSLAND_YEARS
 from jdluc.datasets.gpw_grassland import Grassland
-from jdluc.datasets.gpw_livestock import Species, get_band_name
+from jdluc.datasets.gpw_livestock import Livestock, Species, get_band_name
 from jdluc.datasets.tang_cropgrids import DATASET as CROPGRIDS
 from jdluc.datasets.tang_cropgrids import YEAR as CROPGRIDS_YEAR
 from jdluc.datasets.tang_cropgrids import Crop
@@ -25,7 +25,6 @@ from jdluc.jurisdictional_direct_proxy import (
     get_crop_to_area_share,
     get_name_to_band,
 )
-from jdluc.statistical import Livestock
 
 # A conversion in 2013 takes a factor of 0.0625, so 160 and 1600 discount to 10 and 100
 CONVERSION_YEAR = 2013
