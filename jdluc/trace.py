@@ -2,14 +2,13 @@
 
 Starting from the per-(admin, commodity) attribution rollup (`attribute.workflow`), determines
 each commodity's total production — the only step that depends on methodology:
-  - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield, averaged over the 3
-    years centered on the assessment year.
+  - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield, averaged over the 4
+    years ending at the assessment year.
   - STATISTICAL: production = MAPSPAM production for crops, carried straight through the
     attribute, and the attribute's GPW heads x FAOSTAT carcass weight per head for livestock.
-  - JURISDICTIONAL_DIRECT_PROXY: production = FAOSTAT national production over the 3 years
-    centered on the assessment year (2024 alone until FAOSTAT publishes 2025), split among
-    provinces by CROPGRIDS crop area for crops, and the attribute's 2020 GPW heads x FAOSTAT
-    carcass weight per head over the same years for livestock.
+  - JURISDICTIONAL_DIRECT_PROXY: production = FAOSTAT national production over the same 4 years,
+    split among provinces by CROPGRIDS crop area for crops, and the attribute's 2020 GPW heads x
+    FAOSTAT carcass weight per head over the same years for livestock.
 
 It then derives, identically for all three, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
@@ -344,25 +343,21 @@ def workflow(
         methodology=methodology,
     )
     assert emissions.index.names == list(attribute.INDEX_NAMES)
+    # The years both direct legs average their production statistics over
+    production_years = tuple(range(assessment_year - 3, assessment_year + 1))
     match methodology:
         case attribute.Methodology.JURISDICTIONAL_DIRECT:
             production = derive_jurisdictional_production_kg(
                 emissions=emissions,
                 raw_yields=usda_nass_quickstats.load(),
-                years=tuple(range(assessment_year - 1, assessment_year + 2)),
+                years=production_years,
             )
         case attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY:
             production = derive_proxy_production_kg(
                 crops=faostat.load(dataset=faostat.CROP_DATASET),
                 emissions=emissions,
                 stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
-                # TODO: center 2024 like every other year once FAOSTAT publishes 2025's
-                # production; until then it takes its own year alone
-                years=(
-                    (assessment_year,)
-                    if assessment_year == 2024
-                    else tuple(range(assessment_year - 1, assessment_year + 2))
-                ),
+                years=production_years,
             )
         case attribute.Methodology.STATISTICAL:
             production = derive_statistical_production_kg(
