@@ -219,16 +219,6 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
     )
 
 
-def get_pasture_hectares(dset: xarray.Dataset, year: int) -> xarray.DataArray:
-    darray = dset[f"pasture:fraction:{year:d}"]
-    return darray * emit.get_hectares_per_pixel(darray=darray)
-
-
-def get_livestock_units_band_name(species: gpw_livestock.Species, year: int) -> str:
-    """The band carrying `species`' density in livestock units/ha in `year`."""
-    return f"{species:s}:livestock-units-per-ha:{year:d}"
-
-
 def get_band_name_to_livestock_units(
     dset: xarray.Dataset, species_to_units_per_head: dict[gpw_livestock.Species, float]
 ) -> dict[str, xarray.DataArray]:
@@ -238,7 +228,7 @@ def get_band_name_to_livestock_units(
     grazers; production counts heads, and reads the heads bands.
     """
     return {
-        get_livestock_units_band_name(species=species, year=year): dset[
+        f"{species:s}:livestock-units-per-ha:{year:d}": dset[
             gpw_livestock.get_band_name(species=species, year=year)
         ]
         * species_to_units_per_head[species]
@@ -255,7 +245,7 @@ def get_livestock_to_grazing_share(
     ratios between species' units per head matter, since a share divides each by the cell's total.
     """
     species_to_units = {
-        species: dset[get_livestock_units_band_name(species=species, year=year)]
+        species: dset[f"{species:s}:livestock-units-per-ha:{year:d}"]
         for species in gpw_livestock.Species
     }
     zero = xarray.DataArray(numpy.float32(0))
@@ -275,8 +265,10 @@ def get_commodity_hectares(
     commodity: Commodity, dset: xarray.Dataset, year: int
 ) -> xarray.DataArray:
     if isinstance(commodity, Livestock):
+        pasture_fraction = dset[f"pasture:fraction:{year:d}"]
         return (
-            get_pasture_hectares(dset=dset, year=year)
+            pasture_fraction
+            * emit.get_hectares_per_pixel(darray=pasture_fraction)
             * get_livestock_to_grazing_share(dset=dset, year=year)[commodity]
         )
     else:
@@ -341,9 +333,13 @@ def get_commodity_to_share(
     """Each commodity's share of everything a cell emitted in a span, whatever each pixel became."""
     # Pastureland expands alongside the crops, measured net and clipped exactly as a crop's is:
     # GPW is annual, and its gross gain would charge pasture for churn MapSPAM cannot see
+    pasture_fraction_after = dset[f"pasture:fraction:{after:d}"]
+    pasture_fraction_before = dset[f"pasture:fraction:{before:d}"]
     pasture_expansion = (
-        get_pasture_hectares(dset=dset, year=after)
-        - get_pasture_hectares(dset=dset, year=before)
+        pasture_fraction_after
+        * emit.get_hectares_per_pixel(darray=pasture_fraction_after)
+        - pasture_fraction_before
+        * emit.get_hectares_per_pixel(darray=pasture_fraction_before)
     ).clip(min=0)
     total_expansion = (
         get_cropland_expansion(after=after, before=before, dset=dset)
@@ -414,9 +410,9 @@ def get_mapspam_span(year: int) -> tuple[int, int]:
 
 
 def get_snapshot_year_to_weight(assessment_year: int) -> dict[int, float]:
-    """Each snapshot's weight in `get_discounted_snapshot_mean`: every conversion year's discount
-    weight, split evenly between the two snapshots of its MapSPAM span. A year after the last
-    snapshot gives its whole weight to that snapshot instead.
+    """Each snapshot's weight in the means of a crop's production and a commodity's area: every
+    conversion year's discount weight, split evenly between the two snapshots of its MapSPAM span.
+    A year after the last snapshot gives its whole weight to that snapshot instead.
     """
     *_, last_snapshot_year = MAPSPAM_SNAPSHOT_YEARS
     year_to_weight = emit.get_year_to_linear_discount_weight(
@@ -447,20 +443,6 @@ def get_herd_heads_column(year: int) -> str:
 HERD_HEADS_COLUMNS = tuple(
     get_herd_heads_column(year=year) for year in MAPSPAM_SNAPSHOT_YEARS
 )
-
-
-def get_discounted_snapshot_mean(
-    snapshot_year_to_weight: dict[int, float],
-    year_to_value: dict[int, xarray.DataArray],
-) -> xarray.DataArray:
-    """A level -- area, production -- as a mean over the windows emissions are summed on."""
-    return sum(
-        (
-            snapshot_year_to_weight[year] * year_to_value[year]
-            for year in MAPSPAM_SNAPSHOT_YEARS
-        ),
-        start=xarray.DataArray(numpy.float32(0)),
-    )
 
 
 def get_commodity_name_to_totals(
@@ -558,25 +540,28 @@ def get_commodity_name_to_totals(
                 }
         else:
             occupation = cropland_occupation * occupation_shares[commodity]
-            totals["production_mt"] = get_discounted_snapshot_mean(
-                snapshot_year_to_weight=snapshot_year_to_weight,
-                year_to_value={
-                    year: ifpri_mapspam.get_canonical_quantity(
+            # NB: a level, so a mean over the snapshots under the weights emissions are summed with
+            totals["production_mt"] = sum(
+                (
+                    snapshot_year_to_weight[year]
+                    * ifpri_mapspam.get_canonical_quantity(
                         canonical_crop_name=commodity.value,
                         dset=dset,
                         quantity=ifpri_mapspam.Quantity.PRODUCTION,
                         year=year,
                     )
                     for year in MAPSPAM_SNAPSHOT_YEARS
-                },
+                ),
+                start=xarray.DataArray(numpy.float32(0)),
             )
 
-        totals["commodity_hectares"] = get_discounted_snapshot_mean(
-            snapshot_year_to_weight=snapshot_year_to_weight,
-            year_to_value={
-                year: get_commodity_hectares(commodity=commodity, dset=dset, year=year)
+        totals["commodity_hectares"] = sum(
+            (
+                snapshot_year_to_weight[year]
+                * get_commodity_hectares(commodity=commodity, dset=dset, year=year)
                 for year in MAPSPAM_SNAPSHOT_YEARS
-            },
+            ),
+            start=xarray.DataArray(numpy.float32(0)),
         )
         # NB: occupation is a flat annual rate over the area drained, so dividing it back out
         # recovers that area on `emit`'s 30 m intersection

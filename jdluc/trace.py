@@ -131,7 +131,7 @@ def derive_statistical_production_kg(
 ) -> pandas.DataFrame:
     """A crop's production is MapSPAM's, carried through `attribute`. A herd's is its heads at
     each snapshot times FAOSTAT's national carcass weight per standing head that year, reduced
-    over the window with the weights `statistical.get_discounted_snapshot_mean` gives a crop's.
+    over the window with the weights `statistical.get_snapshot_year_to_weight` gives a crop's.
     """
     ret = emissions.copy()
     ret["production_kg"] = ret["production_mt"] * KG_PER_TONNE
