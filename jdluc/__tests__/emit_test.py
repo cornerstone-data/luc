@@ -44,6 +44,7 @@ from jdluc.emit import (
     get_hectares_per_pixel,
     get_last_departure_year,
     get_linear_discounted,
+    get_linear_discounted_values,
     get_mineral_soil_emissions,
     get_peatland_occupation_emissions,
 )
@@ -454,6 +455,37 @@ def test_get_linear_discounted() -> None:
         darray=get_darray_for_data(data=[[8, 8, 8, 8, 8, numpy.nan, numpy.nan]]),
     )
     numpy.testing.assert_allclose(result.data, [[0.02, 0.18, 0.22, 0.42, 0.78, 0, 0]])
+
+
+@pytest.mark.parametrize(
+    "conversion_year",
+    (
+        pytest.param(2021, id="a-year-after-the-assessment-year"),
+        pytest.param(2000, id="the-lookback-year-nothing-can-depart-in"),
+        pytest.param(0, id="no-year-at-all"),
+        pytest.param(-1, id="a-negative-year-that-would-index-from-the-end"),
+        pytest.param(2012.5, id="a-fractional-year-that-would-truncate"),
+    ),
+)
+def test_get_linear_discounted_values_rejects_emissions_it_cannot_date(
+    conversion_year: float,
+) -> None:
+    with pytest.raises(AssertionError):
+        get_linear_discounted_values(
+            conversion_years=numpy.array([2012, conversion_year]),
+            values=numpy.array([1.0, 5.0]),
+        )
+
+
+def test_get_linear_discounted_rejects_inputs_on_different_grids() -> None:
+    conversion_year = get_darray_for_data(data=[[2012, 2013]])
+    with pytest.raises(ValueError):
+        get_linear_discounted(
+            conversion_year=conversion_year,
+            darray=get_darray_for_data(data=[[1, 1]]).assign_coords(
+                x=conversion_year.x + 1
+            ),
+        )
 
 
 def test_get_hectares_per_pixel() -> None:

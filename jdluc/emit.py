@@ -554,21 +554,40 @@ def get_peatland_occupation_emissions(
     ).rename("tco2e-per-ha")
 
 
+def get_linear_discounted_values(
+    conversion_years: numpy.ndarray, values: numpy.ndarray
+) -> numpy.ndarray:
+    """`values` times the discount weight of each one's conversion year, or zero where the year is
+    zero (no conversion)."""
+    indices = conversion_years.astype(numpy.int64)
+    assert (
+        (indices == conversion_years) & (indices >= 0) & (indices <= ASSESSMENT_YEAR)
+    ).all(), f"Conversion years must be whole years from 0 to {ASSESSMENT_YEAR:d}"
+    lookup = numpy.zeros(ASSESSMENT_YEAR + 1, dtype=numpy.float32)
+    for year, weight in YEAR_TO_LINEAR_DISCOUNT_WEIGHT.items():
+        lookup[year] = weight
+    weights = lookup[indices]
+    # NB: emissions without a weight -- no year, or one before the lookback -- would be zeroed
+    # below, discarding their carbon; only a missing value may go without one
+    is_undated = (weights == 0) & numpy.isfinite(values) & (values != 0)
+    assert not is_undated.any(), "Emissions have no conversion year in the lookback"
+    # NB: NaN times a zero weight is still NaN, so a value with no year is zeroed, not weighed
+    return numpy.where(weights > 0, values * weights, 0)
+
+
 def get_linear_discounted(
     conversion_year: xarray.DataArray, darray: xarray.DataArray
 ) -> xarray.DataArray:
     """`darray` times the discount weight of each pixel's conversion year, or zero without one."""
-    lookup = numpy.zeros(ASSESSMENT_YEAR + 1, dtype=numpy.float32)
-    for year, weight in YEAR_TO_LINEAR_DISCOUNT_WEIGHT.items():
-        lookup[year] = weight
-    weights = xarray.apply_ufunc(
-        lookup.__getitem__,
-        conversion_year.fillna(0).astype(numpy.int64),
+    return xarray.apply_ufunc(
+        get_linear_discounted_values,
+        conversion_year.fillna(0),
+        darray,
         dask="parallelized",
-        output_dtypes=[numpy.float32],
-    )
-    # NB: NaN times a zero weight is still NaN, so a pixel with no year is zeroed, not weighed
-    return (darray * weights).where(weights > 0, other=0).rename(darray.name)
+        # NB: arithmetic would align on an inner join, silently dropping pixels the grids don't share
+        join="exact",
+        output_dtypes=[numpy.result_type(darray.dtype, numpy.float32)],
+    ).rename(darray.name)
 
 
 def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
