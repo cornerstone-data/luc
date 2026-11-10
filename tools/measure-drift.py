@@ -442,7 +442,9 @@ def print_worst_rows(
     for value, column, row, before_value, after_value in sorted(records, reverse=True)[
         :limit
     ]:
-        admin_id, commodity_id = row[1], row[2]
+        level_to_value = dict(zip(baseline.index.names, row, strict=True))
+        admin_id = level_to_value["admin_id"]
+        commodity_id = level_to_value["commodity_id"]
         print(
             f"      {commodity_id!s:<16}{admin_id!s:<9}{column:<34}"
             f"{before_value:>13.5g}{after_value:>13.5g}{value:>11.3e}"
@@ -483,8 +485,18 @@ def check_excluded_crops(
         if not relative.notna().any():
             blind += 1
         elif float(relative.max()) > worst:
-            row = typing.cast(tuple[str, ...], relative.idxmax())
-            worst, where = float(relative.max()), f"{column:s} {row[2]!s}/{row[1]:s}"
+            level_to_value = dict(
+                zip(
+                    left.index.names,
+                    typing.cast(tuple[str, ...], relative.idxmax()),
+                    strict=True,
+                )
+            )
+            worst = float(relative.max())
+            where = (
+                f"{column:s} {level_to_value['commodity_id']!s}/"
+                f"{level_to_value['admin_id']:s}"
+            )
     # Three distinct outcomes, and the first two used to print alike: something moved, nothing was
     # comparable, and everything was comparable and sat exactly still
     measured = (

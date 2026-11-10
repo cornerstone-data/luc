@@ -242,18 +242,18 @@ def get_year_to_linear_discount_weight(assessment_year: int) -> dict[int, float]
     """The LSR Guidance's linear amortization factor for a conversion in each year (Table 7.11):
     9.75% in the assessment year, falling 0.5 points a year to 0.25% nineteen years before it.
     """
+    # NB: nothing can depart in the lookback's first year, which has no year before it to compare
+    # with
+    _, *conversion_years = get_lookback_years_range(assessment_year=assessment_year)
     year_to_weight = {
-        year: (39 - 2 * (assessment_year - year)) / 400
-        # NB: nothing can depart in the lookback's first year, which has no year before it to
-        # compare with
-        for year in get_lookback_years_range(assessment_year=assessment_year)[1:]
+        year: (39 - 2 * (assessment_year - year)) / 400 for year in conversion_years
     }
     assert math.isclose(sum(year_to_weight.values()), 1)
     return year_to_weight
 
 
 assert all(
-    set(get_lookback_years_range(assessment_year=assessment_year)[1:])
+    set(get_year_to_linear_discount_weight(assessment_year=assessment_year))
     <= set(gnw_tcl.LOSS_YEARS)
     and set(get_lookback_years_range(assessment_year=assessment_year))
     <= set(gpw_grassland.YEARS)
