@@ -278,6 +278,16 @@ Where no reference year places the group in a pixel there is no basis for a spli
 
 **Windowed production denominator (a departure from WRI).** The emissions numerator is time-resolved: it links conversion emissions to each crop's *historical* expansion, weighted by recency. Dividing that by a single *current-year* production snapshot — as in WRI's methodology — would place the numerator and denominator on inconsistent time bases. A crop that expanded early in the window and then contracted would carry real conversion emissions against a shrunken (or zero) present-day production, yielding an inflated or undefined emissions factor. Instead, production is reduced over the same 20-year lookback window using the same linear temporal ramp applied to emissions: each conversion year's discount weight is split evenly between the two MapSPAM snapshots of the span holding it, a year after 2020 gives its whole weight to the 2020 snapshot, and production is the snapshots' mean under those weights (`get_snapshot_year_to_weight` in `statistical.py`). This ties emission allocation and production to the same years with the same recency weighting. When production is flat across the window the result reduces exactly to the current-production value; it diverges only when production actually changed. This consistent linkage is a material improvement over attributing historical-expansion emissions to present-day production alone.
 
+The weights depend on the assessment year, because the lookback moves with it and every conversion year after 2020 adds its whole weight to the 2020 snapshot:
+
+| Assessment year | 2000   | 2005  | 2010    | 2020  |
+| --------------- | ------ | ----- | ------- | ----- |
+| 2020            | 3.125% | 12.5% | 46.875% | 37.5% |
+| 2022            | 1.125% | 8%    | 39.375% | 51.5% |
+| 2024            | 0.125% | 4.5%  | 31.875% | 63.5% |
+
+A later assessment year therefore leans further on MapSPAM 2020: a crop whose production grew after 2010 has more production for 2024 than for 2020, and one that shrank has less. It is never the assessment year's own production, since MapSPAM ends in 2020. A commodity's area is the same weighted mean of its snapshots, and so is a herd's production: its heads at each snapshot times FAOSTAT's carcass weight per head in that year.
+
 ### Jurisdictional direct proxy (`jurisdictional_direct_proxy.py`)
 
 Each pixel's emissions are split by the land class it became, cropland or pasture, and averaged onto the CROPGRIDS grid. In each cell, each crop takes its share of the 2020 crop area of all 173 CROPGRIDS crops of what cropland is charged, and each livestock commodity takes its 2020 grazing share, as in the statistical leg, of what pasture is charged. CROPGRIDS has one year, so every span is divided by the same shares. A crop's hectares are its CROPGRIDS crop area, and `UNATTRIBUTED` is cropland's charge in cells with no CROPGRIDS crop.
