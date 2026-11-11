@@ -23,8 +23,8 @@ resolution for the soybean areas.  Every step below runs from the repo root.
     ``--overview-resampling mode``: the default averages, the decimated read below pulls from
     those overviews, and one converted pixel among a hundred averages to a fraction, which
     survives the "is it NONE" test and lands in the first class -- painting the whole frame.
-    ``emissions-per-hectare:tco2e-per-ha`` and the two soybean bands are continuous, so they take
-    the default.  Three runs per tile::
+    ``vegetation-emissions:tco2e-per-ha``, ``soil-emissions:tco2e-per-ha`` and the two soybean
+    bands are continuous, so they take the default.  Three runs per tile::
 
         DUMP="uv run python tools/dump-zarr-to-cogs.py"
         $DUMP --overview-resampling mode <emit zarr for 00N_050W>     cogs/00N_050W
@@ -37,7 +37,8 @@ resolution for the soybean areas.  Every step below runs from the repo root.
     `.tif`, so nothing has to be renamed::
 
         cd cogs
-        for band in conversion conversion-year emissions-per-hectare:tco2e-per-ha \
+        for band in conversion conversion-year \
+                    vegetation-emissions:tco2e-per-ha soil-emissions:tco2e-per-ha \
                     ifpri:mapspam-physical-area-2000:soybean:ha \
                     ifpri:mapspam-physical-area-2020:soybean:ha; do
             gdalbuildvrt "$band.tif.vrt" 00N_050W/"$band".tif 10S_050W/"$band".tif
@@ -52,7 +53,8 @@ resolution for the soybean areas.  Every step below runs from the repo root.
 `emit` publishes no land class per year, so the categorical panel is the `conversion` band
 -- which of the five conversions fired on each pixel -- and the panel beside it is
 `conversion-year`, the year that pixel's source class ended.  Both the conversion codes and the
-lookback are imported rather than mirrored, so a change to either cannot leave this behind.
+lookback are imported rather than mirrored, so a change to either cannot leave this behind.  The
+emissions panel is vegetation plus soil, undiscounted.
 """
 
 import argparse
@@ -81,10 +83,6 @@ Conversion = emit.Conversion
 # The lookback opens at the assessment year less twenty, and nothing can have departed in that
 # first year -- a departure needs the year before it to compare against
 LOOKBACK_YEARS = emit.LOOKBACK_YEARS_RANGE[1:]
-# A conversion is charged to the span holding its year, and each span carries its own discount
-# weight, so colouring by span says what a continuous ramp could not: how heavily that pixel
-# counts. Sorted oldest first, and shaded light to dark with recency.
-SPANS = sorted(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
 
 
 # Hotter reads as more carbon released: forest sources red and orange, grassland tan and olive
@@ -97,7 +95,9 @@ CONVERSION_COLOR = {
 }
 # Fully transparent RGBA, for the pixels no conversion reached
 TRANSPARENT = (0.0, 0.0, 0.0, 0.0)
-EMISSIONS_LABEL = "Land-use-change emissions (tonnes CO₂-equivalent per hectare)"
+EMISSIONS_LABEL = (
+    "Land-use-change emissions before discounting (tonnes CO₂-equivalent per hectare)"
+)
 SOYBEAN_LABEL = "Soybean area (hectares per 10-kilometre cell)"
 
 CONVERSION_LABEL = {
@@ -195,47 +195,27 @@ def draw_conversion(ax: plt.Axes, layer: Layer, title: str) -> None:
     _style_geo_axes(ax, title, layer.extent)
 
 
-def span_artists() -> tuple[
-    matplotlib.colors.ListedColormap, matplotlib.colors.BoundaryNorm, list[Line2D]
-]:
-    """Discrete colormap keyed to the span index, plus legend handles reading oldest first."""
-    colours = matplotlib.colormaps["magma"](numpy.linspace(0.75, 0.2, len(SPANS)))
+def draw_conversion_year(
+    ax: plt.Axes, layer: Layer, title: str
+) -> matplotlib.image.AxesImage:
+    """Each converted pixel's year, one colour per year, darker as the discount weighs it more."""
+    colours = matplotlib.colormaps["magma"](
+        numpy.linspace(0.75, 0.2, len(LOOKBACK_YEARS))
+    )
     cmap = matplotlib.colors.ListedColormap(colours).with_extremes(bad=TRANSPARENT)
     norm = matplotlib.colors.BoundaryNorm(
-        [index - 0.5 for index in range(len(SPANS) + 1)], cmap.N
+        [*(year - 0.5 for year in LOOKBACK_YEARS), LOOKBACK_YEARS[-1] + 0.5], cmap.N
     )
-    handles = [
-        Line2D(
-            [],
-            [],
-            label=f"{before + 1:d}-{after:d}",
-            linestyle="",
-            marker="s",
-            markeredgecolor="none",
-            markerfacecolor=colours[index],
-            markersize=10,
-        )
-        for index, (before, after) in enumerate(SPANS)
-    ]
-    return cmap, norm, handles
-
-
-def draw_conversion_span(ax: plt.Axes, layer: Layer, title: str) -> None:
-    """Which five-year span each converted pixel was charged to; zero means it never converted."""
-    cmap, norm, _ = span_artists()
-    data = numpy.full(layer.data.shape, numpy.nan)
-    for index, (before, after) in enumerate(SPANS):
-        # Open below and closed above, exactly as `emit.get_span_to_charge` bins them
-        data = numpy.where((layer.data > before) & (layer.data <= after), index, data)
-    ax.imshow(
-        data,
+    im = ax.imshow(
+        numpy.where(numpy.isin(layer.data, LOOKBACK_YEARS), layer.data, numpy.nan),
         cmap=cmap,
         extent=layer.extent,
         interpolation="nearest",
         norm=norm,
         origin="upper",
     )
-    _style_geo_axes(ax, title, layer.extent)
+    _style_geo_axes(ax=ax, extent=layer.extent, title=title)
+    return im
 
 
 def draw_emissions(
@@ -335,9 +315,15 @@ def main() -> None:
     # --- read layers (windowed, decimated) ---
     conversion = read_window(cog("conversion.tif"), bbox, args.width)
     conversion_year = read_window(cog("conversion-year.tif"), bbox, args.width)
-    emissions = read_window(
-        cog("emissions-per-hectare:tco2e-per-ha.tif"), bbox, args.width
+    vegetation = read_window(
+        bbox=bbox,
+        path=cog(name="vegetation-emissions:tco2e-per-ha.tif"),
+        width=args.width,
     )
+    soil = read_window(
+        bbox=bbox, path=cog(name="soil-emissions:tco2e-per-ha.tif"), width=args.width
+    )
+    emissions = Layer(data=vegetation.data + soil.data, extent=vegetation.extent)
     # MapSPAM is ~10 km, so give it a coarser read at the same extent
     soy_pair = {
         y: read_window(
@@ -365,11 +351,15 @@ def main() -> None:
     ax_sy0, ax_sy1 = fig.add_subplot(left[1, 0]), fig.add_subplot(left[1, 1])
     ax_em = fig.add_subplot(outer[0, 1])
 
-    draw_conversion_span(ax_lc0, conversion_year, "")
-    _, _, span_handles = span_artists()
-    ax_lc0.legend(
-        fontsize=7, framealpha=0.85, handles=span_handles, loc="lower left", ncol=2
+    im_year = draw_conversion_year(ax=ax_lc0, layer=conversion_year, title="")
+    # NB: inset where a legend would sit, so this panel keeps the size of the one beside it
+    year_bar = fig.colorbar(
+        im_year,
+        cax=ax_lc0.inset_axes((0.05, 0.1, 0.5, 0.04)),
+        orientation="horizontal",
+        ticks=(LOOKBACK_YEARS[0], *LOOKBACK_YEARS[4::5]),
     )
+    year_bar.ax.tick_params(labelsize=7)
     draw_conversion(ax_lc1, conversion, "")
     ax_lc1.legend(fontsize=7, framealpha=0.85, handles=legend_handles, loc="lower left")
 

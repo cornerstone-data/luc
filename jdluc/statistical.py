@@ -104,7 +104,6 @@ DATASET_NAMES = (
 
 EMIT_VARIABLE_NAMES = [
     f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
-    "dropped-emissions:tco2e-per-ha",
     f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
 ]
 
@@ -132,14 +131,24 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
         emit.workflow(tile_id=tile_id),
     )
 
-    logger.info("Splitting emissions by component per span")
+    logger.info("Discounting emissions by component and splitting them by MapSPAM span")
+    conversion_year = luc_and_emissions["conversion-year"]
+    component_to_emissions = {
+        component: emit.get_linear_discounted(
+            conversion_year=conversion_year, darray=emissions
+        )
+        for component, emissions in emit.get_component_to_emissions(
+            dset=luc_and_emissions
+        ).items()
+    }
     derived_variable_names: list[str] = []
-    for (before, after), component_to_darray in emit.get_span_to_component_to_emissions(
-        dset=luc_and_emissions
-    ).items():
+    for before, after in MAPSPAM_SPANS:
+        in_span = (conversion_year > before) & (conversion_year <= after)
         for component in POOLED_COMPONENTS:
-            name = f"{component!s}:tco2e-per-ha:{before:d}-{after:d}"
-            luc_and_emissions[name] = component_to_darray[component]
+            name = f"{component!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"
+            luc_and_emissions[name] = component_to_emissions[component].where(
+                in_span, other=0
+            )
             derived_variable_names.append(name)
         # NB: `emit` puts soil emissions only on converted pixels, and every conversion ends in
         # cropland or pasture, so the two bands add up to the whole pulse
@@ -147,11 +156,20 @@ def get_downscaled_luc_emissions(tile_id: str) -> xarray.Dataset:
             (emit.CROPLAND, emit.TO_CROPLAND),
             (emit.PASTURELAND, emit.TO_PASTURE),
         ):
-            name = f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}:tco2e-per-ha:{before:d}-{after:d}"
-            luc_and_emissions[name] = component_to_darray[
+            name = f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"
+            luc_and_emissions[name] = component_to_emissions[
                 emit.EmissionComponent.PEATLAND_CONVERSION
-            ].where(luc_and_emissions["conversion"].isin(conversions), other=0)
+            ].where(
+                in_span & luc_and_emissions["conversion"].isin(conversions), other=0
+            )
             derived_variable_names.append(name)
+
+    logger.info("Discounting the source carbon no destination claimed")
+    name = "dropped-emissions:tco2e-per-ha"
+    luc_and_emissions[name] = emit.get_linear_discounted(
+        conversion_year=conversion_year, darray=luc_and_emissions[name]
+    )
+    derived_variable_names.append(name)
 
     logger.info("Measuring pasture extent at each MAPSPAM snapshot")
     for year in MAPSPAM_SNAPSHOT_YEARS:
@@ -358,28 +376,28 @@ def get_commodity_to_peatland_conversion_share(
     } | get_livestock_to_grazing_share(dset=dset, year=after)
 
 
-SPAN_TO_MAPSPAM_SPAN = {
-    (2000, 2005): (2000, 2005),
-    (2005, 2010): (2005, 2010),
-    # NB: because MAPSPAM has no 2015 snapshot, we assume crop expansion is constant between
-    # 2010 and 2020 -- and then use that one crop expansion for both spans
-    (2010, 2015): (2010, 2020),
-    (2015, 2020): (2010, 2020),
-}
-assert set(SPAN_TO_MAPSPAM_SPAN) == set(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
+# A conversion takes the shares of the MapSPAM span holding its year, open below and closed above.
+# MapSPAM has no 2015 snapshot, so every conversion from 2011 to 2020 takes the one expansion
+# between 2010 and 2020.
+MAPSPAM_SPANS = ((2000, 2005), (2005, 2010), (2010, 2020))
+assert all(
+    sum(before < year <= after for before, after in MAPSPAM_SPANS) == 1
+    for year in emit.YEAR_TO_LINEAR_DISCOUNT_WEIGHT
+)
 MAPSPAM_SNAPSHOT_YEARS = tuple(
-    sorted({year for span in SPAN_TO_MAPSPAM_SPAN.values() for year in span})
+    sorted({year for span in MAPSPAM_SPANS for year in span})
 )
 assert set(MAPSPAM_SNAPSHOT_YEARS).issubset(gpw_livestock.YEARS)
-# Each snapshot's weight in `get_discounted_snapshot_mean`
+# Each snapshot's weight in `get_discounted_snapshot_mean`: every conversion year's discount weight,
+# split evenly between the two snapshots of the MapSPAM span holding that year
 SNAPSHOT_YEAR_TO_WEIGHT = {
-    year: sum(
+    snapshot_year: sum(
         weight / 2
-        for span, weight in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.items()
-        if year in SPAN_TO_MAPSPAM_SPAN[span]
+        for year, weight in emit.YEAR_TO_LINEAR_DISCOUNT_WEIGHT.items()
+        for before, after in MAPSPAM_SPANS
+        if before < year <= after and snapshot_year in (before, after)
     )
-    / sum(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values())
-    for year in MAPSPAM_SNAPSHOT_YEARS
+    for snapshot_year in MAPSPAM_SNAPSHOT_YEARS
 }
 assert math.isclose(sum(SNAPSHOT_YEAR_TO_WEIGHT.values()), 1)
 
@@ -397,12 +415,13 @@ def get_discounted_snapshot_mean(
     year_to_value: dict[int, xarray.DataArray],
 ) -> xarray.DataArray:
     """A level -- area, production -- as a mean over the windows emissions are summed on."""
-    return emit.get_linear_discounted_total(
-        span_to_value={
-            span: (year_to_value[before] + year_to_value[after]) / 2
-            for span, (before, after) in SPAN_TO_MAPSPAM_SPAN.items()
-        }
-    ) / sum(emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values())
+    return sum(
+        (
+            SNAPSHOT_YEAR_TO_WEIGHT[year] * year_to_value[year]
+            for year in MAPSPAM_SNAPSHOT_YEARS
+        ),
+        start=xarray.DataArray(numpy.float32(0)),
+    )
 
 
 def get_commodity_name_to_totals(
@@ -410,15 +429,17 @@ def get_commodity_name_to_totals(
     dset: xarray.Dataset,
     occupation_shares: dict[Commodity, xarray.DataArray],
     span_to_commodity_to_peatland_conversion_share: dict[
-        emit.SpanType, dict[Commodity, xarray.DataArray]
+        tuple[int, int], dict[Commodity, xarray.DataArray]
     ],
-    span_to_commodity_to_share: dict[emit.SpanType, dict[Commodity, xarray.DataArray]],
+    span_to_commodity_to_share: dict[
+        tuple[int, int], dict[Commodity, xarray.DataArray]
+    ],
 ) -> dict[str, dict[str, float]]:
     """Each commodity's emissions and area, a crop's production and a herd's heads, summed over a
     jurisdiction's cells.
 
-    Both share mappings are keyed by MapSPAM span. Each emissions span uses the shares of the
-    MapSPAM span that contains it (`SPAN_TO_MAPSPAM_SPAN`).
+    Both share mappings are keyed by MapSPAM span, and each divides that span's discounted
+    emissions bands.
 
     Beside the commodities sit `DROPPED` and `UNATTRIBUTED` (see `emit.NonCommodity`). Here
     `UNATTRIBUTED` is what the shares leave of the charge: conversion and occupation by the
@@ -444,31 +465,29 @@ def get_commodity_name_to_totals(
             emit.PASTURELAND if isinstance(commodity, Livestock) else emit.CROPLAND
         )
         component_to_emissions = {
-            component: emit.get_linear_discounted_total(
-                span_to_value={
-                    (before, after): dset[
-                        f"{component!s}:tco2e-per-ha:{before:d}-{after:d}"
-                    ]
+            component: sum(
+                (
+                    dset[f"{component!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"]
                     * hectares
-                    * span_to_commodity_to_share[SPAN_TO_MAPSPAM_SPAN[(before, after)]][
-                        commodity
-                    ]
-                    for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-                }
+                    * span_to_commodity_to_share[(before, after)][commodity]
+                    for before, after in MAPSPAM_SPANS
+                ),
+                start=xarray.zeros_like(hectares),
             )
             for component in POOLED_COMPONENTS
         } | {
-            emit.EmissionComponent.PEATLAND_CONVERSION: emit.get_linear_discounted_total(
-                span_to_value={
-                    (before, after): dset[
-                        f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}:tco2e-per-ha:{before:d}-{after:d}"
+            emit.EmissionComponent.PEATLAND_CONVERSION: sum(
+                (
+                    dset[
+                        f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"
                     ]
                     * hectares
-                    * span_to_commodity_to_peatland_conversion_share[
-                        SPAN_TO_MAPSPAM_SPAN[(before, after)]
-                    ][commodity]
-                    for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-                }
+                    * span_to_commodity_to_peatland_conversion_share[(before, after)][
+                        commodity
+                    ]
+                    for before, after in MAPSPAM_SPANS
+                ),
+                start=xarray.zeros_like(hectares),
             )
         }
         totals |= {
@@ -531,28 +550,26 @@ def get_commodity_name_to_totals(
 
     # The whole charge each component carries, as a commodity holding every share would take it
     component_to_charged = {
-        component: emit.get_linear_discounted_total(
-            span_to_value={
-                (before, after): dset[
-                    f"{component!s}:tco2e-per-ha:{before:d}-{after:d}"
-                ]
+        component: sum(
+            (
+                dset[f"{component!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"]
                 * hectares
-                for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-            }
+                for before, after in MAPSPAM_SPANS
+            ),
+            start=xarray.zeros_like(hectares),
         )
         for component in POOLED_COMPONENTS
     } | {
-        emit.EmissionComponent.PEATLAND_CONVERSION: emit.get_linear_discounted_total(
-            span_to_value={
-                (before, after): sum(
-                    dset[
-                        f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}:tco2e-per-ha:{before:d}-{after:d}"
-                    ]
-                    for land_class in (emit.CROPLAND, emit.PASTURELAND)
-                )
+        emit.EmissionComponent.PEATLAND_CONVERSION: sum(
+            (
+                dset[
+                    f"{land_class:s}-{emit.EmissionComponent.PEATLAND_CONVERSION!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"
+                ]
                 * hectares
-                for (before, after) in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-            }
+                for land_class in (emit.CROPLAND, emit.PASTURELAND)
+                for before, after in MAPSPAM_SPANS
+            ),
+            start=xarray.zeros_like(hectares),
         )
     }
     unattributed = commodity_to_totals[emit.NonCommodity.UNATTRIBUTED]
@@ -705,7 +722,7 @@ def workflow(
                         crops=crops,
                         dset=clipped,
                     )
-                    for (before, after) in dict.fromkeys(SPAN_TO_MAPSPAM_SPAN.values())
+                    for (before, after) in MAPSPAM_SPANS
                 }
                 span_to_commodity_to_peatland_conversion_share = {
                     (before, after): get_commodity_to_peatland_conversion_share(

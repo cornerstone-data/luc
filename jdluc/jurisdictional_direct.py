@@ -46,7 +46,6 @@ EMISSIONS_AND_CROP_VARIABLE_NAMES = [
     # Emissions
     f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     "dropped-emissions:tco2e-per-ha",
-    "emissions-per-hectare:tco2e-per-ha",
     "hectares-per-pixel:ha",
     f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     *(f"{component!s}-emissions:tco2e-per-ha" for component in emit.EmissionComponent),
@@ -58,28 +57,27 @@ EMISSIONS_AND_CROP_VARIABLE_NAMES = [
 def get_commodity_name_to_totals(
     component_to_per_hectare: dict[emit.EmissionComponent, xarray.DataArray],
     crop_class: xarray.DataArray,
+    cropland_occupation_per_hectare: xarray.DataArray,
     crops: tuple[Crop, ...],
     dropped_per_hectare: xarray.DataArray,
-    emissions_per_hectare: xarray.DataArray,
     hectares_per_pixel: xarray.DataArray,
     is_peatland: xarray.DataArray,
     pastureland_occupation_per_hectare: xarray.DataArray,
-    peatland_occupation_per_hectare: xarray.DataArray,
 ) -> dict[str, dict[str, float]]:
 
-    peatland_occupation_emissions = peatland_occupation_per_hectare * hectares_per_pixel
+    cropland_occupation_emissions = cropland_occupation_per_hectare * hectares_per_pixel
     pastureland_occupation_emissions = (
         pastureland_occupation_per_hectare * hectares_per_pixel
     )
-    # NB: this leg divides emissions among crops alone, so no crop row takes the peat drained under
-    # pasture, even on a pixel the crop map calls that crop
-    emissions_mt = (
-        emissions_per_hectare - pastureland_occupation_per_hectare
-    ) * hectares_per_pixel
     component_to_emissions = {
         component: per_hectare * hectares_per_pixel
         for component, per_hectare in component_to_per_hectare.items()
     }
+    # NB: this leg divides emissions among crops alone, so no crop row takes the peat drained under
+    # pasture, even on a pixel the crop map calls that crop
+    emissions_mt = sum(
+        component_to_emissions.values(), start=cropland_occupation_emissions
+    )
 
     crop_to_totals: dict[Crop | emit.NonCommodity, dict[str, xarray.DataArray]] = (
         collections.defaultdict(dict)
@@ -94,7 +92,7 @@ def get_commodity_name_to_totals(
             is_peatland
         )
         crop_to_totals[crop]["peatland_occupation_emissions_mt"] = (
-            peatland_occupation_emissions.where(crop_mask)
+            cropland_occupation_emissions.where(crop_mask)
         )
         crop_to_totals[crop]["emissions_mt"] = emissions_mt.where(crop_mask)
         for component, emissions in component_to_emissions.items():
@@ -110,7 +108,7 @@ def get_commodity_name_to_totals(
         # NB: zero rather than NaN on crop pixels, so the pasture peat drained under them is kept
         "emissions_mt": emissions_mt.where(is_unattributed, other=0)
         + pastureland_occupation_emissions,
-        "peatland_occupation_emissions_mt": peatland_occupation_emissions.where(
+        "peatland_occupation_emissions_mt": cropland_occupation_emissions.where(
             is_unattributed, other=0
         )
         + pastureland_occupation_emissions,
@@ -169,15 +167,18 @@ def workflow(
     )
     merged = merged.assign(
         {
-            f"{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
-                span_to_value={
-                    span: component_to_emissions[component]
-                    for span, component_to_emissions in emit.get_span_to_component_to_emissions(
-                        dset=merged
-                    ).items()
-                }
+            f"{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                conversion_year=merged["conversion-year"], darray=emissions
             )
-            for component in emit.EmissionComponent
+            for component, emissions in emit.get_component_to_emissions(
+                dset=merged
+            ).items()
+        }
+        | {
+            "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                conversion_year=merged["conversion-year"],
+                darray=merged["dropped-emissions:tco2e-per-ha"],
+            )
         }
     )
 
@@ -207,9 +208,11 @@ def workflow(
                         for component in emit.EmissionComponent
                     },
                     crop_class=clipped[usda_nass_cdl.DATASET.fully_qualified_band_name],
+                    cropland_occupation_per_hectare=clipped[
+                        f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
+                    ],
                     crops=crops,
                     dropped_per_hectare=clipped["dropped-emissions:tco2e-per-ha"],
-                    emissions_per_hectare=clipped["emissions-per-hectare:tco2e-per-ha"],
                     hectares_per_pixel=clipped["hectares-per-pixel:ha"],
                     # NB: no data has to read as not peat rather than truth-testing to peat
                     is_peatland=clipped[
@@ -218,9 +221,6 @@ def workflow(
                     == 1,
                     pastureland_occupation_per_hectare=clipped[
                         f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
-                    ],
-                    peatland_occupation_per_hectare=clipped[
-                        f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
                     ],
                 )
                 for commodity_name, totals in commodity_name_to_totals.items():

@@ -1,13 +1,13 @@
 """Compute per-pixel land-conversion emissions from the harmonized dataset.
 
 Resolves which of five conversions each pixel underwent and when, releases the carbon pools that
-conversion carries, charges them to the five-year span holding that year, adds ongoing
-peatland-occupation emissions split by destination, and applies the GHGP 20-year linear discount.
+conversion carries, and adds ongoing peatland-occupation emissions split by destination. The
+emissions are undiscounted; each allocation leg discounts them by `conversion-year`.
 
 Returns a cached xarray.Dataset: the conversion, the year its source class ended and the datasets
-that claimed its destination; vegetation and soil emissions per span; the two occupation bands;
-the discounted per-hectare total; the source carbon no destination claimed; and a
-hectares-per-pixel band for downstream area-scaling.
+that claimed its destination; the vegetation and soil emissions of that conversion; the two
+occupation bands; the source carbon no destination claimed; and a hectares-per-pixel band for
+downstream area-scaling.
 
 Source carbon that no destination claimed is charged to nobody and reported on its own as
 `dropped-emissions`.
@@ -221,33 +221,26 @@ def get_mineral_soil_emissions(
             output_dtypes=[numpy.float32],
         )
         # NB: SoilGrids has genuine gaps (water, rock, ice) that harmonize turns into NaN.
-        # Treat a missing stock as zero rather than letting NaN reach emissions-per-hectare,
+        # Treat a missing stock as zero rather than letting NaN reach a leg's emissions total,
         # where it would silently discard the pixel's vegetation emissions too.
         * soil_organic_carbon.fillna(0)
     ).rename("tco2e-per-ha")
 
 
-SpanType = tuple[int, int]
-SPAN_TO_LINEAR_DISCOUNT_WEIGHT: dict[SpanType, float] = {
-    (2000, 2005): 0.0125,
-    (2005, 2010): 0.0375,
-    (2010, 2015): 0.0625,
-    (2015, 2020): 0.0875,
-}
-assert all((after - before) == 5 for (before, after) in SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
-assert math.isclose(sum(SPAN_TO_LINEAR_DISCOUNT_WEIGHT.values()), 0.2)
 LOOKBACK_YEARS = 20
-assert (
-    max(after for _, after in SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
-    - min(before for before, _ in SPAN_TO_LINEAR_DISCOUNT_WEIGHT)
-    == LOOKBACK_YEARS
-)
-
-
 ASSESSMENT_YEAR = 2020
 LOOKBACK_YEARS_RANGE = tuple(
     range(ASSESSMENT_YEAR - LOOKBACK_YEARS, ASSESSMENT_YEAR + 1)
 )
+
+# The LSR Guidance's linear amortization factor for a conversion in each year (Table 7.11): 9.75% in
+# the assessment year, falling 0.5 points a year to 0.25% nineteen years before it
+YEAR_TO_LINEAR_DISCOUNT_WEIGHT: dict[int, float] = {
+    year: (39 - 2 * (ASSESSMENT_YEAR - year)) / 400
+    # NB: nothing can depart in the lookback's first year, which has no year before it to compare with
+    for year in LOOKBACK_YEARS_RANGE[1:]
+}
+assert math.isclose(sum(YEAR_TO_LINEAR_DISCOUNT_WEIGHT.values()), 1)
 
 
 class Conversion(enum.IntEnum):
@@ -561,31 +554,40 @@ def get_peatland_occupation_emissions(
     ).rename("tco2e-per-ha")
 
 
-def get_span_to_charge(
+def get_linear_discounted_values(
+    conversion_years: numpy.ndarray, values: numpy.ndarray
+) -> numpy.ndarray:
+    """`values` times the discount weight of each one's conversion year, or zero where the year is
+    zero (no conversion)."""
+    indices = conversion_years.astype(numpy.int64)
+    assert (
+        (indices == conversion_years) & (indices >= 0) & (indices <= ASSESSMENT_YEAR)
+    ).all(), f"Conversion years must be whole years from 0 to {ASSESSMENT_YEAR:d}"
+    lookup = numpy.zeros(ASSESSMENT_YEAR + 1, dtype=numpy.float32)
+    for year, weight in YEAR_TO_LINEAR_DISCOUNT_WEIGHT.items():
+        lookup[year] = weight
+    weights = lookup[indices]
+    # NB: emissions without a weight -- no year, or one before the lookback -- would be zeroed
+    # below, discarding their carbon; only a missing value may go without one
+    is_undated = (weights == 0) & numpy.isfinite(values) & (values != 0)
+    assert not is_undated.any(), "Emissions have no conversion year in the lookback"
+    # NB: NaN times a zero weight is still NaN, so a value with no year is zeroed, not weighed
+    return numpy.where(weights > 0, values * weights, 0)
+
+
+def get_linear_discounted(
     conversion_year: xarray.DataArray, darray: xarray.DataArray
-) -> dict[SpanType, xarray.DataArray]:
-    return {
-        (before, after): darray.where(
-            (conversion_year > before) & (conversion_year <= after), other=0
-        )
-        for before, after in SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-    }
-
-
-def get_linear_discounted_total(
-    span_to_value: dict[SpanType, xarray.DataArray],
 ) -> xarray.DataArray:
-    """`span_to_value` reduced by the linear discount each span carries.
-
-    Quantity-neutral: a flux -- emissions -- takes the weighted sum as it stands, while a level
-    -- area, production -- divides the result by the weights' total, making the same reduction
-    a weighted mean over the same windows.
-    """
-    ret = sum(
-        value * SPAN_TO_LINEAR_DISCOUNT_WEIGHT[span]
-        for span, value in span_to_value.items()
-    )
-    return typing.cast(xarray.DataArray, ret)
+    """`darray` times the discount weight of each pixel's conversion year, or zero without one."""
+    return xarray.apply_ufunc(
+        get_linear_discounted_values,
+        conversion_year.fillna(0),
+        darray,
+        dask="parallelized",
+        # NB: arithmetic would align on an inner join, silently dropping pixels the grids don't share
+        join="exact",
+        output_dtypes=[numpy.result_type(darray.dtype, numpy.float32)],
+    ).rename(darray.name)
 
 
 def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
@@ -639,16 +641,14 @@ class EmissionComponent(enum.StrEnum):
         return f"{self.name.lower():s}_emissions_mt"
 
 
-def get_span_to_component_to_emissions(
+def get_component_to_emissions(
     dset: xarray.Dataset,
-) -> dict[SpanType, dict[EmissionComponent, xarray.DataArray]]:
-    """Split each span's emissions into the three components that claim them.
+) -> dict[EmissionComponent, xarray.DataArray]:
+    """Split each pixel's emissions into the three components that claim them, undiscounted.
 
-    A span's emissions are vegetation plus soil, and every unit of both is claimed exactly once:
+    A pixel's emissions are vegetation plus soil, and every unit of both is claimed exactly once:
     peat takes all the soil it sits under whatever the source class, and the source class takes
-    the soil that is left. So the three sum back to the span's own total: the statistical leg
-    builds `emissions_mt` by adding them up, and the jurisdictional-direct leg, which reads
-    `emissions_mt` from `emissions-per-hectare`, can check them against it.
+    the soil that is left. So the three sum back to the pixel's own total.
 
     There is no residual, because `get_conversion_emissions` charges only where a conversion
     fired and every conversion names a source class. Carbon that reaches no conversion is real,
@@ -658,24 +658,23 @@ def get_span_to_component_to_emissions(
     is_peat = dset[gnw_global_peatlands.DATASET.fully_qualified_band_name] == 1
     from_forest = conversion.isin(FROM_FOREST)
     from_grassland = conversion.isin(FROM_GRASSLAND)
-    span_to_component_to_emissions: dict[
-        SpanType, dict[EmissionComponent, xarray.DataArray]
-    ] = {}
-    for before, after in SPAN_TO_LINEAR_DISCOUNT_WEIGHT:
-        vegetation = dset[f"vegetation-emissions:tco2e-per-ha:{before:d}-{after:d}"]
-        soil = dset[f"soil-emissions:tco2e-per-ha:{before:d}-{after:d}"]
-        span_to_component_to_emissions[(before, after)] = {
-            EmissionComponent.FOREST: vegetation.where(from_forest, other=0)
-            + soil.where(from_forest & ~is_peat, other=0),
-            EmissionComponent.GRASSLAND: vegetation.where(from_grassland, other=0)
-            + soil.where(from_grassland & ~is_peat, other=0),
-            EmissionComponent.PEATLAND_CONVERSION: soil.where(is_peat, other=0),
-        }
-    assert all(
-        set(component_to_emissions) == set(EmissionComponent)
-        for component_to_emissions in span_to_component_to_emissions.values()
-    )
-    return span_to_component_to_emissions
+    vegetation = dset["vegetation-emissions:tco2e-per-ha"]
+    soil = dset["soil-emissions:tco2e-per-ha"]
+    component_to_emissions = {
+        EmissionComponent.FOREST: (
+            vegetation.where(from_forest, other=0)
+            + soil.where(from_forest & ~is_peat, other=0)
+        ).rename("tco2e-per-ha"),
+        EmissionComponent.GRASSLAND: (
+            vegetation.where(from_grassland, other=0)
+            + soil.where(from_grassland & ~is_peat, other=0)
+        ).rename("tco2e-per-ha"),
+        EmissionComponent.PEATLAND_CONVERSION: soil.where(is_peat, other=0).rename(
+            "tco2e-per-ha"
+        ),
+    }
+    assert set(component_to_emissions) == set(EmissionComponent)
+    return component_to_emissions
 
 
 def get_dset_for_output(name_to_darray: dict[str, xarray.DataArray]) -> xarray.Dataset:
@@ -751,22 +750,8 @@ def workflow(tile_id: str) -> xarray.Dataset:
         is_peatland=is_peatland,
         soil_organic_carbon=dset[soilgrids_ocs.DATASET.fully_qualified_band_name],
     )
-    span_to_vegetation_emissions = get_span_to_charge(
-        conversion_year=conversion_record.year, darray=conversion_emissions.vegetation
-    )
-    span_to_soil_emissions = get_span_to_charge(
-        conversion_year=conversion_record.year, darray=conversion_emissions.soil
-    )
 
-    logger.info("Summing emissions from vegetation and soil")
-    span_to_emissions: dict[SpanType, xarray.DataArray] = {
-        span: (
-            span_to_vegetation_emissions[span] + span_to_soil_emissions[span]
-        ).rename("tco2e-per-ha")
-        for span in span_to_vegetation_emissions
-    }
-
-    logger.info("Quantifying and adding peatland occupation emissions")
+    logger.info("Quantifying peatland occupation emissions")
     # NB: split by destination on the 30 m grid so each allocation leg can take the peat drained
     # under its own land class whole, rather than assuming peat is spread evenly across a cell
     cropland_occupation_emissions = get_peatland_occupation_emissions(
@@ -775,49 +760,29 @@ def workflow(tile_id: str) -> xarray.Dataset:
     pastureland_occupation_emissions = get_peatland_occupation_emissions(
         destination=conversion_record.to_pasture, is_peatland=is_peatland
     )
-    emissions_per_hectare: xarray.DataArray = (
-        get_linear_discounted_total(span_to_value=span_to_emissions)
-        + cropland_occupation_emissions
-        + pastureland_occupation_emissions
-    )
 
     logger.info("Quantifying the source carbon no destination claimed")
-    dropped_emissions = get_linear_discounted_total(
-        span_to_value=get_span_to_charge(
-            conversion_year=conversion_record.year,
-            darray=get_dropped_emissions(
-                forest_carbon=forest_carbon,
-                from_forest=conversion_record.from_forest,
-                from_pasture=conversion_record.from_pasture,
-                from_rangeland=conversion_record.from_rangeland,
-                grassland_carbon=grassland_carbon,
-                has_destination=conversion_record.to_cropland
-                | conversion_record.to_pasture,
-            ),
-        )
-    ).rename("tco2e-per-ha")
+    dropped_emissions = get_dropped_emissions(
+        forest_carbon=forest_carbon,
+        from_forest=conversion_record.from_forest,
+        from_pasture=conversion_record.from_pasture,
+        from_rangeland=conversion_record.from_rangeland,
+        grassland_carbon=grassland_carbon,
+        has_destination=conversion_record.to_cropland | conversion_record.to_pasture,
+    )
 
     return get_dset_for_output(
         name_to_darray={
             "conversion": conversion_record.conversion,
             "conversion-year": conversion_record.year,
-            "destination-dataset": conversion_record.destination_dataset,
-        }
-        | {
-            f"soil-emissions:{before:d}-{after:d}": darray
-            for (before, after), darray in span_to_soil_emissions.items()
-        }
-        | {
-            f"vegetation-emissions:{before:d}-{after:d}": darray
-            for (before, after), darray in span_to_vegetation_emissions.items()
-        }
-        | {
             f"{CROPLAND:s}-{PEATLAND_OCCUPATION:s}": cropland_occupation_emissions,
+            "destination-dataset": conversion_record.destination_dataset,
             # NB: charged to nobody, so it is reported beside the total rather than inside it
             "dropped-emissions": dropped_emissions,
-            "emissions-per-hectare": emissions_per_hectare,
-            "hectares-per-pixel": get_hectares_per_pixel(darray=emissions_per_hectare),
+            "hectares-per-pixel": get_hectares_per_pixel(darray=dropped_emissions),
             f"{PASTURELAND:s}-{PEATLAND_OCCUPATION:s}": pastureland_occupation_emissions,
+            "soil-emissions": conversion_emissions.soil,
+            "vegetation-emissions": conversion_emissions.vegetation,
         }
     )
 

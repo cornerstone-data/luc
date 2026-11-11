@@ -11,8 +11,8 @@ from jdluc import emit
 from jdluc.datasets import gpw_livestock, ifpri_mapspam
 from jdluc.statistical import (
     HERD_HEADS_COLUMNS,
+    MAPSPAM_SPANS,
     SNAPSHOT_YEAR_TO_WEIGHT,
-    SPAN_TO_MAPSPAM_SPAN,
     Commodity,
     Crop,
     Livestock,
@@ -21,7 +21,6 @@ from jdluc.statistical import (
     get_commodity_to_peatland_conversion_share,
     get_commodity_to_share,
     get_crop_to_area_share,
-    get_discounted_snapshot_mean,
     get_livestock_to_grazing_share,
 )
 
@@ -542,22 +541,6 @@ def test_snapshot_year_to_weight() -> None:
     )
 
 
-def test_snapshot_year_to_weight_reduces_as_the_discounted_snapshot_mean_does() -> None:
-    year_to_value = {2000: 1.0, 2005: 10.0, 2010: 100.0, 2020: 1000.0}
-    assert get_value(
-        darray=get_discounted_snapshot_mean(
-            year_to_value={
-                year: xarray.DataArray(value) for year, value in year_to_value.items()
-            }
-        )
-    ) == pytest.approx(
-        sum(
-            weight * year_to_value[year]
-            for year, weight in SNAPSHOT_YEAR_TO_WEIGHT.items()
-        )
-    )
-
-
 # The default for `get_name_to_totals`'s shares, read-only so every call can share it
 NO_SHARES: collections.abc.Mapping[Commodity, float] = types.MappingProxyType({})
 
@@ -576,8 +559,9 @@ def get_name_to_totals(
 ) -> dict[str, dict[str, float]]:
     """`get_commodity_name_to_totals` over WHEAT and the livestock rows on `get_dset`'s 2x2 grid.
 
-    Every band and share a caller does not set is zero, so each test moves one thing. The shares
-    are the same in every span.
+    Every band and share a caller does not set is zero, so each test moves one thing. Each
+    emissions band is discounted and set in the 2010-2020 span alone, and the shares are the same
+    in every span.
     """
     commodities = (Crop.WHEAT, *Livestock)
 
@@ -603,22 +587,23 @@ def get_name_to_totals(
                 + pasture_occupation,
             }
             | {
-                f"{name:s}:tco2e-per-ha:{before:d}-{after:d}": grid + emissions
+                f"{name:s}-emissions:tco2e-per-ha:{before:d}-{after:d}": grid
+                + (emissions if (before, after) == (2010, 2020) else 0.0)
                 for name, emissions in {
                     "forest": forest_emissions,
                     "grassland": grassland_emissions,
                     f"{emit.CROPLAND:s}-peatland-conversion": cropland_pulse,
                     f"{emit.PASTURELAND:s}-peatland-conversion": pasture_pulse,
                 }.items()
-                for before, after in emit.SPAN_TO_LINEAR_DISCOUNT_WEIGHT
+                for before, after in MAPSPAM_SPANS
             }
         ),
         occupation_shares=get_shares(shares=occupation_shares),
         span_to_commodity_to_peatland_conversion_share=dict.fromkeys(
-            SPAN_TO_MAPSPAM_SPAN.values(), get_shares(shares=peatland_conversion_shares)
+            MAPSPAM_SPANS, get_shares(shares=peatland_conversion_shares)
         ),
         span_to_commodity_to_share=dict.fromkeys(
-            SPAN_TO_MAPSPAM_SPAN.values(), get_shares(shares=commodity_to_share)
+            MAPSPAM_SPANS, get_shares(shares=commodity_to_share)
         ),
     )
 
@@ -818,8 +803,8 @@ PASTURE = Livestock.PASTURE.name
 UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
 
 
-# Expected values are per hectare of the cell. Every band and share is the same in each span, so a
-# conversion component is band x share x 0.2, the four spans' discount weights summed.
+# Expected values are per hectare of the cell. Each emissions band is already discounted and the
+# shares are the same in every span, so a conversion component is band x share.
 @pytest.mark.parametrize(
     ("pasture_fraction", "kwargs", "expected"),
     (
@@ -858,9 +843,9 @@ UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
                 },
             },
             {
-                (WHEAT, "peatland_conversion_emissions_mt"): 0.1,
-                (BEEF, "peatland_conversion_emissions_mt"): 0.6,
-                (PASTURE, "peatland_conversion_emissions_mt"): 0.4,
+                (WHEAT, "peatland_conversion_emissions_mt"): 0.5,
+                (BEEF, "peatland_conversion_emissions_mt"): 3.0,
+                (PASTURE, "peatland_conversion_emissions_mt"): 2.0,
             },
             id="crops-divide-the-cropland-pulse-and-livestock-the-pasture-pulse-by-their-own-shares",
         ),
@@ -870,7 +855,7 @@ UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
                 "commodity_to_share": {Livestock.PASTURE: 0.25},
                 "forest_emissions": 10.0,
             },
-            {(PASTURE, "emissions_mt"): 0.5},
+            {(PASTURE, "emissions_mt"): 2.5},
             id="the-pasture-row-takes-its-pooled-share-of-every-conversion-not-only-pasture-ones",
         ),
         pytest.param(
@@ -885,11 +870,11 @@ UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
                 "peatland_conversion_shares": {Crop.WHEAT: 0.25},
             },
             {
-                (WHEAT, "forest_emissions_mt"): 0.1,
-                (WHEAT, "grassland_emissions_mt"): 1.0,
-                (WHEAT, "peatland_conversion_emissions_mt"): 5.0,
+                (WHEAT, "forest_emissions_mt"): 0.5,
+                (WHEAT, "grassland_emissions_mt"): 5.0,
+                (WHEAT, "peatland_conversion_emissions_mt"): 25.0,
                 (WHEAT, "peatland_occupation_emissions_mt"): 100.0,
-                (WHEAT, "emissions_mt"): 106.1,
+                (WHEAT, "emissions_mt"): 130.5,
             },
             id="emissions-mt-is-the-components-plus-occupation-each-by-its-own-share",
         ),
@@ -904,19 +889,19 @@ UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
                 "occupation_shares": {Crop.WHEAT: 0.1},
                 "peatland_conversion_shares": {Crop.WHEAT: 0.25},
             },
-            # Charged: forest 0.2, grassland 2.0, peat conversion 20 and occupation 1000, so
-            # 1022.2 in all; wheat's row and the unattributed row split each between them
+            # Charged: forest 1, grassland 10, peat conversion 100 and occupation 1000, so 1111 in
+            # all; wheat's row and the unattributed row split each between them
             {
-                (WHEAT, "forest_emissions_mt"): 0.1,
-                (WHEAT, "grassland_emissions_mt"): 1.0,
-                (WHEAT, "peatland_conversion_emissions_mt"): 5.0,
+                (WHEAT, "forest_emissions_mt"): 0.5,
+                (WHEAT, "grassland_emissions_mt"): 5.0,
+                (WHEAT, "peatland_conversion_emissions_mt"): 25.0,
                 (WHEAT, "peatland_occupation_emissions_mt"): 100.0,
-                (WHEAT, "emissions_mt"): 106.1,
-                (UNATTRIBUTED, "forest_emissions_mt"): 0.1,
-                (UNATTRIBUTED, "grassland_emissions_mt"): 1.0,
-                (UNATTRIBUTED, "peatland_conversion_emissions_mt"): 15.0,
+                (WHEAT, "emissions_mt"): 130.5,
+                (UNATTRIBUTED, "forest_emissions_mt"): 0.5,
+                (UNATTRIBUTED, "grassland_emissions_mt"): 5.0,
+                (UNATTRIBUTED, "peatland_conversion_emissions_mt"): 75.0,
                 (UNATTRIBUTED, "peatland_occupation_emissions_mt"): 900.0,
-                (UNATTRIBUTED, "emissions_mt"): 916.1,
+                (UNATTRIBUTED, "emissions_mt"): 980.5,
                 (UNATTRIBUTED, "production_mt"): math.nan,
             },
             id="the-unattributed-row-is-what-the-shares-leave-of-the-charge-so-the-rows-sum-to-it",

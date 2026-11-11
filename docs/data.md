@@ -57,20 +57,19 @@ harmonized = xarray.open_zarr("<scratch-root>/<cache-key>.zarr", consolidated=Fa
 
 Written by the `emit` stage; a pipeline output, not a published artifact (see [Access](#access)).
 
-The crop-agnostic, per-pixel, per-span LUC emissions produced by the `emit` stage. A conversion is dated to the year its source class ended, and charged to the span containing that year; the spans are `2000-2005`, `2005-2010`, `2010-2015` and `2015-2020`.
+The crop-agnostic, per-pixel LUC emissions produced by the `emit` stage, undiscounted. A conversion is dated to the year its source class ended, `conversion-year`, and each allocation leg discounts the emissions by that year (see [`methodology.md`](methodology.md)).
 
-| Variable                                             | Type    | Units           | Description                                                                                              |
-| ---------------------------------------------------- | ------- | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `conversion`                                         | float32 | Conversion code | Which of the five conversions fired on the pixel, or none                                                |
-| `conversion-year`                                    | float32 | year            | The year the pixel's source class ended — its tree-cover loss year, or its last departure from grassland |
-| `destination-dataset`                                | float32 | Dataset bitmask | Which layers claimed the pixel at the assessment year — one bit each, so a contested pixel keeps both    |
-| `vegetation-emissions:tco2e-per-ha:{before}-{after}` | float32 | t CO₂e/ha       | Per-span vegetation-carbon loss (above-ground, below-ground, dead organic matter, grassland)             |
-| `soil-emissions:tco2e-per-ha:{before}-{after}`       | float32 | t CO₂e/ha       | Per-span soil-carbon loss (mineral stock change + peatland drainage pulse)                               |
-| `cropland-peatland-occupation:tco2e-per-ha`          | float32 | t CO₂e/ha       | Current-year annual peatland-occupation emissions under cropland                                         |
-| `pastureland-peatland-occupation:tco2e-per-ha`       | float32 | t CO₂e/ha       | The same under pasture, split from cropland on the 30 m grid                                             |
-| `dropped-emissions:tco2e-per-ha`                     | float32 | t CO₂e/ha       | Source carbon no destination claimed, reported beside the total rather than inside it                    |
-| `emissions-per-hectare:tco2e-per-ha`                 | float32 | t CO₂e/ha       | 20-year linearly-discounted LUC emissions + peatland occupation — the headline per-hectare layer         |
-| `hectares-per-pixel:ha`                              | float32 | ha              | Pixel area (varies with latitude)                                                                        |
+| Variable                                       | Type    | Units           | Description                                                                                                                 |
+| ---------------------------------------------- | ------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `conversion`                                   | float32 | Conversion code | Which of the five conversions fired on the pixel, or none                                                                   |
+| `conversion-year`                              | float32 | year            | The year the pixel's source class ended — its tree-cover loss year, or its last departure from grassland                    |
+| `destination-dataset`                          | float32 | Dataset bitmask | Which layers claimed the pixel at the assessment year — one bit each, so a contested pixel keeps both                       |
+| `vegetation-emissions:tco2e-per-ha`            | float32 | t CO₂e/ha       | Vegetation-carbon loss of the pixel's conversion (above-ground, below-ground, dead organic matter, grassland), undiscounted |
+| `soil-emissions:tco2e-per-ha`                  | float32 | t CO₂e/ha       | Soil-carbon loss of the pixel's conversion (mineral stock change + peatland drainage pulse), undiscounted                   |
+| `cropland-peatland-occupation:tco2e-per-ha`    | float32 | t CO₂e/ha       | Current-year annual peatland-occupation emissions under cropland                                                            |
+| `pastureland-peatland-occupation:tco2e-per-ha` | float32 | t CO₂e/ha       | The same under pasture, split from cropland on the 30 m grid                                                                |
+| `dropped-emissions:tco2e-per-ha`               | float32 | t CO₂e/ha       | Source carbon no destination claimed, undiscounted; reported beside the charged emissions rather than inside them           |
+| `hectares-per-pixel:ha`                        | float32 | ha              | Pixel area (varies with latitude)                                                                                           |
 
 ```python
 import xarray

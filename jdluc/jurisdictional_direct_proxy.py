@@ -36,20 +36,21 @@ HERD_HEADS_COLUMN = statistical.get_herd_heads_column(year=tang_cropgrids.YEAR)
 def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
     """The 30 m bands this leg divides, each per hectare or a fraction of the pixel.
 
-    Each emissions component is split by the land class its pixel became, and discounted over
-    the spans: the shares that divide it come from one year, so no span needs its own band.
+    Each emissions component is discounted by its pixel's conversion year and split by the land
+    class the pixel became: the shares that divide it come from one year, so no span needs its own
+    band. The source carbon no destination claimed is discounted the same way.
     """
-    span_to_component_to_emissions = emit.get_span_to_component_to_emissions(dset=dset)
+    component_to_emissions = {
+        component: emit.get_linear_discounted(
+            conversion_year=dset["conversion-year"], darray=emissions
+        )
+        for component, emissions in emit.get_component_to_emissions(dset=dset).items()
+    }
     return (
         {
-            f"{land_class:s}-{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted_total(
-                span_to_value={
-                    span: component_to_emissions[component].where(
-                        dset["conversion"].isin(conversions), other=0
-                    )
-                    for span, component_to_emissions in span_to_component_to_emissions.items()
-                }
-            )
+            f"{land_class:s}-{component!s}-emissions:tco2e-per-ha": component_to_emissions[
+                component
+            ].where(dset["conversion"].isin(conversions), other=0)
             for land_class, conversions in (
                 (emit.CROPLAND, emit.TO_CROPLAND),
                 (emit.PASTURELAND, emit.TO_PASTURE),
@@ -60,8 +61,13 @@ def get_name_to_band(dset: xarray.Dataset) -> dict[str, xarray.DataArray]:
             name: dset[name]
             for name in (
                 f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
-                "dropped-emissions:tco2e-per-ha",
                 f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
+            )
+        }
+        | {
+            "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                conversion_year=dset["conversion-year"],
+                darray=dset["dropped-emissions:tco2e-per-ha"],
             )
         }
         | {

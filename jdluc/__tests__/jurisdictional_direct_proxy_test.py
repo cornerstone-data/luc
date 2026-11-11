@@ -14,7 +14,6 @@ from jdluc.emit import (
     CROPLAND,
     PASTURELAND,
     PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA,
-    SPAN_TO_LINEAR_DISCOUNT_WEIGHT,
     Conversion,
     EmissionComponent,
     NonCommodity,
@@ -27,9 +26,10 @@ from jdluc.jurisdictional_direct_proxy import (
 )
 from jdluc.statistical import Livestock
 
-# The discount weights add up to 0.2, so 50 and 500 per span discount to 10 and 100
-VEGETATION_PER_SPAN = 50.0
-SOIL_PER_SPAN = 500.0
+# A conversion in 2013 takes a factor of 0.0625, so 160 and 1600 discount to 10 and 100
+CONVERSION_YEAR = 2013
+VEGETATION = 160.0
+SOIL = 1600.0
 LAND_CLASS_COMPONENT_NAMES = [
     f"{land_class:s}-{component!s}-emissions:tco2e-per-ha"
     for land_class in (CROPLAND, PASTURELAND)
@@ -48,9 +48,10 @@ def get_darray_for_cells(data: list[list[float]]) -> xarray.DataArray:
 def get_dset_for_pixel(
     conversion: Conversion, grassland: float, is_peat: bool
 ) -> xarray.Dataset:
-    """One pixel, charged the same emissions in every span."""
+    """One pixel, converted in `CONVERSION_YEAR`."""
     values = {
         "conversion": float(conversion),
+        "conversion-year": float(CONVERSION_YEAR),
         f"{CROPLAND:s}-peatland-occupation:tco2e-per-ha": 0.0,
         "dropped-emissions:tco2e-per-ha": 0.0,
         GRASSLAND.fully_qualified_band_names[
@@ -58,16 +59,8 @@ def get_dset_for_pixel(
         ]: grassland,
         f"{PASTURELAND:s}-peatland-occupation:tco2e-per-ha": 0.0,
         PEATLANDS.fully_qualified_band_name: float(is_peat),
-    } | {
-        name: value
-        for before, after in SPAN_TO_LINEAR_DISCOUNT_WEIGHT
-        for name, value in (
-            (f"soil-emissions:tco2e-per-ha:{before:d}-{after:d}", SOIL_PER_SPAN),
-            (
-                f"vegetation-emissions:tco2e-per-ha:{before:d}-{after:d}",
-                VEGETATION_PER_SPAN,
-            ),
-        )
+        "soil-emissions:tco2e-per-ha": SOIL,
+        "vegetation-emissions:tco2e-per-ha": VEGETATION,
     }
     return xarray.Dataset(
         {name: get_darray_for_cells(data=[[value]]) for name, value in values.items()}

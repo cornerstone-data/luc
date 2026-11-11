@@ -929,6 +929,7 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
         parameters = inspect.signature(trace.workflow).parameters
         df = trace.workflow(
             commodity_names=commodity_names,
+            concurrency=attribute.DEFAULT_CONCURRENCY,
             iso_3166s=(target.iso_3166,),
             methodology=target.methodology,
             **{name: value for name, value in retired.items() if name in parameters},
