@@ -81,7 +81,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="${HOME}/.config/gcloud/application_defaul
 
 ### Running the pipeline
 
-Every stage is scoped by one or more **ISO 3166 alpha-3 country codes**, or by `--backfill` for a global run. Stage 4 additionally takes a `--methodology-name` (`STATISTICAL`, `JURISDICTIONAL_DIRECT` or `JURISDICTIONAL_DIRECT_PROXY`), and stage 5 takes the first two. The example below reproduces Honduras via the statistical leg. Honduras is the cheapest end-to-end run in the corpus: the unit of work is a 10° tile, and it falls inside a single one (`20N_090W`). Swap in `USA` for the jurisdictional-direct leg, which needs the US-only CDL and NASS inputs:
+Every stage is scoped by one or more **ISO 3166 alpha-3 country codes**, or by `--backfill` for a global run. Stage 4 additionally takes a `--methodology-name` (`STATISTICAL`, `JURISDICTIONAL_DIRECT` or `JURISDICTIONAL_DIRECT_PROXY`), and stage 5 takes the first two. Stages 3–5 also take `--assessment-year` (2020, 2022 or 2024; 2020 by default), the year the emissions factors describe and the end of their 20-year lookback. Ingest and harmonize keep every year of each dataset, so they take no year and serve every assessment year alike. The example below reproduces Honduras via the statistical leg. Honduras is the cheapest end-to-end run in the corpus: the unit of work is a 10° tile, and it falls inside a single one (`20N_090W`). Swap in `USA` for the jurisdictional-direct leg, which needs the US-only CDL and NASS inputs:
 
 ```bash
 # 1. Ingest each source dataset for the countries (positional: dataset, then ISO codes).

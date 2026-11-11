@@ -38,9 +38,10 @@ class Crop(enum.Enum):
 
 
 DATASET_NAMES = (DatasetName.USDA_NASS_CDL,)
+assert set(emit.ASSESSMENT_YEARS) <= set(usda_nass_cdl.YEARS)
 
 
-EMISSIONS_AND_CROP_VARIABLE_NAMES = [
+EMISSIONS_VARIABLE_NAMES = [
     # Harmonized
     gnw_global_peatlands.DATASET.fully_qualified_band_name,
     # Emissions
@@ -49,8 +50,6 @@ EMISSIONS_AND_CROP_VARIABLE_NAMES = [
     "hectares-per-pixel:ha",
     f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     *(f"{component!s}-emissions:tco2e-per-ha" for component in emit.EmissionComponent),
-    # Crop
-    usda_nass_cdl.DATASET.fully_qualified_band_name,
 ]
 
 
@@ -135,8 +134,9 @@ SCHEMA = {
 }
 
 
-@storage.cache_to_parquet(version=2)
+@storage.cache_to_parquet(version=0)
 def workflow(
+    assessment_year: int,
     commodity_names: tuple[str, ...],
     iso_3166: str,
     tile_id: str,
@@ -144,7 +144,12 @@ def workflow(
     crops = tuple(Crop[commodity_name] for commodity_name in commodity_names)
     assert iso_3166 == "USA", "JD only supports USA today"
 
-    logger.info(f"Computing emissions for {crops=:} and {tile_id=:s}")
+    logger.info(
+        f"Computing emissions for {crops=:}, {assessment_year=:d} and {tile_id=:s}"
+    )
+    crop_class_band_name = usda_nass_cdl.DATASET.fully_qualified_band_names[
+        usda_nass_cdl.YEARS.index(assessment_year)
+    ]
     merged = geo.exact_merge(
         harmonize.workflow(
             dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
@@ -155,7 +160,7 @@ def workflow(
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
-        emit.workflow(tile_id=tile_id),
+        emit.workflow(assessment_year=assessment_year, tile_id=tile_id),
         # CDL
         harmonize.workflow(
             dataset_names=DATASET_NAMES,
@@ -168,7 +173,9 @@ def workflow(
     merged = merged.assign(
         {
             f"{component!s}-emissions:tco2e-per-ha": emit.get_linear_discounted(
-                conversion_year=merged["conversion-year"], darray=emissions
+                assessment_year=assessment_year,
+                conversion_year=merged["conversion-year"],
+                darray=emissions,
             )
             for component, emissions in emit.get_component_to_emissions(
                 dset=merged
@@ -176,6 +183,7 @@ def workflow(
         }
         | {
             "dropped-emissions:tco2e-per-ha": emit.get_linear_discounted(
+                assessment_year=assessment_year,
                 conversion_year=merged["conversion-year"],
                 darray=merged["dropped-emissions:tco2e-per-ha"],
             )
@@ -193,7 +201,7 @@ def workflow(
             logger.info(f"Clipping to provincial geometry for {jurisdiction.id=:s}")
             try:
                 clipped = geo.clip_dset(
-                    dset=merged[EMISSIONS_AND_CROP_VARIABLE_NAMES],
+                    dset=merged[[*EMISSIONS_VARIABLE_NAMES, crop_class_band_name]],
                     geometry=jurisdiction.geometry,
                 )
             except NoDataInBounds as exc:
@@ -207,7 +215,7 @@ def workflow(
                         component: clipped[f"{component!s}-emissions:tco2e-per-ha"]
                         for component in emit.EmissionComponent
                     },
-                    crop_class=clipped[usda_nass_cdl.DATASET.fully_qualified_band_name],
+                    crop_class=clipped[crop_class_band_name],
                     cropland_occupation_per_hectare=clipped[
                         f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
                     ],

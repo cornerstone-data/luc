@@ -34,6 +34,7 @@ import rasterio
 import rasterio.enums
 import rasterio.transform
 import rasterio.warp
+import xarray
 
 from jdluc import tiling, utils
 from jdluc.datasets import base
@@ -149,3 +150,69 @@ DATASET = base.RasterDataset(
 def get_band_name(species: Species, year: int) -> str:
     """The fully-qualified band carrying `species`' density, in heads/ha, in `year`."""
     return DATASET.fully_qualified_band_names[SPECIES_YEARS.index((species, year))]
+
+
+@enum.unique
+class Livestock(enum.StrEnum):
+    """The commodities dividing pasture's share of a cell; PASTURE keeps what the others don't."""
+
+    BEEF_CATTLE = enum.auto()
+    PASTURE = enum.auto()
+
+
+LIVESTOCK_TO_SPECIES = {
+    Livestock.BEEF_CATTLE: (Species.CATTLE,),
+}
+assert set(LIVESTOCK_TO_SPECIES) == set(Livestock) - {Livestock.PASTURE}
+# No grazer may be named by two commodities, or its livestock units would count toward both shares
+assert sum(len(species) for species in LIVESTOCK_TO_SPECIES.values()) == len(
+    set(LIVESTOCK_TO_SPECIES.values())
+)
+# `trace` prices a commodity's herd at one species' carcass weight per head
+assert all(len(species) == 1 for species in LIVESTOCK_TO_SPECIES.values())
+
+
+def get_band_name_to_livestock_units(
+    dset: xarray.Dataset, species_to_units_per_head: dict[Species, float]
+) -> dict[str, xarray.DataArray]:
+    """Each grazer's density in livestock units/ha, for assigning beside its density in heads.
+
+    Livestock units weigh how much one head of a species grazes, so they divide pasture between
+    grazers; production counts heads, and reads the heads bands.
+    """
+    return {
+        f"{species:s}:livestock-units-per-ha:{year:d}": dset[
+            get_band_name(species=species, year=year)
+        ]
+        * species_to_units_per_head[species]
+        for species, year in SPECIES_YEARS
+    }
+
+
+def get_livestock_to_grazing_share(
+    dset: xarray.Dataset, year: int
+) -> dict[Livestock, xarray.DataArray]:
+    """Each commodity's share of a cell's pasture: its grazers' livestock units over all of them.
+
+    Each livestock unit in a cell is taken to graze an equal slice of that cell's pasture. Only the
+    ratios between species' units per head matter, since a share divides each by the cell's total.
+    """
+    species_to_units = {
+        species: dset[f"{species:s}:livestock-units-per-ha:{year:d}"]
+        for species in Species
+    }
+    zero = xarray.DataArray(numpy.float32(0))
+    total = sum(species_to_units.values(), start=zero)
+    total = total.where(total > 0)
+    shares = {
+        # Share is zero where no grazer is mapped at all
+        livestock: (
+            sum((species_to_units[one] for one in species), start=zero) / total
+        ).fillna(0)
+        for livestock, species in LIVESTOCK_TO_SPECIES.items()
+    }
+    return shares | {Livestock.PASTURE: 1 - sum(shares.values(), start=zero)}
+
+
+def get_herd_heads_column(year: int) -> str:
+    return f"herd_heads_{year:d}"

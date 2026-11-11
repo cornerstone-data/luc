@@ -82,7 +82,9 @@ logger = logging.getLogger(__name__)
 Conversion = emit.Conversion
 # The lookback opens at the assessment year less twenty, and nothing can have departed in that
 # first year -- a departure needs the year before it to compare against
-LOOKBACK_YEARS = emit.LOOKBACK_YEARS_RANGE[1:]
+LOOKBACK_YEARS = emit.get_lookback_years_range(
+    assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
+)[1:]
 
 
 # Hotter reads as more carbon released: forest sources red and orange, grassland tan and olive

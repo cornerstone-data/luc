@@ -71,8 +71,8 @@ TOOL_NAME = pathlib.Path(__file__).name
 # a tropical forest frontier, and tropical peat. Every added country multiplies capture cost, so
 # widen this deliberately -- and use --iso to work on a subset meanwhile. HND and NIC are the
 # cheap exception: both fall entirely inside the one ten-degree tile 20N_090W, and the expensive
-# layer -- statistical.get_downscaled_luc_emissions -- is keyed on tile_id alone, so whichever
-# of the two runs second pays for little beyond its province clips.
+# layer -- statistical.get_downscaled_luc_emissions -- is keyed on the tile and the assessment year
+# alone, so whichever of the two runs second pays for little beyond its province clips.
 #
 # Central America earns five slots because it carries every 2000 crop group ifpri_mapspam still
 # decomposes, and the weight sits in different groups either side of a border: 44% of Honduran
@@ -100,9 +100,6 @@ NATIONAL = "NATIONAL"
 PROVINCIAL = "PROVINCIAL"
 # The emissions columns are megatonnes while an emissions factor is kg CO2e per kg
 KG_PER_TONNE = 1000
-# Two sides can be written with different index levels, so both are re-keyed onto this. admin_id
-# rather than jurisdiction_name: a machine identifier, where a display string could be renamed.
-CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
 # Columns this repo has renamed, old name to current. A baseline older than a rename writes the
 # old name, and this tool grades both sides with one vocabulary -- without which the two columns
 # would fail the "in both frames" guard and drop out of every check below unremarked.
@@ -320,7 +317,7 @@ def get_dirty_paths(cwd: pathlib.Path) -> list[str]:
 def load_capture(
     directory: pathlib.Path, target: Target
 ) -> tuple[pandas.DataFrame, tuple[str, ...]]:
-    """Read one side's parquet onto CANONICAL_KEY, whatever index it was written with.
+    """Read one side's parquet onto `trace.CANONICAL_KEY`, whatever index it was written with.
 
     Whichever of admin_id and jurisdiction_name is not in the index is a column, so resetting and
     re-keying realigns two sides written differently. A side keyed by each leg's own commodity
@@ -333,20 +330,21 @@ def load_capture(
     raw = pandas.read_parquet(directory / f"{slug:s}.parquet")
     written = tuple(str(name) for name in raw.index.names if name is not None)
     df = raw.reset_index().rename(columns=RENAMED_COLUMNS)
+    if "assessment_year" not in df.columns:
+        # NB: written before `trace` keyed on the assessment year, when every table was 2020's
+        df["assessment_year"] = 2020
     if "commodity_id" not in df.columns:
         df = trace.attach_ratios(
             df=trace.with_commodity_ids(
-                df=df.set_index(
-                    ["admin_level", "admin_id", "commodity_name", "methodology"]
-                ),
+                df=df.set_index(list(attribute.INDEX_NAMES)),
                 methodology=target.methodology,
             )
         ).reset_index()
-    missing = [name for name in CANONICAL_KEY if name not in df.columns]
+    missing = [name for name in trace.CANONICAL_KEY if name not in df.columns]
     assert not missing, (
         f"{slug:s} in {directory} lacks {missing}; is it the schema you think it is?"
     )
-    return df.set_index(list(CANONICAL_KEY)).sort_index(), written
+    return df.set_index(list(trace.CANONICAL_KEY)).sort_index(), written
 
 
 def check_alignment(
@@ -372,7 +370,7 @@ def check_alignment(
                 message=(
                     f"{slug:s} has no shared rows, so NOTHING was compared -- the keys do not "
                     f"line up. Written as {' + '.join(written[0])} against "
-                    f"{' + '.join(written[1])}, re-keyed onto {' + '.join(CANONICAL_KEY)}"
+                    f"{' + '.join(written[1])}, re-keyed onto {' + '.join(trace.CANONICAL_KEY)}"
                 ),
                 severity=Severity.BLOCKING,
             )
@@ -925,14 +923,25 @@ def capture(directory: pathlib.Path, label: Side, targets: tuple[Target, ...]) -
             f"({index:d}/{len(targets):d})"
         )
 
-        retired = {"skip_glad_crop_filter": False}
+        # NB: a baseline runs this copy of the tool against its own code, so each of these goes
+        # only to a `trace.workflow` that takes it: one argument retired since, one introduced since
+        name_to_value = {
+            # NB: written out, since a baseline's `emit` may predate its default; drift is measured
+            # in 2020, which every table before the assessment year became a parameter holds
+            "assessment_year": 2020,
+            "skip_glad_crop_filter": False,
+        }
         parameters = inspect.signature(trace.workflow).parameters
         df = trace.workflow(
             commodity_names=commodity_names,
             concurrency=attribute.DEFAULT_CONCURRENCY,
             iso_3166s=(target.iso_3166,),
             methodology=target.methodology,
-            **{name: value for name, value in retired.items() if name in parameters},
+            **{
+                name: value
+                for name, value in name_to_value.items()
+                if name in parameters
+            },
         )
         path = directory / f"{target.slug:s}.parquet"
         df.to_parquet(path)

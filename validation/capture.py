@@ -4,19 +4,20 @@ The one stage that runs the pipeline itself, so it is run by hand rather than by
 `python -m validation`, and its output is cached rather than recomputed per report.
 
 **One capture, both legs.** `efs.parquet` holds sLUC and jdLUC together, indexed on
-`trace.CANONICAL_KEY` -- `(admin_level, admin_id, commodity_id, methodology)` -- so the US
-sLUC-versus-jdLUC head-to-head is a filter on `methodology` within one table rather than a join
-between two files. A join there would invite exactly the alignment failure the comparison exists to
-rule out.
+`trace.CANONICAL_KEY` -- `(admin_id, admin_level, assessment_year, commodity_id, methodology)` --
+so the US sLUC-versus-jdLUC head-to-head is a filter on `methodology` within one table rather than
+a join between two files. A join there would invite exactly the alignment failure the comparison
+exists to rule out.
 
 **Every commodity, not just the targets.** `attribute.get_commodity_names` fixes the commodity
 set per leg, so a capture covers every commodity the leg models rather than only the pairs
 `targets.json` names. It is cheaper than it looks:
-`statistical.get_downscaled_luc_emissions` is keyed on `tile_id` alone, so the expensive
-per-tile layer is shared and a crop adds only its share arithmetic.
+`statistical.get_downscaled_luc_emissions` is keyed on the tile and the assessment year alone, so
+the expensive per-tile layer is shared and a crop adds only its share arithmetic.
 
-**Merging is per (ISO, methodology), and rows keep their own `code_version`.** A capture scoped with
-`--isos` leaves other countries in place, so the artifact can span versions and a reader has to be
+**Merging is per (ISO, methodology, assessment year), and rows keep their own `code_version`.** A
+capture scoped with `--isos` leaves other countries and years in place, so the artifact can span
+versions and a reader has to be
 able to see that -- `report.get_provenance_findings` raises a DEFECT when it does. That is why
 provenance travels in the row rather than in a sidecar.
 
@@ -39,7 +40,7 @@ import pathlib
 
 import pandas
 
-from jdluc import attribute, trace
+from jdluc import attribute, emit, trace
 from jdluc.datasets import worldbank_jurisdictions
 from validation import pull, schema, targets
 
@@ -126,25 +127,31 @@ def merge_efs(
 ) -> pandas.DataFrame:
     """Replace what was recomputed, keep everything else exactly as it was.
 
-    Keyed on (ISO, methodology) rather than on the whole index: a country recomputed for one leg
-    must lose all of that leg's rows, including any crop that no longer produces one, or a stale row
-    would survive beside its replacements and be summed with them.
+    Keyed on (ISO, methodology, assessment year) rather than on the whole index: a country
+    recomputed for one leg and year must lose all of those rows, including any crop that no longer
+    produces one, or a stale row would survive beside its replacements and be summed with them.
     """
     if existing is None:
         return captured
+    assert existing.index.names == list(schema.CANONICAL_KEY), (
+        f"{pull.EFS} is indexed by {existing.index.names}, not {schema.CANONICAL_KEY}; "
+        "delete it and capture again"
+    )
     recomputed = {
-        (str(admin_id)[:3], str(methodology))
-        for admin_id, methodology in zip(
+        (str(admin_id)[:3], str(methodology), int(assessment_year))
+        for admin_id, methodology, assessment_year in zip(
             captured.index.get_level_values("admin_id"),
             captured.index.get_level_values("methodology"),
+            captured.index.get_level_values("assessment_year"),
             strict=True,
         )
     }
     keep = [
-        (str(admin_id)[:3], str(methodology)) not in recomputed
-        for admin_id, methodology in zip(
+        (str(admin_id)[:3], str(methodology), int(assessment_year)) not in recomputed
+        for admin_id, methodology, assessment_year in zip(
             existing.index.get_level_values("admin_id"),
             existing.index.get_level_values("methodology"),
+            existing.index.get_level_values("assessment_year"),
             strict=True,
         )
     ]
@@ -155,8 +162,12 @@ def merge_efs(
     return pandas.concat([existing[keep], captured]).sort_index()
 
 
-def workflow(iso_3166s: tuple[str, ...], repo_root: pathlib.Path) -> pandas.DataFrame:
-    """Both legs over the given countries, stamped with the code that produced them."""
+def workflow(
+    assessment_year: int, iso_3166s: tuple[str, ...], repo_root: pathlib.Path
+) -> pandas.DataFrame:
+    """Both legs over the given countries in `assessment_year`, stamped with the code that
+    produced them.
+    """
     frames = []
     for methodology, wanted in iter_methodologies(iso_3166s=iso_3166s):
         commodity_names = attribute.get_commodity_names(methodology=methodology)
@@ -166,8 +177,9 @@ def workflow(iso_3166s: tuple[str, ...], repo_root: pathlib.Path) -> pandas.Data
         )
         frames.append(
             trace.workflow(
-                concurrency=attribute.DEFAULT_CONCURRENCY,
+                assessment_year=assessment_year,
                 commodity_names=commodity_names,
+                concurrency=attribute.DEFAULT_CONCURRENCY,
                 iso_3166s=wanted,
                 methodology=methodology,
             )
@@ -216,6 +228,13 @@ def main() -> int:
     )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--assessment-year",
+        choices=emit.ASSESSMENT_YEARS,
+        default=schema.ASSESSMENT_YEAR,
+        help="the assessment year to capture; the comparisons read only schema.ASSESSMENT_YEAR",
+        type=int,
+    )
+    parser.add_argument(
         "--isos",
         default=(),
         help="capture only these countries and merge them into the existing artifact; "
@@ -241,7 +260,11 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    captured = workflow(iso_3166s=iso_3166s, repo_root=args.repo_root)
+    captured = workflow(
+        assessment_year=int(args.assessment_year),
+        iso_3166s=iso_3166s,
+        repo_root=args.repo_root,
+    )
     merged = merge_efs(captured=captured, existing=read_efs())
     pull.CAPTURE.mkdir(exist_ok=True, parents=True)
     merged.to_parquet(pull.EFS)

@@ -746,14 +746,17 @@ def get_anchor_versions(measure: targets.Measure) -> dict[str, str]:
 
 
 def read_efs() -> pandas.DataFrame | None:
-    """The captured emissions factors, or None before a capture has run.
+    """The captured emissions factors for `schema.ASSESSMENT_YEAR`, or None before a capture has
+    run.
 
     Read here rather than through `validation.capture` so the reporting path never imports the
-    module that runs the pipeline.
+    module that runs the pipeline. Only the one year is kept, since the comparisons below pivot and
+    sum over the other levels and would add years together.
     """
     if not pull.EFS.exists():
         return None
-    return pandas.read_parquet(pull.EFS)
+    efs = pandas.read_parquet(pull.EFS)
+    return efs[efs.index.get_level_values("assessment_year") == schema.ASSESSMENT_YEAR]
 
 
 # The MapSPAM code each captured crop row is compared under. The capture keys on FAOSTAT items, and

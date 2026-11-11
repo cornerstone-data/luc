@@ -18,7 +18,7 @@ so it cannot be imported, and policing a sibling tool's internals is not this su
 tools copy from the same source, so pinning each to jdluc keeps them consistent with each other.
 """
 
-from jdluc import attribute, trace
+from jdluc import attribute, emit, trace
 from jdluc.datasets import worldbank_jurisdictions
 from validation import schema
 
@@ -55,3 +55,8 @@ def test_kg_per_tonne_matches_trace() -> None:
 def test_canonical_key_matches_the_index_trace_writes() -> None:
     """Re-keying onto the wrong names would drop every row of a comparison."""
     assert schema.CANONICAL_KEY == trace.CANONICAL_KEY
+
+
+def test_assessment_year_is_one_the_pipeline_supports() -> None:
+    """A year the pipeline cannot produce would leave every comparison empty."""
+    assert schema.ASSESSMENT_YEAR in emit.ASSESSMENT_YEARS

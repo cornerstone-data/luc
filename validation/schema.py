@@ -33,8 +33,17 @@ TONNES_PER_MEGATONNE = 1e6
 RESULT_BEARING_PATHS = ("jdluc", "pyproject.toml", "uv.lock")
 # efs.parquet's own index, and what any other capture is re-keyed onto. admin_id rather than
 # jurisdiction_name: a machine identifier, where a display string could be renamed. `methodology`
-# is a key level because both legs share one artifact, so it separates sLUC from jdLUC.
-CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
+# is a key level because both legs share one artifact, so it separates sLUC from jdLUC, and so is
+# `assessment_year`, because captures of several years can share it too.
+CANONICAL_KEY = (
+    "admin_id",
+    "admin_level",
+    "assessment_year",
+    "commodity_id",
+    "methodology",
+)
+# The assessment year the comparisons read from efs.parquet
+ASSESSMENT_YEAR = 2020
 NATIONAL = "NATIONAL"
 PROVINCIAL = "PROVINCIAL"
 # The two legs, as `methodology` records them in efs.parquet.

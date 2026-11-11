@@ -2,25 +2,26 @@
 
 Starting from the per-(admin, commodity) attribution rollup (`attribute.workflow`), determines
 each commodity's total production — the only step that depends on methodology:
-  - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield (4-year mean).
+  - JURISDICTIONAL_DIRECT: production = crop area x NASS QuickStats yield, averaged over the 4
+    years ending at the assessment year.
   - STATISTICAL: production = MAPSPAM production for crops, carried straight through the
     attribute, and the attribute's GPW heads x FAOSTAT carcass weight per head for livestock.
-  - JURISDICTIONAL_DIRECT_PROXY: production = FAOSTAT national production split among provinces
-    by CROPGRIDS crop area for crops, and the attribute's 2020 GPW heads x FAOSTAT carcass weight
-    per head for livestock.
+  - JURISDICTIONAL_DIRECT_PROXY: production = FAOSTAT national production over the same 4 years,
+    split among provinces by CROPGRIDS crop area for crops, and the attribute's 2020 GPW heads x
+    FAOSTAT carcass weight per head over the same years for livestock.
 
 It then derives, identically for all three, each commodity's yield (kg per hectare) and emissions
 factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
-pandas.DataFrame indexed by (admin_level, admin_id, commodity_id, methodology), where
-`commodity_id` is a FAOSTAT item code or a `taxonomy.InventedCommodityId`, and the `commodity_name`
-column holds its name: FAOSTAT's, from its crop table, or `taxonomy`'s.
+pandas.DataFrame indexed by `CANONICAL_KEY`, (admin_id, admin_level, assessment_year, commodity_id,
+methodology), where `commodity_id` is a FAOSTAT item code or a `taxonomy.InventedCommodityId`,
+and the `commodity_name` column holds its name: FAOSTAT's, from its crop table, or `taxonomy`'s.
 
 The countries come from the positional ISO 3166 alpha-3 codes, or -- with `--backfill` --
 from every country in the World Bank admin-0 layer.
 
 Example invocations:
   uv run python jdluc/trace.py --methodology-name STATISTICAL USA
-  uv run python jdluc/trace.py --methodology-name STATISTICAL --backfill
+  uv run python jdluc/trace.py --assessment-year 2024 --methodology-name STATISTICAL --backfill
 """
 
 import argparse
@@ -50,11 +51,14 @@ from jdluc.datasets import (
 logger = logging.getLogger(__name__)
 
 
-NASS_YIELD_YEARS = (2017, 2018, 2019, 2020)
-# The proxy leg's FAOSTAT years, centered on CROPGRIDS'
-FAOSTAT_YEARS = tuple(range(tang_cropgrids.YEAR - 1, tang_cropgrids.YEAR + 2))
 KG_PER_TONNE = 1000
-CANONICAL_KEY = ("admin_level", "admin_id", "commodity_id", "methodology")
+CANONICAL_KEY = (
+    "admin_id",
+    "admin_level",
+    "assessment_year",
+    "commodity_id",
+    "methodology",
+)
 ADDITIVE_COLUMNS = (
     "commodity_hectares",
     "emissions_mt",
@@ -66,10 +70,13 @@ ADDITIVE_COLUMNS = (
 
 
 def derive_jurisdictional_production_kg(
-    emissions: pandas.DataFrame, raw_yields: pandas.DataFrame
+    emissions: pandas.DataFrame, raw_yields: pandas.DataFrame, years: tuple[int, ...]
 ) -> pandas.DataFrame:
+    """A crop's production is its area times NASS's state yield, averaged over `years`."""
+    yield_years = raw_yields.index.get_level_values("year")
+    assert set(years) <= set(yield_years), f"NASS yields are missing a year of {years}"
     reduced_yields = (
-        raw_yields[raw_yields.index.get_level_values("year").isin(NASS_YIELD_YEARS)]
+        raw_yields[yield_years.isin(years)]
         .groupby(level=["admin_id", "commodity_name"])["yield_kg_per_ha"]
         .mean()
         .reset_index()
@@ -117,33 +124,38 @@ def get_herd_production_kg(
 
 
 def derive_statistical_production_kg(
-    emissions: pandas.DataFrame, stocks: pandas.DataFrame
+    emissions: pandas.DataFrame,
+    snapshot_year_to_weight: dict[int, float],
+    stocks: pandas.DataFrame,
 ) -> pandas.DataFrame:
     """A crop's production is MapSPAM's, carried through `attribute`. A herd's is its heads at
     each snapshot times FAOSTAT's national carcass weight per standing head that year, reduced
-    over the window with the weights `statistical.get_discounted_snapshot_mean` gives a crop's.
+    over the window with the weights `statistical.get_snapshot_year_to_weight` gives a crop's.
     """
     ret = emissions.copy()
     ret["production_kg"] = ret["production_mt"] * KG_PER_TONNE
-    for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+    for livestock, (species,) in gpw_livestock.LIVESTOCK_TO_SPECIES.items():
         is_herd = ret.index.get_level_values("commodity_name") == livestock.name
         ret.loc[is_herd, "production_kg"] = sum(
             weight
             * get_herd_production_kg(
-                heads=ret.loc[is_herd, statistical.get_herd_heads_column(year=year)],
+                heads=ret.loc[is_herd, gpw_livestock.get_herd_heads_column(year=year)],
                 species=species,
                 stocks=stocks,
                 years=(year,),
             )
-            for year, weight in statistical.SNAPSHOT_YEAR_TO_WEIGHT.items()
+            for year, weight in snapshot_year_to_weight.items()
         )
     return ret.drop(columns=["production_mt", *statistical.HERD_HEADS_COLUMNS])
 
 
 def derive_proxy_production_kg(
-    crops: pandas.DataFrame, emissions: pandas.DataFrame, stocks: pandas.DataFrame
+    crops: pandas.DataFrame,
+    emissions: pandas.DataFrame,
+    stocks: pandas.DataFrame,
+    years: tuple[int, ...],
 ) -> pandas.DataFrame:
-    """A crop's production is FAOSTAT's national production of its item over `FAOSTAT_YEARS`, split
+    """A crop's production is FAOSTAT's national production of its item over `years`, split
     among provinces by CROPGRIDS crop area. A herd's is its heads times FAOSTAT's carcass weight per
     head. Rows with no FAOSTAT item have none.
     """
@@ -165,8 +177,14 @@ def derive_proxy_production_kg(
         | set(taxonomy.CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE)
         | taxonomy.UNMAPPED_CROP_ITEM_CODES
     )
+    assert set(years) <= set(table["year"]), (
+        f"FAOSTAT production is missing a year of {years}"
+    )
+    assert set(years) <= set(stocks.index.get_level_values("year")), (
+        f"FAOSTAT stocks are missing a year of {years}"
+    )
     national_production = (
-        table[table["year"].isin(FAOSTAT_YEARS)]
+        table[table["year"].isin(years)]
         .groupby(["admin_id", "commodity_id"])["production_kg"]
         .mean()
     )
@@ -214,13 +232,13 @@ def derive_proxy_production_kg(
     ret = flat.drop(columns=["commodity_id", "iso_3166"]).set_index(
         emissions.index.names
     )
-    for livestock, (species,) in statistical.LIVESTOCK_TO_SPECIES.items():
+    for livestock, (species,) in gpw_livestock.LIVESTOCK_TO_SPECIES.items():
         is_herd = ret.index.get_level_values("commodity_name") == livestock.name
         ret.loc[is_herd, "production_kg"] = get_herd_production_kg(
             heads=ret.loc[is_herd, jurisdictional_direct_proxy.HERD_HEADS_COLUMN],
             species=species,
             stocks=stocks,
-            years=FAOSTAT_YEARS,
+            years=years,
         )
     return ret.drop(columns=jurisdictional_direct_proxy.HERD_HEADS_COLUMN)
 
@@ -278,6 +296,7 @@ def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
 
 
 def iter_national_from_provincials(
+    assessment_year: int,
     iso_3166: str,
     methodology: attribute.Methodology,
     national_name: str,
@@ -304,42 +323,48 @@ def iter_national_from_provincials(
                 numer=ret["emissions_mt"] * KG_PER_TONNE, denom=ret["production_kg"]
             ),
             "methodology": methodology.name,
+            "assessment_year": assessment_year,
         }  # type: ignore
 
 
-@storage.cache_to_parquet(ignored_args=["concurrency"], version=2)
+@storage.cache_to_parquet(ignored_args=["concurrency"], version=0)
 def workflow(
-    concurrency: int,
+    assessment_year: int,
     commodity_names: tuple[str, ...],
+    concurrency: int,
     iso_3166s: tuple[str, ...],
     methodology: attribute.Methodology,
 ) -> pandas.DataFrame:
     emissions = attribute.workflow(
-        concurrency=concurrency,
+        assessment_year=assessment_year,
         commodity_names=commodity_names,
+        concurrency=concurrency,
         iso_3166s=iso_3166s,
         methodology=methodology,
     )
-    assert emissions.index.names == [
-        "admin_level",
-        "admin_id",
-        "commodity_name",
-        "methodology",
-    ]
+    assert emissions.index.names == list(attribute.INDEX_NAMES)
+    # The years both direct legs average their production statistics over
+    production_years = tuple(range(assessment_year - 3, assessment_year + 1))
     match methodology:
         case attribute.Methodology.JURISDICTIONAL_DIRECT:
             production = derive_jurisdictional_production_kg(
-                emissions=emissions, raw_yields=usda_nass_quickstats.load()
+                emissions=emissions,
+                raw_yields=usda_nass_quickstats.load(),
+                years=production_years,
             )
         case attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY:
             production = derive_proxy_production_kg(
                 crops=faostat.load(dataset=faostat.CROP_DATASET),
                 emissions=emissions,
                 stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
+                years=production_years,
             )
         case attribute.Methodology.STATISTICAL:
             production = derive_statistical_production_kg(
                 emissions=emissions,
+                snapshot_year_to_weight=statistical.get_snapshot_year_to_weight(
+                    assessment_year=assessment_year
+                ),
                 stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
             )
         case _:
@@ -357,6 +382,7 @@ def workflow(
         national
         for iso_3166 in iso_3166s
         for national in iter_national_from_provincials(
+            assessment_year=assessment_year,
             iso_3166=iso_3166,
             methodology=methodology,
             national_name=str(
@@ -402,6 +428,12 @@ def main() -> int:
         type=worldbank_jurisdictions.iso_3166_str,
     )
     parser.add_argument(
+        "--assessment-year",
+        choices=emit.ASSESSMENT_YEARS,
+        default=emit.DEFAULT_ASSESSMENT_YEAR,
+        type=int,
+    )
+    parser.add_argument(
         "--backfill",
         action="store_true",
         help="trace every country in the World Bank admin-0 layer",
@@ -420,8 +452,9 @@ def main() -> int:
 
     methodology = attribute.Methodology[str(args.methodology_name)]
     df = workflow(
-        concurrency=int(args.concurrency),
+        assessment_year=int(args.assessment_year),
         commodity_names=attribute.get_commodity_names(methodology=methodology),
+        concurrency=int(args.concurrency),
         iso_3166s=tuple(
             sorted(
                 worldbank_jurisdictions.get_all_iso_3166s()

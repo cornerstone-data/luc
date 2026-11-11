@@ -6,12 +6,13 @@ from jdluc.datasets.gnw_global_peatlands import DATASET as PEATLANDS
 from jdluc.datasets.gpw_grassland import DATASET as GRASSLAND
 from jdluc.datasets.gpw_grassland import YEARS as GRASSLAND_YEARS
 from jdluc.datasets.gpw_grassland import Grassland
-from jdluc.datasets.gpw_livestock import Species, get_band_name
+from jdluc.datasets.gpw_livestock import Livestock, Species, get_band_name
 from jdluc.datasets.tang_cropgrids import DATASET as CROPGRIDS
 from jdluc.datasets.tang_cropgrids import YEAR as CROPGRIDS_YEAR
 from jdluc.datasets.tang_cropgrids import Crop
 from jdluc.emit import (
     CROPLAND,
+    DEFAULT_ASSESSMENT_YEAR,
     PASTURELAND,
     PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA,
     Conversion,
@@ -24,7 +25,6 @@ from jdluc.jurisdictional_direct_proxy import (
     get_crop_to_area_share,
     get_name_to_band,
 )
-from jdluc.statistical import Livestock
 
 # A conversion in 2013 takes a factor of 0.0625, so 160 and 1600 discount to 10 and 100
 CONVERSION_YEAR = 2013
@@ -122,9 +122,10 @@ def test_get_name_to_band_splits_each_component_by_land_class(
     conversion: Conversion, is_peat: bool, name_to_expected: dict[str, float]
 ) -> None:
     name_to_band = get_name_to_band(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_pixel(
             conversion=conversion, grassland=float(Grassland.OTHER), is_peat=is_peat
-        )
+        ),
     )
     # Every other land class and component is charged nothing
     assert {
@@ -140,9 +141,10 @@ def test_get_name_to_band_charges_every_conversion_exactly_once(
     conversion: Conversion, is_peat: bool
 ) -> None:
     name_to_band = get_name_to_band(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_pixel(
             conversion=conversion, grassland=float(Grassland.OTHER), is_peat=is_peat
-        )
+        ),
     )
     charged = sum(name_to_band[name].item() for name in LAND_CLASS_COMPONENT_NAMES)
     assert charged == pytest.approx(0.0 if conversion == Conversion.NONE else 110.0)
@@ -160,9 +162,10 @@ def test_get_name_to_band_charges_every_conversion_exactly_once(
 )
 def test_get_name_to_band_pasture_fraction(grassland: float, expected: float) -> None:
     name_to_band = get_name_to_band(
+        assessment_year=DEFAULT_ASSESSMENT_YEAR,
         dset=get_dset_for_pixel(
             conversion=Conversion.NONE, grassland=grassland, is_peat=False
-        )
+        ),
     )
     assert name_to_band[f"pasture:fraction:{CROPGRIDS_YEAR:d}"].item() == expected
 
