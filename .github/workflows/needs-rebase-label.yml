@@ -1,0 +1,39 @@
+name: needs-rebase label
+
+# Labels open PRs into main that must be rebased before they can merge: conflicting with main
+# (DIRTY) or behind it (BEHIND, when the main ruleset requires branches to be up to date).
+# Removes the label once a PR is current. Re-checks every open PR, since a push to main can
+# put all of them behind.
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+# No checkout: the job never runs PR code, so pull_request_target's write token stays safe.
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: needs-rebase-label
+  cancel-in-progress: true
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync needs-rebase label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sleep 30  # GitHub computes mergeability asynchronously after a push
+          gh pr list --state open --base main --limit 200 --json number,mergeStateStatus,labels \
+            --jq '.[] | "\(.number) \(.mergeStateStatus) \([.labels[].name] | index("needs-rebase") != null)"' |
+          while read -r number state labelled; do
+            case "$state" in
+              DIRTY|BEHIND) [ "$labelled" = true ] || gh pr edit "$number" --add-label needs-rebase ;;
+              UNKNOWN) ;;  # not computed yet; the next run catches it
+              *) [ "$labelled" = false ] || gh pr edit "$number" --remove-label needs-rebase ;;
+            esac
+          done

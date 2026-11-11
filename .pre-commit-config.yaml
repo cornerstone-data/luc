@@ -30,6 +30,7 @@ repos:
       - id: mdformat
         additional_dependencies:
           - mdformat-gfm
+          - mdformat-frontmatter
         entry: mdformat --number --wrap=no
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
