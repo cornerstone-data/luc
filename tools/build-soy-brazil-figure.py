@@ -80,11 +80,14 @@ from jdluc import emit
 logger = logging.getLogger(__name__)
 
 Conversion = emit.Conversion
-# The lookback opens at the assessment year less twenty, and nothing can have departed in that
-# first year -- a departure needs the year before it to compare against
-LOOKBACK_YEARS = emit.get_lookback_years_range(
-    assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
-)[1:]
+# The years a conversion can be dated to, each with its discount weight: the lookback less its
+# first year, in which nothing can have departed -- a departure needs the year before it
+LOOKBACK_YEARS = tuple(
+    emit.get_year_to_linear_discount_weight(
+        assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
+    )
+)
+FIRST_LOOKBACK_YEAR, *_, LAST_LOOKBACK_YEAR = LOOKBACK_YEARS
 
 
 # Hotter reads as more carbon released: forest sources red and orange, grassland tan and olive
@@ -164,7 +167,8 @@ def conversion_artists() -> tuple[
     cmap = matplotlib.colors.ListedColormap(
         [CONVERSION_COLOR[c] for c in conversions]
     ).with_extremes(bad=TRANSPARENT)
-    boundaries = [c.value - 0.5 for c in conversions] + [conversions[-1].value + 0.5]
+    *_, last_conversion = conversions
+    boundaries = [c.value - 0.5 for c in conversions] + [last_conversion.value + 0.5]
     norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N)
     handles = [
         Line2D(
@@ -206,7 +210,7 @@ def draw_conversion_year(
     )
     cmap = matplotlib.colors.ListedColormap(colours).with_extremes(bad=TRANSPARENT)
     norm = matplotlib.colors.BoundaryNorm(
-        [*(year - 0.5 for year in LOOKBACK_YEARS), LOOKBACK_YEARS[-1] + 0.5], cmap.N
+        [*(year - 0.5 for year in LOOKBACK_YEARS), LAST_LOOKBACK_YEAR + 0.5], cmap.N
     )
     im = ax.imshow(
         numpy.where(numpy.isin(layer.data, LOOKBACK_YEARS), layer.data, numpy.nan),
@@ -359,7 +363,7 @@ def main() -> None:
         im_year,
         cax=ax_lc0.inset_axes((0.05, 0.1, 0.5, 0.04)),
         orientation="horizontal",
-        ticks=(LOOKBACK_YEARS[0], *LOOKBACK_YEARS[4::5]),
+        ticks=(FIRST_LOOKBACK_YEAR, *LOOKBACK_YEARS[4::5]),
     )
     year_bar.ax.tick_params(labelsize=7)
     draw_conversion(ax_lc1, conversion, "")

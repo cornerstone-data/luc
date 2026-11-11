@@ -736,7 +736,8 @@ def workflow(
                     }
 
     if data := list(it()):
-        assert set(data[0]) == set(SCHEMA)
+        first_record, *_ = data
+        assert set(first_record) == set(SCHEMA)
     return (
         pandas.DataFrame.from_records(columns=list(SCHEMA), data=data)
         .astype(SCHEMA)
