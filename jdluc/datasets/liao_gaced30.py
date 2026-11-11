@@ -72,15 +72,14 @@ def get_transform(max_lat: float, min_lon: float) -> rasterio.Affine:
 @utils.threadsafe_cache
 def get_path_to_archive_for_low_longitude(low_longitude: int) -> str:
     # The published names sign both bounds, as in lon_-006_to_+000.zip
-    name = urllib.parse.quote(
-        f"lon_{low_longitude:+04d}_to_{low_longitude + ARCHIVE_DEGREES:+04d}.zip"
-    )
+    name = f"lon_{low_longitude:+04d}_to_{low_longitude + ARCHIVE_DEGREES:+04d}.zip"
     # NB: deliberately not a TemporaryDirectory, so that the archive outlives this call
-    path_to_archive = os.path.join(tempfile.mkdtemp(), name)
+    path_to_archive = os.path.join(tempfile.mkdtemp(), urllib.parse.quote(name))
     utils.save_remote_url_to_local_path(
+        cache_key=f"zenodo/18199675/{name:s}",
         local_path=path_to_archive,
         params={},
-        remote_url=f"https://zenodo.org/api/records/18199675/files/{name:s}/content",
+        remote_url=f"https://zenodo.org/api/records/18199675/files/{urllib.parse.quote(name):s}/content",
     )
     return path_to_archive
 

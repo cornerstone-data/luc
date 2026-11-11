@@ -16,6 +16,8 @@ class Config:
     number_of_dask_workers: int
     scratch_root: str
     usda_nass_api_key: str
+    # Optional: a field with a default may be left out of .env
+    source_cache_root: str = ""
 
     @classmethod
     @functools.cache
@@ -29,6 +31,7 @@ class Config:
             **{
                 field.name: types[field.name](configs[field.name.upper()])
                 for field in dataclasses.fields(cls)
+                if field.default is dataclasses.MISSING or field.name.upper() in configs
             }
         )
 

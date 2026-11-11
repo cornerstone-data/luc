@@ -12,6 +12,8 @@ import requests
 import requests.adapters
 import xarray
 
+from jdluc import config, storage
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +44,23 @@ def save_remote_url_to_local_path(
     # is the failure mode, and without this the read blocks forever
     read_timeout_seconds: int = 120,
     body_retries: int = 3,
+    cache_key: str | None = None,
 ) -> None:
+    """Stream `remote_url` to `local_path`.
+
+    With a `cache_key`, and SOURCE_CACHE_ROOT set, the download is shared through
+    `{SOURCE_CACHE_ROOT}/{cache_key}`: a process that finds it there copies it rather than
+    asking the publisher, and one that does not downloads as usual and leaves a copy for the
+    next. Pass a key only for a URL whose content never changes, as nothing refreshes the copy.
+    """
+    cache_uri: str | None = None
+    if cache_key is not None:
+        source_cache_root = config.Config.from_dot_env().source_cache_root
+        if source_cache_root:
+            cache_uri = storage.join_uri(prefix=cache_key, root=source_cache_root)
+            if storage.path_exists(uri=cache_uri):
+                storage.get_file(local_path=local_path, uri=cache_uri)
+                return
     for attempt in range(body_retries):
         logger.info(f"GET'ing from {remote_url=:s} with {params=:}")
         try:
@@ -69,6 +87,8 @@ def save_remote_url_to_local_path(
                 raise
             time.sleep(2**attempt)
         else:
+            if cache_uri is not None:
+                storage.put_file(local_path=local_path, uri=cache_uri)
             return
 
 
