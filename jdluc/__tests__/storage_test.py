@@ -82,19 +82,38 @@ def test_zarr_cacher_refuses_to_write_over_a_complete_zarr(
     assert_reads_back(cacher)
 
 
-def test_mark_existing_zarrs_complete(tmp_path: pathlib.Path) -> None:
-    unmarked = storage.ZarrCacher(hash_key="unmarked", root=str(tmp_path))
-    write_without_marker(unmarked)
-    complete = storage.ZarrCacher(hash_key="complete", root=str(tmp_path))
-    complete.serialize(get_dset())
+@pytest.fixture
+def scratch_root(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> pathlib.Path:
+    config = dataclasses.replace(get_unit_test_config(), scratch_root=str(tmp_path))
+    monkeypatch.setattr(Config, "from_dot_env", classmethod(lambda cls: config))
+    return tmp_path
 
-    assert storage.mark_existing_zarrs_complete(root=str(tmp_path)) == [unmarked.uri]
-    assert not storage.path_exists(uri=unmarked.complete_uri)
 
-    assert storage.mark_existing_zarrs_complete(root=str(tmp_path), dry_run=False) == [
-        unmarked.uri
-    ]
-    assert storage.path_exists(uri=unmarked.complete_uri)
-    assert_reads_back(unmarked)
+def test_cache_to_zarr_handles_each_state(scratch_root: pathlib.Path) -> None:
+    calls = []
 
-    assert storage.mark_existing_zarrs_complete(root=str(tmp_path), dry_run=False) == []
+    # `attempt` is left out of the hash, so each call misses the in-memory cache but
+    # shares one zarr
+    @storage.cache_to_zarr(ignored_args=["attempt"], version=0)
+    def compute(attempt: int) -> xarray.Dataset:
+        calls.append(attempt)
+        if attempt == 3:  # another process finishes the entry while this one computes
+            marker.touch()
+        return get_dset()
+
+    compute(attempt=1)  # absent: written and marked complete
+    (zarr,) = scratch_root.glob("*.zarr")
+    marker = zarr / "complete"
+    assert marker.exists()
+
+    marker.unlink()
+    with pytest.raises(storage.ZarrExistsAndIncompleteException):
+        compute(attempt=2)
+
+    xarray.testing.assert_equal(
+        compute(attempt=3)["band"].drop_vars("spatial_ref"), get_dset()["band"]
+    )
+    compute(attempt=4)  # complete: a hit, so compute does not run
+    assert calls == [1, 2, 3]

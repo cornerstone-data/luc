@@ -1,3 +1,4 @@
+import contextlib
 import dataclasses
 import functools
 import hashlib
@@ -209,27 +210,6 @@ class ZarrCacher:
         fs.touch(path)
 
 
-def mark_existing_zarrs_complete(root: str, dry_run: bool = True) -> list[str]:
-    """Touch the `complete` marker in every zarr under `root` that has `zarr.json` but no marker.
-
-    For zarrs written before the marker existed, which are trusted as complete. Returns the
-    zarrs marked (or that would be, under `dry_run`). Idempotent.
-    """
-    fs, path = fsspec.url_to_fs(url=root)
-    protocol = root.split("://")[0] + "://" if "://" in root else ""
-    marked = []
-    for zarr_json in sorted(fs.glob(f"{path.rstrip('/'):s}/*.zarr/zarr.json")):
-        zarr_path = zarr_json.removesuffix("/zarr.json")
-        if fs.exists(f"{zarr_path:s}/complete"):
-            continue
-        uri = protocol + zarr_path
-        logger.info(f"{'Would mark' if dry_run else 'Marking'} {uri=:s} complete")
-        if not dry_run:
-            fs.touch(f"{zarr_path:s}/complete")
-        marked.append(uri)
-    return marked
-
-
 class CacherDecoratorProtocol(typing.Protocol[R]):
     def __call__(self, func: typing.Callable[P, R]) -> typing.Callable[P, R]: ...
 
@@ -280,7 +260,9 @@ def get_cache_decorator(
                 cacher_cls(hash_key=hash_key, root=config.scratch_root),
             )
             if not path_exists(uri=cacher.complete_uri):
-                cacher.serialize(func(*args, **kwargs))
+                # Another process may finish this entry first; its result is as good as ours
+                with contextlib.suppress(ZarrExistsAndCompleteException):
+                    cacher.serialize(func(*args, **kwargs))
             # Always return the deserialized cache so cache hits and misses
             # look identical and so downstream operations start with a fresh
             # compute graph
