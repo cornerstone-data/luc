@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import typing
+import warnings
 
 import fsspec  # type: ignore[import-untyped]
 import pandas
@@ -104,7 +105,12 @@ def open_zarr_to_dask_dataset(path_to_zarr: str) -> xarray.Dataset:
 
     path_to_zarr = path_to_zarr.rstrip("/")
     logger.info(f"Loading {path_to_zarr=:s}")
-    dset = xarray.open_zarr(consolidated=False, store=path_to_zarr)
+    with warnings.catch_warnings():
+        # ZarrCacher's `complete` marker sits in the store root, which zarr warns about
+        warnings.filterwarnings(
+            "ignore", message="Object at complete is not recognized"
+        )
+        dset = xarray.open_zarr(consolidated=False, store=path_to_zarr)
     assert dset.chunks is not None
     assert isinstance(dset, xarray.Dataset)
     assert dset.encoding["source"] == path_to_zarr
@@ -121,6 +127,8 @@ class CacherProtocol(typing.Protocol[R]):
     def uri(self) -> str: ...
     @property
     def exists_uri(self) -> str: ...
+    @property
+    def complete_uri(self) -> str: ...
     def deserialize(self) -> R: ...
     def serialize(self, value: R) -> None: ...
 
@@ -134,7 +142,9 @@ class ParquetCacher:
     def uri(self) -> str:
         return join_uri(prefix=self.hash_key + ".parquet", root=self.root)
 
+    # A parquet write is atomic, so existing is being complete
     exists_uri = uri
+    complete_uri = uri
 
     def deserialize(self) -> pandas.DataFrame:
         logger.info(f"Loading from {self.uri=:s}")
@@ -145,13 +155,24 @@ class ParquetCacher:
         df.to_parquet(path=self.uri)
 
 
+class ZarrExistsAndCompleteException(FileExistsError):
+    """A zarr cache entry is already fully written."""
+
+
+class ZarrExistsAndIncompleteException(FileExistsError):
+    """A zarr cache entry exists, but its write was killed part-way or is still running."""
+
+
 @dataclasses.dataclass
 class ZarrCacher:
-    """A zarr at `uri`, complete once the `.complete` marker beside it exists.
+    """A zarr at `uri`, complete once the `complete` marker inside it exists.
 
-    The marker is written after the last chunk, so a zarr without one is a write that was
-    killed part-way or is still running. Writing over it could race a live writer, so it is
-    an error left for someone to resolve by hand, usually by deleting the zarr.
+    `zarr.json` is the first object written, so it only shows that a write began. The
+    marker is written after the last chunk, which gives three states: absent, exists but
+    incomplete (a write killed part-way, or still running), and exists and complete.
+    `serialize` raises on either existing state rather than writing over it, so callers
+    can choose how to handle it (poll, skip, raise). An incomplete zarr is usually
+    resolved by hand, by deleting it once no process is writing it.
     """
 
     hash_key: str
@@ -163,21 +184,50 @@ class ZarrCacher:
 
     @property
     def exists_uri(self) -> str:
-        return f"{self.uri:s}.complete"
+        return f"{self.uri:s}/zarr.json"
+
+    @property
+    def complete_uri(self) -> str:
+        return f"{self.uri:s}/complete"
 
     def deserialize(self) -> xarray.Dataset:
         return open_zarr_to_dask_dataset(path_to_zarr=self.uri)
 
     def serialize(self, dset: xarray.Dataset) -> None:
-        if path_exists(uri=self.uri):
-            raise FileExistsError(
-                f"{self.uri=:s} exists without {self.exists_uri=:s}: a write was killed "
+        if path_exists(uri=self.complete_uri):
+            raise ZarrExistsAndCompleteException(
+                f"{self.uri=:s} is already complete: another process finished writing it."
+            )
+        if path_exists(uri=self.exists_uri):
+            raise ZarrExistsAndIncompleteException(
+                f"{self.uri=:s} exists without {self.complete_uri=:s}: a write was killed "
                 "part-way or is still running. Once no process is writing it, delete the "
                 "zarr to recompute it."
             )
         write_dask_dataset_to_zarr(dset=dset, path_to_zarr=self.uri)
-        fs, path = fsspec.url_to_fs(url=self.exists_uri)
+        fs, path = fsspec.url_to_fs(url=self.complete_uri)
         fs.touch(path)
+
+
+def mark_existing_zarrs_complete(root: str, dry_run: bool = True) -> list[str]:
+    """Touch the `complete` marker in every zarr under `root` that has `zarr.json` but no marker.
+
+    For zarrs written before the marker existed, which are trusted as complete. Returns the
+    zarrs marked (or that would be, under `dry_run`). Idempotent.
+    """
+    fs, path = fsspec.url_to_fs(url=root)
+    protocol = root.split("://")[0] + "://" if "://" in root else ""
+    marked = []
+    for zarr_json in sorted(fs.glob(f"{path.rstrip('/'):s}/*.zarr/zarr.json")):
+        zarr_path = zarr_json.removesuffix("/zarr.json")
+        if fs.exists(f"{zarr_path:s}/complete"):
+            continue
+        uri = protocol + zarr_path
+        logger.info(f"{'Would mark' if dry_run else 'Marking'} {uri=:s} complete")
+        if not dry_run:
+            fs.touch(f"{zarr_path:s}/complete")
+        marked.append(uri)
+    return marked
 
 
 class CacherDecoratorProtocol(typing.Protocol[R]):
@@ -229,7 +279,7 @@ def get_cache_decorator(
                 CacherProtocol[R],
                 cacher_cls(hash_key=hash_key, root=config.scratch_root),
             )
-            if not path_exists(uri=cacher.exists_uri):
+            if not path_exists(uri=cacher.complete_uri):
                 cacher.serialize(func(*args, **kwargs))
             # Always return the deserialized cache so cache hits and misses
             # look identical and so downstream operations start with a fresh
