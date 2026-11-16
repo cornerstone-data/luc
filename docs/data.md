@@ -40,6 +40,9 @@ Every source raster resampled onto the common grid — the input to the emission
 | `gnw:tree-cover-loss:lossyear`                                  | float32 | years since 2000 | Year of gross tree-cover loss; 0 where the pixel never lost cover                   |
 | `liao:gaced30:year=2000` … `liao:gaced30:year=2024`             | float32 | 0/10             | Annual cropland extent, one variable per year                                       |
 | `gpw:grassland:year=2000` … `gpw:grassland:year=2024`           | float32 | class code       | Annual grassland class (cultivated, natural, open shrubland), one variable per year |
+| `descals:oil-palm:planting-year`                                | float32 | year             | Year the oil palm standing in 2021 was planted; 0 where there is none               |
+| `fdap:cocoa-2026a:year=2018` … `fdap:cocoa-2026a:year=2024`     | float32 | 0/1              | Cocoa mask for 2018, 2020, 2022 and 2024, one variable per year                     |
+| `fdap:coffee-2026a:year=2018` … `fdap:coffee-2026a:year=2024`   | float32 | 0/1              | Coffee mask for 2018, 2020, 2022 and 2024, one variable per year                    |
 | `gnw:harris-agb:aboveground-biomass-mg-per-ha`                  | float32 | Mg/ha            | Forest above-ground woody biomass (2000)                                            |
 | `huang:bgb:belowground-biomass-mg-per-ha`                       | float32 | Mg/ha            | Forest below-ground (root) biomass                                                  |
 | `soilgrids:organic-carbon-stocks:organic-soil-carbon-mg-per-ha` | float32 | Mg/ha            | Soil organic carbon stock, 0–30 cm                                                  |
