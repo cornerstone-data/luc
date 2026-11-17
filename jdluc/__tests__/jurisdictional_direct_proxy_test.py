@@ -182,7 +182,9 @@ def test_get_crop_to_area_share_divides_by_every_crop_cropgrids_maps() -> None:
         ),
     )
     assert set(result) == {Crop.COCOA}
-    assert result[Crop.COCOA].values.tolist() == [[0.25, 0.0, 0.0]]
+    xarray.testing.assert_identical(
+        result[Crop.COCOA], get_darray_for_cells(data=[[0.25, 0.0, 0.0]])
+    )
 
 
 def test_get_commodity_name_to_totals() -> None:

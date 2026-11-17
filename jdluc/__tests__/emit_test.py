@@ -74,9 +74,17 @@ def test_get_belowground_carbon() -> None:
         aboveground_biomass=get_darray_for_data(agb),
         belowground_biomass=get_darray_for_data(bgb),
     )
-    assert result.name == "tcarbon-per-ha"
-    assert numpy.array_equal(
-        result.data.ravel(), numpy.array([2, 1, 0.5]) * CARBON_PER_BIOMASS_LIVE_WOOD
+    xarray.testing.assert_identical(
+        result,
+        get_darray_for_data(
+            data=[
+                [
+                    2 * CARBON_PER_BIOMASS_LIVE_WOOD,
+                    CARBON_PER_BIOMASS_LIVE_WOOD,
+                    0.5 * CARBON_PER_BIOMASS_LIVE_WOOD,
+                ]
+            ]
+        ).rename("tcarbon-per-ha"),
     )
 
 
@@ -92,23 +100,16 @@ def test_get_dead_organic_matter_carbon() -> None:
         aboveground_biomass=get_darray_for_data(data=agb),
         climate_zones=get_darray_for_data(data=zones),  # type: ignore
     )
-    assert result.name == "tcarbon-per-ha"
-    assert numpy.array_equal(
+    xarray.testing.assert_identical(
         result,
-        numpy.array(
-            [
-                [
-                    0,
-                    0.5 * 0.06 + 0.37 * 0.01,
-                ],
-                [
-                    0,
-                    0.5 * 0.08 + 0.37 * 0.04,
-                ],
+        get_darray_for_data(
+            data=[
+                [0, 0.5 * 0.06 + 0.37 * 0.01],
+                [0, 0.5 * 0.08 + 0.37 * 0.04],
                 [0, 0],
                 [0, 0],
             ]
-        ),
+        ).rename("tcarbon-per-ha"),
     )
 
 
