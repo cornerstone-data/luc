@@ -28,6 +28,7 @@ The published deliverable is a single per-(jurisdiction, commodity) table — th
 | `production_kg`                  | kg           | Production: crops from NASS × area (jdLUC), MapSPAM (sLUC) or FAOSTAT split by CROPGRIDS area (proxy); livestock as FAOSTAT carcass weight, bone in |
 | `commodity_hectares`             | ha           | Commodity area in the jurisdiction, over 2000–2020                                                                                                  |
 | `yield_kg_per_ha`                | kg/ha        | `production_kg / commodity_hectares`                                                                                                                |
+| `land_occupation_m2_year_per_kg` | m²·year / kg | Area occupied for one year per kg, `10,000 / yield_kg_per_ha`                                                                                       |
 
 ## Known deviations and open items
 

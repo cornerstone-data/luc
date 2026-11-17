@@ -88,8 +88,8 @@ Every stage is scoped by one or more **ISO 3166 alpha-3 country codes**, or by `
 #    Repeat per DATASET in the inventory (see docs/methodology.md).
 uv run python -m jdluc.ingest GNW_TREE_COVER_LOSS HND
 
-# 2. Harmonize the countries' tiles onto the common grid (--grid-name defaults to GLAD ~30 m).
-uv run python jdluc/harmonize.py HND
+# 2. Harmonize the countries' tiles, each stack onto its own grid.
+uv run python jdluc/harmonize.py HND --stack LAND_CONVERSION_AND_EMISSIONS --stack GLOBAL_CROP_MASK_SUPPLEMENTS --stack STATISTICAL_ALLOCATION
 
 # 3. Compute per-pixel land-conversion emissions (writes zarr).
 uv run python jdluc/emit.py HND
