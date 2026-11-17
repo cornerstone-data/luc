@@ -436,7 +436,7 @@ def test_downscale_darray_respects_source_nodata(nodata: float) -> None:
 
 
 def get_dissolved_names(
-    records: list[tuple[str, str, float]], tmp_path: pathlib.Path
+    records: list[tuple[str, str | None, float]], tmp_path: pathlib.Path
 ) -> dict[str, str]:
     """`convert_vector_to_flatgeobuf` over one box per (id, name, side length)."""
     import geopandas
@@ -497,4 +497,12 @@ def test_convert_vector_to_flatgeobuf_repairs_only_mojibake(
 ) -> None:
     assert get_dissolved_names(records=[("AAA", stored, 1.0)], tmp_path=tmp_path) == {
         "AAA": expected
+    }
+
+
+def test_convert_vector_to_flatgeobuf_reads_a_missing_name_as_empty(
+    tmp_path: pathlib.Path,
+) -> None:
+    assert get_dissolved_names(records=[("AAA", None, 1.0)], tmp_path=tmp_path) == {
+        "AAA": ""
     }

@@ -105,7 +105,10 @@ def convert_vector_to_flatgeobuf(
             crs=gdf.crs,
             data={
                 "id": gdf[list(id_column_names)].astype(str).agg(" | ".join, axis=1),
+                # NB: pandas keeps a missing name missing through `astype(str)`, and some
+                # admin-2 districts have none
                 "name": gdf[list(name_column_names)]
+                .fillna("")
                 .astype(str)
                 .map(maybe_repair_mojibake)
                 .agg(" | ".join, axis=1),
