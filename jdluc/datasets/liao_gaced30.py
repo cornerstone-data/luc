@@ -60,6 +60,9 @@ TILE = tiling.XY(
     y=TILE_DEGREES * PIXELS_PER_DEGREE.y + 1,
 ).validated()
 
+UNCOVERED_TILE_IDS = {"00N_070E", "10S_180W"}
+assert UNCOVERED_TILE_IDS.issubset(tiling.GLOBAL_NATURE_WATCH_TILE_IDS)
+
 
 def get_transform(max_lat: float, min_lon: float) -> rasterio.Affine:
     return rasterio.transform.from_origin(
@@ -86,6 +89,9 @@ def get_path_to_archive_for_low_longitude(low_longitude: int) -> str:
 
 
 def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
+    assert tile_id not in UNCOVERED_TILE_IDS, (
+        f"{tile_id=:s} is covered by no published source tile"
+    )
     max_latitude, min_longitude = tiling.get_lat_lon_for_tile_id(tile_id=tile_id)
     with tempfile.TemporaryDirectory() as tmpdir:
         lat_lon_to_path: dict[tuple[int, int], str] = {}

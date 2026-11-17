@@ -5,16 +5,17 @@ grid, with all of its bands, returned as an xarray.Dataset with one variable per
 Whole-world datasets are windowed onto the same grid. The result is cached.
 
 The tile set comes from the positional ISO 3166 alpha-3 codes -- or, with `--backfill`,
-from `tiling.GLOBAL_NATURE_WATCH_TILE_IDS`; `--stack` narrows which dataset stacks are built,
-so a cache can be warmed ahead of the stage that reads it.
+from `tiling.GLOBAL_NATURE_WATCH_TILE_IDS`. Each stack is built on its own grid. `--stack`
+narrows which stacks are built, so a cache can be warmed ahead of the stage that reads it.
 
 Example invocations:
   uv run python jdluc/harmonize.py USA
-  uv run python jdluc/harmonize.py --backfill
-  uv run python jdluc/harmonize.py --backfill --stack CROP_SUPPLEMENT
+  uv run python jdluc/harmonize.py --backfill --stack GLOBAL_CROP_MASK_SUPPLEMENTS
+  uv run python jdluc/harmonize.py USA --stack JURISDICTIONAL_DIRECT_ATTRIBUTION
 """
 
 import argparse
+import collections
 import collections.abc
 import dataclasses
 import enum
@@ -377,22 +378,57 @@ def workflow(
     return get_dset_for_output(path_to_vrt_to_band_names=path_to_vrt_to_band_names)
 
 
+@dataclasses.dataclass(frozen=True)
+class DatasetsOnGrid:
+    dataset_names: tuple[DatasetName, ...]
+    tile_resolution: tiling.TileResolution
+
+
 @enum.unique
 class Stack(enum.Enum):
-    LUC_AND_EMISSIONS = (
-        DatasetName.GNW_GLOBAL_PEATLANDS,
-        DatasetName.GNW_HARRIS_AGB,
-        DatasetName.GNW_TREE_COVER_LOSS,
-        DatasetName.GPW_GRASSLAND,
-        DatasetName.HUANG_BGB,
-        DatasetName.IPCC_CLIMATE_ZONES,
-        DatasetName.LIAO_GACED30,
-        DatasetName.SOILGRIDS_OCS,
+    LAND_CONVERSION_AND_EMISSIONS = DatasetsOnGrid(
+        dataset_names=(
+            DatasetName.GNW_GLOBAL_PEATLANDS,
+            DatasetName.GNW_HARRIS_AGB,
+            DatasetName.GNW_TREE_COVER_LOSS,
+            DatasetName.GPW_GRASSLAND,
+            DatasetName.HUANG_BGB,
+            DatasetName.IPCC_CLIMATE_ZONES,
+            DatasetName.LIAO_GACED30,
+            DatasetName.SOILGRIDS_OCS,
+        ),
+        tile_resolution=tiling.TileResolution.GLAD,
     )
-    CROP_SUPPLEMENT = (
-        DatasetName.DESCALS_OIL_PALM,
-        DatasetName.FDAP_COCOA,
-        DatasetName.FDAP_COFFEE,
+    GLOBAL_CROP_MASK_SUPPLEMENTS = DatasetsOnGrid(
+        dataset_names=(
+            DatasetName.DESCALS_OIL_PALM,
+            DatasetName.FDAP_COCOA,
+            DatasetName.FDAP_COFFEE,
+        ),
+        tile_resolution=tiling.TileResolution.GLAD,
+    )
+    STATISTICAL_ALLOCATION = DatasetsOnGrid(
+        dataset_names=(
+            DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2000,
+            DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2005,
+            DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2010,
+            DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2020,
+            DatasetName.IFPRI_MAPSPAM_PRODUCTION_2000,
+            DatasetName.IFPRI_MAPSPAM_PRODUCTION_2005,
+            DatasetName.IFPRI_MAPSPAM_PRODUCTION_2010,
+            DatasetName.IFPRI_MAPSPAM_PRODUCTION_2020,
+            DatasetName.GPW_LIVESTOCK,
+        ),
+        tile_resolution=tiling.TileResolution.MAPSPAM,
+    )
+    JURISDICTIONAL_DIRECT_PROXY_ALLOCATION = DatasetsOnGrid(
+        dataset_names=(DatasetName.GPW_LIVESTOCK, DatasetName.TANG_CROPGRIDS_CROP_AREA),
+        tile_resolution=tiling.TileResolution.CROPGRIDS,
+    )
+    # CDL covers only USA's tiles
+    JURISDICTIONAL_DIRECT_ATTRIBUTION = DatasetsOnGrid(
+        dataset_names=(DatasetName.USDA_NASS_CDL,),
+        tile_resolution=tiling.TileResolution.GLAD,
     )
 
 
@@ -400,13 +436,19 @@ def all_unique(it: collections.abc.Iterable[str]) -> bool:
     return len(values := list(it)) == len(set(values))
 
 
-assert all_unique(
-    band_name
-    for stack in Stack
-    for dataset in map(NAME_TO_CLS.__getitem__, stack.value)
-    if isinstance(dataset, base.RasterDataset)
-    for band_name in dataset.fully_qualified_band_names
-)
+# The stacks on one grid are merged with each other, so their band names must not collide
+tile_resolution_to_band_names: collections.defaultdict[
+    tiling.TileResolution, list[str]
+] = collections.defaultdict(list)
+for stack in Stack:
+    tile_resolution_to_band_names[stack.value.tile_resolution].extend(
+        band_name
+        for dataset in map(NAME_TO_CLS.__getitem__, stack.value.dataset_names)
+        if isinstance(dataset, base.RasterDataset)
+        for band_name in dataset.fully_qualified_band_names
+    )
+for tile_resolution, band_names in tile_resolution_to_band_names.items():
+    assert all_unique(it=band_names), tile_resolution
 
 
 def main() -> int:
@@ -425,12 +467,6 @@ def main() -> int:
         type=worldbank_jurisdictions.iso_3166_str,
     )
     parser.add_argument("--backfill", action="store_true", help="cover all GNW tiles")
-    parser.add_argument(
-        "--grid-name",
-        choices=sorted(e.name for e in tiling.TileResolution),
-        default=tiling.TileResolution.GLAD.name,
-        type=str,
-    )
     parser.add_argument("--ignore-missing-tiles", action="store_true")
     parser.add_argument(
         "--modulus",
@@ -448,7 +484,7 @@ def main() -> int:
         "--stack",
         action="append",
         choices=sorted(stack.name for stack in Stack),
-        help="build only this stack; repeatable, and every stack by default",
+        help="build only this stack, on its own grid; repeatable, and every stack by default",
     )
     parser.add_argument("--skip-ingest", action="store_true")
     args = parser.parse_args()
@@ -470,11 +506,11 @@ def main() -> int:
             ),
         ):
             workflow(
-                dataset_names=stack.value,
+                dataset_names=stack.value.dataset_names,
                 ignore_missing_tiles=args.ignore_missing_tiles,
                 skip_ingest=args.skip_ingest,
                 tile_id=tile_id,
-                tile_resolution=tiling.TileResolution[str(args.grid_name)],
+                tile_resolution=stack.value.tile_resolution,
             )
     return 0
 

@@ -13,6 +13,7 @@ from jdluc.taxonomy import (
     UNMAPPED_CROP_ITEM_CODES,
 )
 from jdluc.trace import (
+    ADDITIVE_COLUMNS,
     attach_ratios,
     derive_jurisdictional_production_kg,
     derive_proxy_production_kg,
@@ -143,12 +144,14 @@ def test_derive_jurisdictional_production_kg_then_attach_ratios() -> None:
     assert corn["yield_kg_per_ha"] == 10.0  # 4-year mean, 2016 excluded
     assert corn["production_kg"] == 1000.0  # 100 ha x 10
     assert corn["emissions_factor_kgco2e_per_kg"] == 200.0  # 200 t x 1000 / 1000 kg
+    assert corn["land_occupation_m2_year_per_kg"] == 1000.0  # 10,000 m² / 10 kg per ha
 
     # zero production -> EF guarded to NaN rather than inf
     key, soy = next(iter_result)
     assert key == ("USA008", "PROVINCIAL", 2020, "SOYBEAN", "JURISDICTIONAL_DIRECT")
     assert soy["production_kg"] == 0.0
     assert numpy.isnan(soy["emissions_factor_kgco2e_per_kg"])
+    assert numpy.isnan(soy["land_occupation_m2_year_per_kg"])
 
     # unmatched yield -> NaN yield, production and EF
     key, wheat = next(iter_result)
@@ -156,6 +159,7 @@ def test_derive_jurisdictional_production_kg_then_attach_ratios() -> None:
     assert numpy.isnan(wheat["yield_kg_per_ha"])
     assert numpy.isnan(wheat["production_kg"])
     assert numpy.isnan(wheat["emissions_factor_kgco2e_per_kg"])
+    assert numpy.isnan(wheat["land_occupation_m2_year_per_kg"])
 
 
 def test_iter_national_from_provincials_single_province() -> None:
@@ -192,6 +196,7 @@ def test_iter_national_from_provincials_single_province() -> None:
         "forest_emissions_mt": 1,
         "grassland_emissions_mt": 1,
         "jurisdiction_name": "NAME",
+        "land_occupation_m2_year_per_kg": 10_000,
         "methodology": "STATISTICAL",
         "peatland_conversion_emissions_mt": 1,
         "peatland_commodity_hectares": 1,
@@ -260,6 +265,7 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
         "forest_emissions_mt": 2,
         "grassland_emissions_mt": 2,
         "jurisdiction_name": "NAME",
+        "land_occupation_m2_year_per_kg": 10_000,
         "methodology": "STATISTICAL",
         "peatland_conversion_emissions_mt": 2,
         "peatland_commodity_hectares": 2,
@@ -279,12 +285,36 @@ def test_iter_national_from_provincials_multi_province_crop() -> None:
         "grassland_emissions_mt": 1,
         "methodology": "STATISTICAL",
         "jurisdiction_name": "NAME",
+        "land_occupation_m2_year_per_kg": 10_000,
         "peatland_conversion_emissions_mt": 1,
         "peatland_commodity_hectares": 1,
         "peatland_occupation_emissions_mt": 1,
         "production_kg": 1,
         "yield_kg_per_ha": 1,
     }
+
+
+def test_iter_national_from_provincials_land_occupation_comes_from_the_summed_totals() -> (
+    None
+):
+    # Provinces occupying 10 and 2.5 m² a year per kg average to 6.25, but the country's
+    # 2 ha over 5,000 kg occupy 4
+    provincials = pandas.DataFrame.from_records(
+        [
+            dict.fromkeys(ADDITIVE_COLUMNS, 0.0)
+            | {"commodity_hectares": 1.0, "commodity_id": 56, "production_kg": 1000.0},
+            dict.fromkeys(ADDITIVE_COLUMNS, 0.0)
+            | {"commodity_hectares": 1.0, "commodity_id": 56, "production_kg": 4000.0},
+        ]
+    )
+    (result,) = iter_national_from_provincials(
+        assessment_year=2020,
+        iso_3166="ISO_A3",
+        methodology=Methodology.STATISTICAL,
+        national_name="NAME",
+        provincials=provincials,
+    )
+    assert result["land_occupation_m2_year_per_kg"] == 4.0
 
 
 STATISTICAL_EMISSIONS = pandas.DataFrame.from_records(

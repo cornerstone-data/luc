@@ -625,6 +625,9 @@ def get_linear_discounted(
     ).rename(darray.name)
 
 
+M2_PER_HECTARE = 10_000
+
+
 def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
     # https://en.wikipedia.org/wiki/Earth%27s_circumference
     equator_meters_per_longitude_degrees = 40_075_017 / 360
@@ -639,7 +642,7 @@ def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
             # hectares at equator
             (delta_latitude_degrees * meters_per_latitude_degrees)
             * (delta_longitude_degrees * equator_meters_per_longitude_degrees)
-            / 10_000
+            / M2_PER_HECTARE
             # projection to latitude
             * numpy.cos(darray.y * numpy.pi / 180)
             # broadcast across x while inheriting darray's aligned 2-D chunking
@@ -740,18 +743,18 @@ def workflow(assessment_year: int, tile_id: str) -> xarray.Dataset:
     )
     dset = geo.exact_merge(
         harmonize.workflow(
-            dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
+            dataset_names=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.tile_resolution,
         ),
         harmonize.workflow(
-            dataset_names=harmonize.Stack.CROP_SUPPLEMENT.value,
+            dataset_names=harmonize.Stack.GLOBAL_CROP_MASK_SUPPLEMENTS.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.GLOBAL_CROP_MASK_SUPPLEMENTS.value.tile_resolution,
         ),
     )
 

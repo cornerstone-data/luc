@@ -46,6 +46,58 @@ logger = logging.getLogger(__name__)
 
 DESTINATION_BLOCK_ROWS = tiling.TileResolution.GLAD.pixels_per_degree.y // 2
 
+COVERED_TILE_IDS = {
+    "00N_000E",
+    "00N_010E",
+    "00N_020E",
+    "00N_030E",
+    "00N_050W",
+    "00N_070W",
+    "00N_080W",
+    "00N_090E",
+    "00N_090W",
+    "00N_100E",
+    "00N_110E",
+    "00N_120E",
+    "00N_130E",
+    "00N_140E",
+    "00N_150E",
+    "00N_160E",
+    "10N_000E",
+    "10N_010E",
+    "10N_010W",
+    "10N_020E",
+    "10N_020W",
+    "10N_030E",
+    "10N_050W",
+    "10N_060W",
+    "10N_070E",
+    "10N_070W",
+    "10N_080E",
+    "10N_080W",
+    "10N_090E",
+    "10N_090W",
+    "10N_100E",
+    "10N_110E",
+    "10N_120E",
+    "10N_130E",
+    "10S_040E",
+    "10S_040W",
+    "10S_140E",
+    "10S_150E",
+    "20N_020W",
+    "20N_070E",
+    "20N_070W",
+    "20N_080E",
+    "20N_080W",
+    "20N_090E",
+    "20N_090W",
+    "20N_100E",
+    "20N_100W",
+    "20N_120E",
+}
+assert COVERED_TILE_IDS.issubset(tiling.GLOBAL_NATURE_WATCH_TILE_IDS)
+
 
 @utils.threadsafe_cache
 def get_path_to_archive() -> str:
@@ -78,6 +130,7 @@ def get_member_to_box() -> dict[str, shapely.Polygon]:
 
 
 def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
+    assert tile_id in COVERED_TILE_IDS, f"{tile_id=:s} overlaps no published cell"
     max_latitude, min_longitude = tiling.get_lat_lon_for_tile_id(tile_id=tile_id)
     pixels_per_degree = tiling.TileResolution.GLAD.pixels_per_degree
     path_to_archive = get_path_to_archive()

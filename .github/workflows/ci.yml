@@ -18,6 +18,11 @@ jobs:
         with:
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/pre-commit
+      - uses: actions/cache@v6
+        with:
+          key: mypy-${{ github.sha }}
+          path: .mypy_cache
+          restore-keys: mypy-
       - name: pre-commit
         run: uv run pre-commit run --all-files
 

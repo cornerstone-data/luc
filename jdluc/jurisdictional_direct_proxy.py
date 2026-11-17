@@ -10,7 +10,6 @@ from rioxarray.exceptions import NoDataInBounds
 
 from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
-    DatasetName,
     faostat,
     gpw_grassland,
     gpw_livestock,
@@ -29,7 +28,6 @@ assert not {e.name for e in tang_cropgrids.Crop} & {
     e.name for e in gpw_livestock.Livestock
 }
 
-DATASET_NAMES = (DatasetName.GPW_LIVESTOCK, DatasetName.TANG_CROPGRIDS_CROP_AREA)
 HERD_HEADS_COLUMN = gpw_livestock.get_herd_heads_column(year=tang_cropgrids.YEAR)
 
 
@@ -94,11 +92,11 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
     logger.info("Computing emissions on the GLAD grid")
     luc_and_emissions = geo.exact_merge(
         harmonize.workflow(
-            dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
+            dataset_names=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.tile_resolution,
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
@@ -109,21 +107,16 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
     grid = harmonize.Grid.from_tile_id_resolution(
         resolution=tiling.TileResolution.CROPGRIDS, tile_id=tile_id
     )
-    return xarray.Dataset(
-        {
-            name: geo.downscale_darray(
-                darray=band.rename(name),
-                epsg=grid.epsg,
-                height=grid.resolution.y,
-                # NB: without an equal-area CRS, this presents a small error
-                resampling=rasterio.enums.Resampling.average,
-                transform=grid.transform,
-                width=grid.resolution.x,
-            )
-            for name, band in get_name_to_band(
-                assessment_year=assessment_year, dset=luc_and_emissions
-            ).items()
-        }
+    return geo.downscale_dset(
+        dset=xarray.Dataset(
+            get_name_to_band(assessment_year=assessment_year, dset=luc_and_emissions)
+        ),
+        epsg=grid.epsg,
+        height=grid.resolution.y,
+        # NB: without an equal-area CRS, this presents a small error
+        resampling=rasterio.enums.Resampling.average,
+        transform=grid.transform,
+        width=grid.resolution.x,
     )
 
 
@@ -308,11 +301,11 @@ def workflow(
     merged = geo.exact_merge(
         get_downscaled_luc_emissions(assessment_year=assessment_year, tile_id=tile_id),
         harmonize.workflow(
-            dataset_names=DATASET_NAMES,
+            dataset_names=harmonize.Stack.JURISDICTIONAL_DIRECT_PROXY_ALLOCATION.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.CROPGRIDS,
+            tile_resolution=harmonize.Stack.JURISDICTIONAL_DIRECT_PROXY_ALLOCATION.value.tile_resolution,
         ),
     )
     # Each grazer's livestock units per head, as FAOSTAT counts them for this country

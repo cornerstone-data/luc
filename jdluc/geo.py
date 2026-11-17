@@ -2,7 +2,6 @@ import collections.abc
 import dataclasses
 import logging
 import math
-import typing
 
 import numpy
 import rasterio
@@ -166,19 +165,31 @@ def unify_dtype_and_no_data(darray: xarray.DataArray) -> xarray.DataArray:
 
 
 def clip_dset(dset: xarray.Dataset, geometry: shapely.Geometry) -> xarray.Dataset:
+    """`dset` clipped to `geometry` in one rioxarray call, not one per variable."""
     assert isinstance(geometry, shapely.Polygon | shapely.MultiPolygon)
     import rioxarray  # noqa
 
+    stacked = dset.to_dataarray()
+    # NB: the stack has one dtype and fills NaN outside the geometry
+    assert numpy.issubdtype(stacked.dtype, numpy.floating)
+    assert all(
+        darray.dims == ("y", "x")
+        and darray.dtype == stacked.dtype
+        and (darray.rio.nodata is None or numpy.isnan(darray.rio.nodata))
+        # NB: the stack drops each variable's attributes
+        and not darray.attrs
+        for darray in dset.data_vars.values()
+    )
     overlap = geometry.intersection(shapely.box(*dset.rio.bounds()))
     if overlap.area == 0:
         logger.warning("Geometry and Dataset don't overlap; returning an empty array")
         assert set(dset.dims) == {"x", "y"}
         return dset.isel(x=slice(0, 0), y=slice(0, 0))
-    else:
-        ret = dset.rio.clip_box(
-            *overlap.bounds, allow_one_dimensional_raster=True
-        ).rio.clip([overlap], drop=True)
-    return typing.cast(xarray.Dataset, ret)
+    return (
+        stacked.rio.clip_box(*overlap.bounds, allow_one_dimensional_raster=True)
+        .rio.clip([overlap], drop=True)
+        .to_dataset(dim="variable")
+    )
 
 
 def exact_merge(*dsets: xarray.Dataset) -> xarray.Dataset:
@@ -236,98 +247,94 @@ def get_weighted_sums(
     return row_weights @ values_and_counts @ column_weights.T
 
 
-def downscale_darray(
-    darray: xarray.DataArray,
+def downscale_dset(
+    dset: xarray.Dataset,
     epsg: int,
     height: int,
     resampling: rasterio.enums.Resampling,
     transform: tuple[float, float, float, float, float, float],
     width: int,
-) -> xarray.DataArray:
-    """Average `darray` onto a coarser grid that covers the same area.
+) -> xarray.Dataset:
+    """Average every variable of `dset` onto a coarser grid that covers the same area.
 
     `transform`, `height` and `width` describe the coarser grid. Each coarse cell gets the mean of
     the fine cells inside it, skipping missing (NaN) ones. A fine cell that the edge of a coarse
     cell cuts through counts only by the share of it inside that coarse cell. A coarse cell with
     no non-missing fine cell inside it is NaN. This matches GDAL's average resampling.
 
-    The fine grid is read one chunk at a time. Each chunk adds its weighted sum and weighted count
-    to the coarse cells it overlaps, and the mean is taken once every chunk is added in. So only a
-    few chunks are in memory at once, never the whole fine grid.
+    The fine grid is read one window at a time, every variable's window computed together, so
+    variables derived from the same inputs share their reads and derivations. Each window adds
+    each variable's weighted sum and weighted count to the coarse cells it overlaps, and the means
+    are taken once every window is added in. So only one window of each variable is in memory at
+    once, never the whole fine grid.
     """
+    import dask
     from rioxarray.rioxarray import affine_to_coords
 
     assert resampling == rasterio.enums.Resampling.average
-    assert darray.rio.crs.to_epsg() == epsg
-    assert darray.dims == ("y", "x")
+    assert dset.rio.crs.to_epsg() == epsg
+    assert all(darray.dims == ("y", "x") for darray in dset.data_vars.values())
     affine = rasterio.transform.Affine.from_gdal(*transform)
     # Weights by row and column index need both grids to run north to south and west to east.
-    assert all(grid.a > 0 and grid.e < 0 for grid in (darray.rio.transform(), affine))
+    assert all(grid.a > 0 and grid.e < 0 for grid in (dset.rio.transform(), affine))
     assert numpy.allclose(
-        darray.rio.bounds(),
+        dset.rio.bounds(),
         rasterio.transform.array_bounds(height=height, transform=affine, width=width),
     )
 
-    logger.info(f"Downscaling {darray.name=:s}")
-    fine_height, fine_width = darray.shape
-    source_nodata = darray.rio.nodata
-
-    def get_partial_sums(
-        block: numpy.ndarray, block_info: dict[int | None, typing.Any]
-    ) -> numpy.ndarray:
-        (row_start, row_stop), (column_start, column_stop) = block_info[0][
-            "array-location"
-        ]
+    logger.info(f"Downscaling {len(dset.data_vars):d} variables")
+    fine_height, fine_width = dset.sizes["y"], dset.sizes["x"]
+    name_to_nodata = {
+        name: darray.rio.nodata for name, darray in dset.data_vars.items()
+    }
+    name_to_sums = {
+        name: numpy.zeros(shape=(2, height, width)) for name in dset.data_vars
+    }
+    window = 1 << 11  # 2k
+    for row_start in range(0, fine_height, window):
+        row_stop = min(row_start + window, fine_height)
         rows = get_overlap_weights(
             coarse_size=height,
             fine_size=fine_height,
             fine_start=row_start,
             fine_stop=row_stop,
         )
-        columns = get_overlap_weights(
-            coarse_size=width,
-            fine_size=fine_width,
-            fine_start=column_start,
-            fine_stop=column_stop,
-        )
-        valid = numpy.isfinite(block)
-        if source_nodata is not None:
-            valid &= block != source_nodata
-        partial_sums = numpy.zeros(shape=(1, 1, 2, height, width))
-        partial_sums[0, 0, :, rows.coarse_cells, columns.coarse_cells] = (
-            get_weighted_sums(
-                block=block,
-                column_weights=columns.weights,
-                row_weights=rows.weights,
-                valid=valid,
+        for column_start in range(0, fine_width, window):
+            column_stop = min(column_start + window, fine_width)
+            columns = get_overlap_weights(
+                coarse_size=width,
+                fine_size=fine_width,
+                fine_start=column_start,
+                fine_stop=column_stop,
             )
-        )
-        return partial_sums
+            blocks = dask.compute(
+                *(
+                    dset[name].data[row_start:row_stop, column_start:column_stop]
+                    for name in name_to_sums
+                )
+            )
+            for (name, sums), block in zip(name_to_sums.items(), blocks, strict=True):
+                valid = numpy.isfinite(block)
+                if name_to_nodata[name] is not None:
+                    valid &= block != name_to_nodata[name]
+                sums[:, rows.coarse_cells, columns.coarse_cells] += get_weighted_sums(
+                    block=block,
+                    column_weights=columns.weights,
+                    row_weights=rows.weights,
+                    valid=valid,
+                )
 
-    data = darray.chunk(chunks=1 << 11).data  # 2k
-    numerator, denominator = (
-        data.map_blocks(
-            get_partial_sums,
-            chunks=(
-                (1,) * data.numblocks[0],
-                (1,) * data.numblocks[1],
-                (2,),
-                (height,),
-                (width,),
-            ),
-            dtype=numpy.float64,
-            new_axis=[2, 3, 4],
+    coords = affine_to_coords(affine=affine, height=height, width=width)
+    name_to_darray: dict[collections.abc.Hashable, xarray.DataArray] = {}
+    for name, (numerator, denominator) in name_to_sums.items():
+        mean = numpy.full(fill_value=numpy.nan, shape=(height, width))
+        numpy.divide(numerator, denominator, out=mean, where=denominator > 0)
+        name_to_darray[name] = unify_dtype_and_no_data(
+            darray=xarray.DataArray(
+                coords=coords,
+                data=mean.astype(numpy.float32),
+                dims=("y", "x"),
+                name=name,
+            ).chunk()
         )
-        .sum(axis=(0, 1), split_every=4)
-        .compute()
-    )
-    mean = numpy.full(fill_value=numpy.nan, shape=(height, width))
-    numpy.divide(numerator, denominator, out=mean, where=denominator > 0)
-    return unify_dtype_and_no_data(
-        darray=xarray.DataArray(
-            coords=affine_to_coords(affine=affine, height=height, width=width),
-            data=mean.astype(numpy.float32),
-            dims=("y", "x"),
-            name=darray.name,
-        ).chunk()
-    )
+    return xarray.Dataset(name_to_darray)
