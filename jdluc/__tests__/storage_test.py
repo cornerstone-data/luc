@@ -112,8 +112,7 @@ def test_cache_to_zarr_handles_each_state(scratch_root: pathlib.Path) -> None:
     with pytest.raises(storage.ZarrExistsAndIncompleteException):
         compute(attempt=2)
 
-    xarray.testing.assert_equal(
-        compute(attempt=3)["band"].drop_vars("spatial_ref"), get_dset()["band"]
-    )
+    with pytest.raises(storage.ZarrExistsAndCompleteException):
+        compute(attempt=3)
     compute(attempt=4)  # complete: a hit, so compute does not run
     assert calls == [1, 2, 3]

@@ -1,4 +1,3 @@
-import contextlib
 import dataclasses
 import functools
 import hashlib
@@ -107,7 +106,6 @@ def open_zarr_to_dask_dataset(path_to_zarr: str) -> xarray.Dataset:
     path_to_zarr = path_to_zarr.rstrip("/")
     logger.info(f"Loading {path_to_zarr=:s}")
     with warnings.catch_warnings():
-        # ZarrCacher's `complete` marker sits in the store root, which zarr warns about
         warnings.filterwarnings(
             "ignore", message="Object at complete is not recognized"
         )
@@ -260,9 +258,7 @@ def get_cache_decorator(
                 cacher_cls(hash_key=hash_key, root=config.scratch_root),
             )
             if not path_exists(uri=cacher.complete_uri):
-                # Another process may finish this entry first; its result is as good as ours
-                with contextlib.suppress(ZarrExistsAndCompleteException):
-                    cacher.serialize(func(*args, **kwargs))
+                cacher.serialize(func(*args, **kwargs))
             # Always return the deserialized cache so cache hits and misses
             # look identical and so downstream operations start with a fresh
             # compute graph
