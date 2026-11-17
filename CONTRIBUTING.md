@@ -102,9 +102,14 @@ Also:
 
 ## Code review
 
-A PR can merge into `main` once it has one approving review, every review thread is resolved, CI passes, and the branch is up to date with `main`.
+Pull requests prepared with AI agents are reviewed in two stages, tracked with labels:
 
-This guide does not cover AI-assisted contributions yet; guidelines for AI coding agents will be agreed separately.
+1. **AI review first.** An agent reviews the PR, posts a comment ending in a verdict, and labels it:
+   - `llm-changes-needed`: problems found; the author iterates, then asks for another AI review.
+   - `ready-for-human-review`: no blocking problems; a human reviewer takes over.
+2. **Human review.** A PR can merge into `main` once it has one approving review, every review thread is resolved, CI passes, and the branch is up to date with `main`.
+
+AI coding agents follow [AGENTS.md](AGENTS.md), which applies the same rules.
 
 `needs-rebase` is set and cleared automatically when a PR conflicts with or falls behind `main`; rebase on `main` when you see it.
 
