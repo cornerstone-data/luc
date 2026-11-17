@@ -5,8 +5,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
-.claude/*
-!.claude/skills/
+.claude/
 
 # Notebook scratch — version-controlled notebooks live under analyses/ only.
 *.ipynb
