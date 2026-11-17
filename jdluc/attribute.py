@@ -131,7 +131,10 @@ def workflow(
                 iso_3166=iso_3166,
                 tile_id=tile_id,
             )
-            for commodity_name in commodity_names
+            for commodity_name in (
+                *commodity_names,
+                *(non_commodity.name for non_commodity in emit.NonCommodity),
+            )
         ]
     ).set_index(keys=["admin_level", "admin_id", "commodity_name"])
 
