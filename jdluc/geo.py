@@ -166,19 +166,31 @@ def unify_dtype_and_no_data(darray: xarray.DataArray) -> xarray.DataArray:
 
 
 def clip_dset(dset: xarray.Dataset, geometry: shapely.Geometry) -> xarray.Dataset:
+    """`dset` clipped to `geometry` in one rioxarray call, not one per variable."""
     assert isinstance(geometry, shapely.Polygon | shapely.MultiPolygon)
     import rioxarray  # noqa
 
+    stacked = dset.to_dataarray()
+    # NB: the stack has one dtype and fills NaN outside the geometry
+    assert numpy.issubdtype(stacked.dtype, numpy.floating)
+    assert all(
+        darray.dims == ("y", "x")
+        and darray.dtype == stacked.dtype
+        and (darray.rio.nodata is None or numpy.isnan(darray.rio.nodata))
+        # NB: the stack drops each variable's attributes
+        and not darray.attrs
+        for darray in dset.data_vars.values()
+    )
     overlap = geometry.intersection(shapely.box(*dset.rio.bounds()))
     if overlap.area == 0:
         logger.warning("Geometry and Dataset don't overlap; returning an empty array")
         assert set(dset.dims) == {"x", "y"}
         return dset.isel(x=slice(0, 0), y=slice(0, 0))
-    else:
-        ret = dset.rio.clip_box(
-            *overlap.bounds, allow_one_dimensional_raster=True
-        ).rio.clip([overlap], drop=True)
-    return typing.cast(xarray.Dataset, ret)
+    return (
+        stacked.rio.clip_box(*overlap.bounds, allow_one_dimensional_raster=True)
+        .rio.clip([overlap], drop=True)
+        .to_dataset(dim="variable")
+    )
 
 
 def exact_merge(*dsets: xarray.Dataset) -> xarray.Dataset:

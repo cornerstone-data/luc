@@ -251,7 +251,7 @@ def test_clip_dset(geometry: shapely.Polygon, expected: int) -> None:
     dset = (
         xarray.DataArray(
             coords={"y": [-1, 0, +1], "x": [-1, 0, +1]},
-            data=numpy.ones(dtype=int, shape=(3, 3)),
+            data=numpy.ones(dtype=numpy.float32, shape=(3, 3)),
             dims=("y", "x"),
         )
         .rio.write_crs(4326)
@@ -259,6 +259,51 @@ def test_clip_dset(geometry: shapely.Polygon, expected: int) -> None:
     )
     result = clip_dset(dset=dset, geometry=geometry)
     assert int(result["var"].count()) == expected
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    (
+        pytest.param(
+            shapely.Polygon(
+                [
+                    (-0.5, -0.5),
+                    (5.5, -0.5),
+                    (5.5, 5.5),
+                    (3.5, 5.5),
+                    (3.5, 1.5),
+                    (1.5, 1.5),
+                    (1.5, 5.5),
+                    (-0.5, 5.5),
+                ]
+            ),
+            id="concave",
+        ),
+        pytest.param(
+            shapely.MultiPolygon(
+                [shapely.box(-0.5, -0.5, 1.5, 1.5), shapely.box(3.5, 3.5, 5.5, 5.5)]
+            ),
+            id="two-parts",
+        ),
+        pytest.param(shapely.box(3.5, -3, 9, 2.5), id="partly-outside"),
+        pytest.param(shapely.Polygon([(0, 0), (5, 0), (0, 5)]), id="triangle"),
+    ),
+)
+def test_clip_dset_matches_rioxarray(
+    geometry: shapely.Polygon | shapely.MultiPolygon,
+) -> None:
+    values = numpy.arange(36, dtype=numpy.float32).reshape(6, 6)
+    values[2, 1] = numpy.nan
+    dset = xarray.Dataset(
+        coords={"y": numpy.arange(5, -1, -1), "x": numpy.arange(6)},
+        data_vars={"first": (("y", "x"), values), "second": (("y", "x"), -values)},
+    ).rio.write_crs(4326)
+
+    result = clip_dset(dset=dset, geometry=geometry)
+
+    expected = dset.rio.clip([geometry], drop=True)
+    xarray.testing.assert_identical(result, expected)
+    assert result.dtypes == expected.dtypes
 
 
 @pytest.mark.parametrize(
