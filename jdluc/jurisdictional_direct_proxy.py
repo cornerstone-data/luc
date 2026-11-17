@@ -107,21 +107,16 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
     grid = harmonize.Grid.from_tile_id_resolution(
         resolution=tiling.TileResolution.CROPGRIDS, tile_id=tile_id
     )
-    return xarray.Dataset(
-        {
-            name: geo.downscale_darray(
-                darray=band.rename(name),
-                epsg=grid.epsg,
-                height=grid.resolution.y,
-                # NB: without an equal-area CRS, this presents a small error
-                resampling=rasterio.enums.Resampling.average,
-                transform=grid.transform,
-                width=grid.resolution.x,
-            )
-            for name, band in get_name_to_band(
-                assessment_year=assessment_year, dset=luc_and_emissions
-            ).items()
-        }
+    return geo.downscale_dset(
+        dset=xarray.Dataset(
+            get_name_to_band(assessment_year=assessment_year, dset=luc_and_emissions)
+        ),
+        epsg=grid.epsg,
+        height=grid.resolution.y,
+        # NB: without an equal-area CRS, this presents a small error
+        resampling=rasterio.enums.Resampling.average,
+        transform=grid.transform,
+        width=grid.resolution.x,
     )
 
 

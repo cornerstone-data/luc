@@ -16,7 +16,7 @@ from jdluc.geo import (
     clip_dset,
     convert_geotiff_to_cog,
     convert_vector_to_flatgeobuf,
-    downscale_darray,
+    downscale_dset,
     get_chunk_size,
     get_overlap_weights,
     get_overview_level,
@@ -396,7 +396,7 @@ def test_get_weighted_sums(block: list[list[float]], expected: list[float]) -> N
         pytest.param(2_051, 3, id="multiple chunks with short final chunks"),
     ),
 )
-def test_downscale_darray_matches_a_gdal_average_warp(
+def test_downscale_dset_matches_a_gdal_average_warp(
     coarse_size: int, fine_size: int
 ) -> None:
     generator = numpy.random.default_rng(seed=0)
@@ -414,13 +414,12 @@ def test_downscale_darray_matches_a_gdal_average_warp(
     coarse_transform = rasterio.transform.from_origin(
         north=20, west=-90, xsize=10 / coarse_size, ysize=10 / coarse_size
     )
-    darray = xarray.DataArray(
+    # Doubling is exact in floating point, so the second variable averages to exactly twice the first
+    dset = xarray.Dataset(
         coords=affine_to_coords(
             affine=fine_transform, height=fine_size, width=fine_size
         ),
-        data=values,
-        dims=("y", "x"),
-        name="var",
+        data_vars={"var": (("y", "x"), values), "doubled": (("y", "x"), 2 * values)},
     ).rio.write_crs(4326)
 
     expected = numpy.full(
@@ -437,8 +436,8 @@ def test_downscale_darray_matches_a_gdal_average_warp(
         src_nodata=numpy.nan,
         src_transform=fine_transform,
     )
-    result = downscale_darray(
-        darray=darray,
+    result = downscale_dset(
+        dset=dset,
         epsg=4326,
         height=coarse_size,
         resampling=rasterio.enums.Resampling.average,
@@ -446,38 +445,46 @@ def test_downscale_darray_matches_a_gdal_average_warp(
         width=coarse_size,
     )
 
-    assert numpy.isnan(result.values[0, 0])
-    numpy.testing.assert_array_equal(result.values, expected)
+    assert numpy.isnan(result["var"].values[0, 0])
+    numpy.testing.assert_array_equal(result["var"].values, expected)
+    numpy.testing.assert_array_equal(result["doubled"].values, 2 * expected)
 
 
-@pytest.mark.parametrize("nodata", [numpy.nan, -9999.0])
-def test_downscale_darray_respects_source_nodata(nodata: float) -> None:
-    values = numpy.array(
-        [
-            [nodata, nodata, 1, 3],
-            [nodata, nodata, 5, 7],
-            [2, nodata, 10, 20],
-            [4, 6, 30, 40],
-        ],
-        dtype=numpy.float32,
-    )
-    source = (
-        xarray.DataArray(values, dims=("y", "x"), name="var")
-        .rio.write_crs(4326)
-        .rio.write_transform(rasterio.transform.from_origin(0, 4, 1, 1))
-        .rio.write_nodata(nodata)
-    )
-    result = downscale_darray(
-        darray=source,
+def test_downscale_dset_respects_each_variable_source_nodata() -> None:
+    def get_source(nodata: float) -> xarray.DataArray:
+        values = numpy.array(
+            [
+                [nodata, nodata, 1, 3],
+                [nodata, nodata, 5, 7],
+                [2, nodata, 10, 20],
+                [4, 6, 30, 40],
+            ],
+            dtype=numpy.float32,
+        )
+        return (
+            xarray.DataArray(values, dims=("y", "x"))
+            .rio.write_crs(4326)
+            .rio.write_transform(rasterio.transform.from_origin(0, 4, 1, 1))
+            .rio.write_nodata(nodata)
+        )
+
+    result = downscale_dset(
+        dset=xarray.Dataset(
+            {
+                "nan": get_source(nodata=numpy.nan),
+                "sentinel": get_source(nodata=-9999.0),
+            }
+        ),
         epsg=4326,
         height=2,
         resampling=rasterio.enums.Resampling.average,
         transform=rasterio.transform.from_origin(0, 4, 2, 2).to_gdal(),
         width=2,
     )
-    numpy.testing.assert_allclose(
-        result.values, [[numpy.nan, 4.0], [4.0, 25.0]], equal_nan=True
-    )
+    for name in ("nan", "sentinel"):
+        numpy.testing.assert_allclose(
+            result[name].values, [[numpy.nan, 4.0], [4.0, 25.0]], equal_nan=True
+        )
 
 
 def get_dissolved_names(
