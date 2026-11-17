@@ -10,8 +10,9 @@ each commodity's total production — the only step that depends on methodology:
     split among provinces by CROPGRIDS crop area for crops, and the attribute's 2020 GPW heads x
     FAOSTAT carcass weight per head over the same years for livestock.
 
-It then derives, identically for all three, each commodity's yield (kg per hectare) and emissions
-factor (kgCO2e per kg), and rolls the provincials up to national totals. Returns a cached
+It then derives, identically for all three, each commodity's yield (kg per hectare), land occupation
+(m² for one year per kg, the reciprocal of yield) and emissions factor (kgCO2e per kg), and rolls
+the provincials up to national totals. Returns a cached
 pandas.DataFrame indexed by `CANONICAL_KEY`, (admin_id, admin_level, assessment_year, commodity_id,
 methodology), where `commodity_id` is a FAOSTAT item code or a `taxonomy.InventedCommodityId`,
 and the `commodity_name` column holds its name: FAOSTAT's, from its crop table, or `taxonomy`'s.
@@ -287,6 +288,9 @@ def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
         .div(df["commodity_hectares"])
         .where(df["commodity_hectares"] > 0)
     )
+    df["land_occupation_m2_year_per_kg"] = (
+        emit.M2_PER_HECTARE / df["yield_kg_per_ha"]
+    ).where(df["yield_kg_per_ha"] > 0)
     df["emissions_factor_kgco2e_per_kg"] = (
         (df["emissions_mt"] * KG_PER_TONNE)
         .div(df["production_kg"])
@@ -311,13 +315,17 @@ def iter_national_from_provincials(
             column_name: float(group[column_name].sum())
             for column_name in ADDITIVE_COLUMNS
         }
+        yield_kg_per_ha = safe_div(
+            numer=ret["production_kg"], denom=ret["commodity_hectares"]
+        )
         yield ret | {
             "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
             "commodity_id": int(typing.cast(int, commodity_id)),
             "jurisdiction_name": national_name,
             "admin_id": iso_3166,
-            "yield_kg_per_ha": safe_div(
-                numer=ret["production_kg"], denom=ret["commodity_hectares"]
+            "yield_kg_per_ha": yield_kg_per_ha,
+            "land_occupation_m2_year_per_kg": safe_div(
+                numer=emit.M2_PER_HECTARE, denom=yield_kg_per_ha
             ),
             "emissions_factor_kgco2e_per_kg": safe_div(
                 numer=ret["emissions_mt"] * KG_PER_TONNE, denom=ret["production_kg"]
@@ -327,7 +335,7 @@ def iter_national_from_provincials(
         }  # type: ignore
 
 
-@storage.cache_to_parquet(ignored_args=["concurrency"], version=0)
+@storage.cache_to_parquet(ignored_args=["concurrency"], version=1)
 def workflow(
     assessment_year: int,
     commodity_names: tuple[str, ...],

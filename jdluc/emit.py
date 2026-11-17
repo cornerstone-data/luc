@@ -625,6 +625,9 @@ def get_linear_discounted(
     ).rename(darray.name)
 
 
+M2_PER_HECTARE = 10_000
+
+
 def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
     # https://en.wikipedia.org/wiki/Earth%27s_circumference
     equator_meters_per_longitude_degrees = 40_075_017 / 360
@@ -639,7 +642,7 @@ def get_hectares_per_pixel(darray: xarray.DataArray) -> xarray.DataArray:
             # hectares at equator
             (delta_latitude_degrees * meters_per_latitude_degrees)
             * (delta_longitude_degrees * equator_meters_per_longitude_degrees)
-            / 10_000
+            / M2_PER_HECTARE
             # projection to latitude
             * numpy.cos(darray.y * numpy.pi / 180)
             # broadcast across x while inheriting darray's aligned 2-D chunking
