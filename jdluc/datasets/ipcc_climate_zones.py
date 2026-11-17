@@ -23,9 +23,10 @@ from jdluc.datasets import base
 
 def _save_tile_id_to_local_path(local_path: str, tile_id: str) -> None:
     return utils.save_remote_url_to_local_path(
+        immutable=True,
         local_path=local_path,
         params={},
-        remote_url="https://zenodo.org/records/7303808/files/IPCC_Climate_Zones_ts_3.25.tif?download=1",
+        remote_url="https://zenodo.org/api/records/7303808/files/IPCC_Climate_Zones_ts_3.25.tif/content",
     )
 
 

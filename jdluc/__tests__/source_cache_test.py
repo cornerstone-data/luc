@@ -64,3 +64,23 @@ def test_other_downloads_are_fetched_every_time(
     download(tmp_path, "second", immutable=False)
     assert requested_urls == [URL, URL]
     assert not (tmp_path / "scratch").exists()
+
+
+@pytest.mark.parametrize(
+    "params, remote_url",
+    [({"a": "1"}, URL), ({}, f"{URL:s}?download=1"), ("a=1", URL)],
+)
+def test_immutable_download_takes_no_parameters(
+    requested_urls: list[str],
+    tmp_path: pathlib.Path,
+    params: dict[str, str] | str,
+    remote_url: str,
+) -> None:
+    with pytest.raises(ValueError, match="takes no parameters"):
+        utils.save_remote_url_to_local_path(
+            immutable=True,
+            local_path=str(tmp_path / "source"),
+            params=params,
+            remote_url=remote_url,
+        )
+    assert requested_urls == []

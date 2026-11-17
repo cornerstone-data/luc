@@ -52,10 +52,15 @@ def save_remote_url_to_local_path(
     With `immutable`, the download is shared through SCRATCH_ROOT: a process that finds a copy
     there takes it rather than asking the publisher, and one that does not downloads as usual and
     leaves a copy for the next. Only for a URL whose content never changes: nothing refreshes it.
+    The copy is found by the URL's host and path alone, so an immutable URL takes no parameters.
     """
     cache_uri: str | None = None
     if immutable:
         parts = urllib.parse.urlsplit(remote_url)
+        if params or parts.query:
+            raise ValueError(
+                f"An immutable download takes no parameters, but {remote_url=:s} has {params=:}"
+            )
         cache_uri = storage.join_uri(
             prefix=f"sources/{parts.netloc:s}{urllib.parse.unquote(parts.path):s}",
             root=config.Config.from_dot_env().scratch_root,
