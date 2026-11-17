@@ -7,9 +7,8 @@ import pandas
 import xarray
 from rioxarray.exceptions import NoDataInBounds
 
-from jdluc import emit, geo, harmonize, storage, tiling, utils
+from jdluc import emit, geo, harmonize, storage, utils
 from jdluc.datasets import (
-    DatasetName,
     gnw_global_peatlands,
     usda_nass_cdl,
     worldbank_jurisdictions,
@@ -37,7 +36,6 @@ class Crop(enum.Enum):
     )
 
 
-DATASET_NAMES = (DatasetName.USDA_NASS_CDL,)
 assert set(emit.ASSESSMENT_YEARS) <= set(usda_nass_cdl.YEARS)
 
 
@@ -152,22 +150,22 @@ def workflow(
     ]
     merged = geo.exact_merge(
         harmonize.workflow(
-            dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
+            dataset_names=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.tile_resolution,
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
         emit.workflow(assessment_year=assessment_year, tile_id=tile_id),
         # CDL
         harmonize.workflow(
-            dataset_names=DATASET_NAMES,
+            dataset_names=harmonize.Stack.JURISDICTIONAL_DIRECT_ATTRIBUTION.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.JURISDICTIONAL_DIRECT_ATTRIBUTION.value.tile_resolution,
         ),
     )
     merged = merged.assign(

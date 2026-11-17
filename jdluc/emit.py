@@ -740,18 +740,18 @@ def workflow(assessment_year: int, tile_id: str) -> xarray.Dataset:
     )
     dset = geo.exact_merge(
         harmonize.workflow(
-            dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
+            dataset_names=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.tile_resolution,
         ),
         harmonize.workflow(
-            dataset_names=harmonize.Stack.CROP_SUPPLEMENT.value,
+            dataset_names=harmonize.Stack.GLOBAL_CROP_MASK_SUPPLEMENTS.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.GLOBAL_CROP_MASK_SUPPLEMENTS.value.tile_resolution,
         ),
     )
 

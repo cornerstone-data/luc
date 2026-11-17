@@ -11,7 +11,6 @@ import xarray
 
 from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
-    DatasetName,
     faostat,
     gpw_grassland,
     gpw_livestock,
@@ -67,19 +66,6 @@ assert {e.value for e in Crop} == ifpri_mapspam.RECOVERABLE_CROP_NAMES
 type Commodity = Crop | gpw_livestock.Livestock
 
 
-DATASET_NAMES = (
-    DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2000,
-    DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2005,
-    DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2010,
-    DatasetName.IFPRI_MAPSPAM_PHYSICAL_AREA_2020,
-    DatasetName.IFPRI_MAPSPAM_PRODUCTION_2000,
-    DatasetName.IFPRI_MAPSPAM_PRODUCTION_2005,
-    DatasetName.IFPRI_MAPSPAM_PRODUCTION_2010,
-    DatasetName.IFPRI_MAPSPAM_PRODUCTION_2020,
-    DatasetName.GPW_LIVESTOCK,
-)
-
-
 EMIT_VARIABLE_NAMES = [
     f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
     f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha",
@@ -98,11 +84,11 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
     logger.info("Computing emissions on the GLAD grid")
     luc_and_emissions = geo.exact_merge(
         harmonize.workflow(
-            dataset_names=harmonize.Stack.LUC_AND_EMISSIONS.value,
+            dataset_names=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.GLAD,
+            tile_resolution=harmonize.Stack.LAND_CONVERSION_AND_EMISSIONS.value.tile_resolution,
         ),
         # NB: this should call the harmonize workflow with identical args and hit
         # the cache from the preceding call
@@ -642,11 +628,11 @@ def workflow(
         get_downscaled_luc_emissions(assessment_year=assessment_year, tile_id=tile_id),
         # MAPSPAM
         harmonize.workflow(
-            dataset_names=DATASET_NAMES,
+            dataset_names=harmonize.Stack.STATISTICAL_ALLOCATION.value.dataset_names,
             ignore_missing_tiles=True,
             skip_ingest=False,
             tile_id=tile_id,
-            tile_resolution=tiling.TileResolution.MAPSPAM,
+            tile_resolution=harmonize.Stack.STATISTICAL_ALLOCATION.value.tile_resolution,
         ),
     )
 
