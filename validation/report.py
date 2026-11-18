@@ -104,8 +104,8 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
                     affected_rows=1,
                     confidence=schema.Confidence(row["confidence"]),
                     message=(
-                        f"{row['iso_3166']!s} {row['crop_name']!s} {row['measure'].name:s} is "
-                        f"frozen against {frozen_against:s} but this run read {ran_against:s}, so "
+                        f"{row['iso_3166']!s} {row['commodity_name']!s} {row['measure'].name:s} "
+                        f"is frozen against {frozen_against:s} but this run read {ran_against:s}, so "
                         f"its baseline of {baseline:.3f} describes a different yardstick and the "
                         f"movement to {value:.3f} cannot be attributed. Re-freeze it against the "
                         "current anchors rather than reading it"
@@ -113,7 +113,7 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
                     severity=schema.Severity.ADVISORY,
                     slug=(
                         f"stale-baseline-{str(row['iso_3166']).lower():s}"
-                        f"-{str(row['crop_name']).lower():s}"
+                        f"-{int(row['commodity_id']):d}"
                         f"-{row['measure'].name.lower():s}"
                     ),
                 )
@@ -146,13 +146,13 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
                 affected_rows=1,
                 confidence=schema.Confidence(row["confidence"]),
                 message=(
-                    f"{row['iso_3166']!s} {row['crop_name']!s} {row['measure'].name:s} is "
-                    f"{value:.3f} against a baseline of {baseline:.3f}, {moved:s}. A control "
+                    f"{row['iso_3166']!s} {row['commodity_name']!s} {row['measure'].name:s} "
+                    f"is {value:.3f} against a baseline of {baseline:.3f}, {moved:s}. A control "
                     "moved, so something changed that was not supposed to" + addendum
                 ),
                 severity=schema.Severity.DEFECT,
                 slug=(
-                    f"control-{str(row['iso_3166']).lower():s}-{str(row['crop_name']).lower():s}"
+                    f"control-{str(row['iso_3166']).lower():s}-{int(row['commodity_id']):d}"
                     f"-{row['measure'].name.lower():s}"
                 ),
             )
@@ -177,7 +177,7 @@ def get_unevaluated_control_findings(
     moved is ADVISORY rather than a DEFECT.
     """
     evaluated = {
-        (row["iso_3166"], row["crop_name"], row["measure"], row["statistic"])
+        (row["iso_3166"], row["commodity_id"], row["measure"], row["statistic"])
         for row in comparisons.to_dict("records")
     }
     unevaluated = [
@@ -186,7 +186,7 @@ def get_unevaluated_control_findings(
         if control.is_frozen
         and (
             control.target.iso_3166,
-            control.target.crop_name,
+            control.target.commodity_id,
             control.measure,
             control.statistic,
         )
@@ -257,7 +257,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
     on_target = comparisons[comparisons["is_target"]]
     rows = [
         [
-            f"{row['iso_3166']!s} {row['crop_name']!s}",
+            f"{row['iso_3166']!s} {row['commodity_name']!s}",
             str(row["emission_pool"]),
             str(row["measure"].name),
             str(row["statistic"]),
@@ -276,7 +276,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
             schema.Confidence(row["confidence"]).name.lower(),
         ]
         for row in on_target.sort_values(
-            ["iso_3166", "crop_name", "emission_pool"]
+            ["iso_3166", "commodity_name", "emission_pool"]
         ).to_dict("records")
     ]
     rest = comparisons[~comparisons["is_target"]]
@@ -301,7 +301,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
     return "\n\n".join(
         [
             f"### Comparisons — {len(on_target):d} rows over "
-            f"{len(set(zip(on_target['iso_3166'], on_target['crop_name'], strict=True))):d} "
+            f"{len(set(zip(on_target['iso_3166'], on_target['commodity_id'], strict=True))):d} "
             "chosen pairs",
             format_markdown_table(
                 headers=(
@@ -436,7 +436,7 @@ def render_eligible(
     """
     rows = [
         [
-            f"{row['iso_3166']!s} {row['crop_name']!s}",
+            f"{row['iso_3166']!s} {row['commodity_name']!s}",
             f"{float(row['deforestation_tonnes']) / schema.TONNES_PER_MEGATONNE:,.2f}",
             f"{float(row['production_kg']) / schema.KG_PER_TONNE / 1e6:,.2f}",
             "".join(

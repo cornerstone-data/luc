@@ -150,14 +150,17 @@ class UncomparedTargets:
 
 @dataclasses.dataclass(frozen=True)
 class Target:
+    """A (country, crop) pair, the crop by the commodity id `trace` keys it on: a FAOSTAT item, or
+    `taxonomy`'s own code for a group."""
+
     iso_3166: str
-    crop_name: str
+    commodity_id: int
     basis: str
     reason: str
 
     @property
     def slug(self) -> str:
-        return f"{self.iso_3166:s}-{self.crop_name:s}"
+        return f"{self.iso_3166:s}-{self.commodity_id:d}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -209,7 +212,7 @@ def check_document(document: dict[str, typing.Any]) -> None:
     )
     targets = document["targets"]
     assert targets, f"{TARGETS} names no targets"
-    slugs = [f"{target['iso_3166']:s}-{target['crop_name']:s}" for target in targets]
+    slugs = [f"{target['iso_3166']:s}-{target['commodity_id']:d}" for target in targets]
     duplicated = sorted({slug for slug in slugs if slugs.count(slug) > 1})
     assert not duplicated, f"{TARGETS} repeats {', '.join(duplicated)}"
     for target, slug in zip(targets, slugs, strict=True):
@@ -297,7 +300,7 @@ def iter_targets() -> collections.abc.Iterator[Target]:
     for target in read_document()["targets"]:
         yield Target(
             basis=target["basis"],
-            crop_name=target["crop_name"],
+            commodity_id=target["commodity_id"],
             iso_3166=target["iso_3166"],
             reason=target["reason"],
         )
@@ -328,7 +331,7 @@ def iter_controls() -> collections.abc.Iterator[Control]:
                 statistic=statistic,
                 target=Target(
                     basis=target["basis"],
-                    crop_name=target["crop_name"],
+                    commodity_id=target["commodity_id"],
                     iso_3166=target["iso_3166"],
                     reason=target["reason"],
                 ),

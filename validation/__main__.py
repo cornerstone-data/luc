@@ -66,6 +66,7 @@ def get_document(
     reads is expensive -- the largest is the `trace` table -- so a compute-only-what-you-need branch per
     section bought a little speed at the cost of four conditionals around the code that does the work.
     """
+    commodity_id_to_name = prepare.get_commodity_id_to_name()
     emissions = prepare.read_wri_national_emissions()
     stability = prepare.get_anchor_stability(emissions=emissions)
     deforestation = prepare.get_deforestation_share(
@@ -73,10 +74,14 @@ def get_document(
         faostat_areas=prepare.read_faostat_areas(year=year),
         year=year,
     )
-    comparisons = prepare.get_comparisons(deforestation=deforestation, table=table)
+    comparisons = prepare.get_comparisons(
+        commodity_id_to_name=commodity_id_to_name,
+        deforestation=deforestation,
+        table=table,
+    )
 
     uncompared = prepare.get_uncompared_targets(comparisons=comparisons, table=table)
-    eligible = prepare.get_eligible()
+    eligible = prepare.get_eligible(commodity_id_to_name=commodity_id_to_name)
     rendered = {
         Section.ELIGIBLE: report.render_eligible(
             eligible=eligible,
@@ -101,7 +106,7 @@ def get_document(
         Section.COMPARISONS: report.render(
             comparisons=comparisons,
             extra_findings=prepare.get_target_anchor_consistency_findings(
-                deforestation=deforestation
+                commodity_id_to_name=commodity_id_to_name, deforestation=deforestation
             ),
             uncompared=uncompared,
         ),

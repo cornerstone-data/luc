@@ -30,7 +30,8 @@ def get_comparisons() -> pandas.DataFrame:
         # A control comfortably inside tolerance
         {
             "iso_3166": "XAA",
-            "crop_name": "MAIZE",
+            "commodity_id": 56,
+            "commodity_name": "Maize (corn)",
             "anchor_deforestation_share": 1.250,
             "emission_pool": schema.EmissionPool.FOREST,
             "measure": targets.Measure.SLUC_OVER_WRI,
@@ -49,7 +50,8 @@ def get_comparisons() -> pandas.DataFrame:
         # A control that has moved well outside tolerance -- must surface above the tables
         {
             "iso_3166": "XAB",
-            "crop_name": "SOYBEAN",
+            "commodity_id": 236,
+            "commodity_name": "Soya beans",
             "emission_pool": schema.EmissionPool.FOREST,
             "measure": targets.Measure.SLUC_OVER_WRI,
             "statistic": schema.Statistic.RATIO,
@@ -69,7 +71,8 @@ def get_comparisons() -> pandas.DataFrame:
         # external, so the pair can be baselined without a `trace` table.
         {
             "iso_3166": "XAB",
-            "crop_name": "SOYBEAN",
+            "commodity_id": 236,
+            "commodity_name": "Soya beans",
             "emission_pool": schema.EmissionPool.FOREST,
             "measure": targets.Measure.ORBAE_OVER_WRI,
             "statistic": schema.Statistic.RANK_CORRELATION,
@@ -87,7 +90,8 @@ def get_comparisons() -> pandas.DataFrame:
         # Grassland exists only as the remainder, and has no external anchor at all
         {
             "iso_3166": "XAA",
-            "crop_name": "MAIZE",
+            "commodity_id": 56,
+            "commodity_name": "Maize (corn)",
             "anchor_deforestation_share": 1.250,
             "emission_pool": schema.EmissionPool.GRASSLAND,
             "measure": targets.Measure.SLUC_OVER_JDLUC,
@@ -106,7 +110,8 @@ def get_comparisons() -> pandas.DataFrame:
         # Provincial per-kg EF: WRI publishes no production at that grain, so shape only
         {
             "iso_3166": "XAC",
-            "crop_name": "OILPALM",
+            "commodity_id": 254,
+            "commodity_name": "Oil palm fruit",
             "emission_pool": schema.EmissionPool.FOREST,
             "measure": targets.Measure.SLUC_OVER_WRI,
             "statistic": schema.Statistic.RATIO,
@@ -124,7 +129,8 @@ def get_comparisons() -> pandas.DataFrame:
         # A rollup on our weights over partial coverage -- never a published figure
         {
             "iso_3166": "XAC",
-            "crop_name": "OILPALM",
+            "commodity_id": 254,
+            "commodity_name": "Oil palm fruit",
             "emission_pool": schema.EmissionPool.TOTAL,
             "measure": targets.Measure.SLUC_OVER_WRI,
             "statistic": schema.Statistic.RATIO,
@@ -144,7 +150,8 @@ def get_comparisons() -> pandas.DataFrame:
         # relative test fires on it and an absolute one must not.
         {
             "iso_3166": "XAF",
-            "crop_name": "SOYBEAN",
+            "commodity_id": 236,
+            "commodity_name": "Soya beans",
             "emission_pool": schema.EmissionPool.FOREST,
             "measure": targets.Measure.ORBAE_OVER_WRI,
             "ratio": 0.500,
@@ -163,7 +170,8 @@ def get_comparisons() -> pandas.DataFrame:
         # the movement is not attributed at all.
         {
             "iso_3166": "XAH",
-            "crop_name": "SOYBEAN",
+            "commodity_id": 236,
+            "commodity_name": "Soya beans",
             "emission_pool": schema.EmissionPool.FOREST,
             "measure": targets.Measure.ORBAE_OVER_WRI,
             "ratio": 0.900,
@@ -181,7 +189,8 @@ def get_comparisons() -> pandas.DataFrame:
         # The same baseline moved 0.243 -- outside the band under either arithmetic.
         {
             "iso_3166": "XAG",
-            "crop_name": "SOYBEAN",
+            "commodity_id": 236,
+            "commodity_name": "Soya beans",
             "emission_pool": schema.EmissionPool.FOREST,
             "measure": targets.Measure.ORBAE_OVER_WRI,
             "ratio": 0.200,
@@ -223,7 +232,7 @@ def get_uncompared_targets() -> targets.UncomparedTargets:
         not_in_table=(
             targets.Target(
                 basis="ranked",
-                crop_name="BARLEY",
+                commodity_id=44,
                 iso_3166="XAF",
                 reason="Invented, to exercise the coverage section's not-in-table branch",
             ),
@@ -231,7 +240,7 @@ def get_uncompared_targets() -> targets.UncomparedTargets:
         unanchored=(
             targets.Target(
                 basis="ranked",
-                crop_name="WHEAT",
+                commodity_id=15,
                 iso_3166="XAE",
                 reason="Invented, to exercise the coverage section's unanchored branch",
             ),

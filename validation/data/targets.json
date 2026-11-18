@@ -27,7 +27,7 @@
     "typical value, which is why holding the internal head-to-head to those three understated it."
   ],
   "provenance": {
-    "eligible_pairs": 904,
+    "eligible_pairs": 925,
     "faostat_release": "2025",
     "reference_year": 2020,
     "wri_revision": "559fe23eb752e9df270a1bf93e7f290044026bab"
@@ -35,31 +35,31 @@
   "targets": [
     {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "IDN",
       "reason": "The largest deforestation figure anywhere at 218 Mt, and the pipeline's only test of a per-crop destination layer: Descals is what lets standing palm resolve to cropland at all. sLUC/WRI is 0.429, the highest of Indonesia's crops against WRI where coconut, maize and rice sit at 0.32-0.33, so the perennial detection gap this pair was carried for no longer binds on palm. Still a gap rather than a control: a two-fold shortfall against the anchor is not a relationship to freeze."
     },
     {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "MYS",
       "reason": "68 Mt, second largest. Confirms whether the Indonesian woody-perennial result is a country artifact or the mechanism. 96% provincial area coverage, so the provincial grain is available."
     },
     {
       "basis": "gap",
-      "crop_name": "COCONUT",
+      "commodity_id": 249,
       "iso_3166": "IDN",
       "reason": "31 Mt on a woody perennial that is not oil palm, so it separates 'any woody perennial' from 'oil palm specifically' in the GLAD cropland-class finding."
     },
     {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "COD",
       "reason": "14 Mt, and African rather than South-East Asian: tests the woody-perennial gap away from peat, where the peatland term cannot be the explanation."
     },
     {
       "basis": "gap",
-      "crop_name": "COCONUT",
+      "commodity_id": 249,
       "iso_3166": "PHL",
       "reason": "6.2 Mt, and NOT eligible at the provincial grain: the World Bank layer gives PHL 17 regions where GADM gives 81 provinces, so the relation is many-to-one and no key map can express it -- 0 of the 81 names match even fuzzily, because the two sources are at different administrative levels. Carried as a national ratio only, like CAF MAIZE. PHL is the largest single country E3 excludes, holding 24.8 Mt across all crops against 45 Mt for every excluded country combined, and it is a tropical archipelago where coconut dominates -- the woody-perennial regime the detection gap is largest in, so excluding it under-samples the gap most worth measuring. Pairs against IDN COCONUT, holding the crop fixed across two archipelagos."
     },
@@ -103,37 +103,37 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
+      "commodity_id": 236,
       "iso_3166": "BRA",
       "reason": "111 Mt, the largest annual-crop pair in the world, and the largest figure in the eligible set."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "BRA",
       "reason": "49 Mt. Same jurisdictions as BRA SOYBEAN, so it shares tiles and costs little beyond province clips, and it separates crop allocation from country-level forest attribution."
     },
     {
       "basis": "ranked",
-      "crop_name": "CASSAVA",
+      "commodity_id": 125,
       "iso_3166": "COD",
       "reason": "48 Mt on a root crop, which is neither of the two commodities the US leg covers. 26 provinces at 100% area coverage."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "IDN",
       "reason": "39 Mt. An annual in the same country as the largest woody-perennial gap, so it isolates whether Indonesia's disagreement is the crop or the country."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "IDN",
       "reason": "25 Mt, and the largest flooded-crop pair. Rice carries a methane term the LUC model does not touch, so it checks that the LUC comparison is unaffected by it."
     },
     {
       "basis": "ranked",
-      "crop_name": "CASSAVA",
+      "commodity_id": 125,
       "iso_3166": "BRA",
       "reason": "15 Mt. Pairs against COD CASSAVA on one crop across two continents, holding the crop fixed while the forest regime changes."
     },
@@ -177,73 +177,73 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
+      "commodity_id": 236,
       "iso_3166": "PRY",
       "reason": "15 Mt on 18 provinces at 100% coverage. Chaco dry forest rather than humid tropical, and soy holds constant against BRA, ARG and BOL. Holds the dry-forest/soy control slot, on two qualifications the other Chaco soy pairs lack: WRI's row here is self-consistent, at a deforestation-linked share of 0.669 of harvested area, and Orbae shares 16 of its provinces, enough to freeze the Orbae/WRI rank from the anchors alone."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "MEX",
       "reason": "14 Mt. Dry and temperate-mixed rather than tropical, and the only North American entry besides the USA."
     },
     {
       "basis": "ranked",
-      "crop_name": "SUGARCANE",
+      "commodity_id": 156,
       "iso_3166": "BRA",
       "reason": "11 Mt on 756 Mt of production, the largest denominator in the set by far. A ratooned perennial that is herbaceous, so GLAD's cropland class admits it: the control case for the woody-perennial finding."
     },
     {
       "basis": "ranked",
-      "crop_name": "SUGARCANE",
+      "commodity_id": 156,
       "iso_3166": "THA",
       "reason": "9 Mt across 75 provinces, the finest provincial grain available at this materiality. Pairs against BRA SUGARCANE."
     },
     {
       "basis": "ranked",
-      "crop_name": "COTTON",
+      "commodity_id": 328,
       "iso_3166": "BRA",
       "reason": "10 Mt on a fibre crop, so the product form is seed cotton rather than a food weight. The yield cross-check put WRI and FAOSTAT at 1.017 here, so the denominator is known good."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "KHM",
       "reason": "9 Mt, and the country whose 13 hand-written province overrides the key map depends on: a wrong override would surface here first."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "ZMB",
       "reason": "9 Mt on miombo woodland, a dry-forest regime absent from every other entry. Only 10 provinces, so provincial coverage is thin."
     },
     {
       "basis": "ranked",
-      "crop_name": "BEAN",
+      "commodity_id": 176,
       "iso_3166": "MOZ",
       "reason": "8 Mt on a pulse, a crop family otherwise unrepresented, in a second miombo country."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "LAO",
       "reason": "8 Mt. Shares ten-degree tiles with THA and KHM, so it is nearly free once those are computed."
     },
     {
       "basis": "ranked",
-      "crop_name": "YAM",
+      "commodity_id": 137,
       "iso_3166": "NGA",
       "reason": "7 Mt, 56 Mt of production, and a MapSPAM group crop decomposed rather than observed (SWPY). Tests the decomposition path at materiality."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "PHL",
       "reason": "6.7 Mt on 19 Mt of production, the largest PHL pair. National ratio only, for the same structural reason as PHL COCONUT: 17 World Bank regions against 81 GADM provinces, so E3 fails and the pair is off the eligible shortlist entirely. Carried as the annual counterpart to PHL COCONUT -- rice is herbaceous, so GLAD's cropland class does see it, and holding the country fixed across the two separates 'PHL is under-detected because its crops are perennial' from 'PHL is under-detected because it is PHL'. Pairs against IDN RICE on one crop across two archipelagos. Together the two PHL pairs cover 12.9 of the country's 24.8 Mt."
     },
     {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "PNG",
       "reason": "5 Mt, carried as a sentinel rather than for its materiality: PNG's forest allocation is the most sensitive in the set to the expansion-share denominator, so it is where a regression there surfaces first. Its sLUC/WRI sits far below the other palm pairs for a reason that is not palm, measured on tile 00N_140E: 11.98% of tree-cover losses carry any destination at 2020, of which Descals palm supplies 9.03% and GACED30 cropland 0.02% -- 4.0 kha against MapSPAM's 693 kha nationally. Where palm exists it resolves, 71.2% of its pixels sitting on a loss inside the lookback. PNG's loss is dominated by selective logging, and its agriculture is shifting cultivation the FAO cropland definition excludes, so a low ratio here is the anchor's attribution before it is a detection failure. The shifting-cultivation entry in further_research.md carries the measurement."
     },
@@ -296,7 +296,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "USA",
       "reason": "The only jdLUC leg, so the only internal head-to-head between the two methodologies. 44 of 51 provinces in WRI's file."
     },
@@ -349,7 +349,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
+      "commodity_id": 236,
       "iso_3166": "USA",
       "reason": "Largest US pair at 3.45 Mt, and the US soy comparison against BRA and ARG soy on one crop across three regimes."
     },
@@ -365,7 +365,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "WHEAT",
+      "commodity_id": 15,
       "iso_3166": "USA",
       "reason": "The only wheat pair, at 1.35 Mt. Orbae publishes no US wheat, so this pair carries the internal head-to-head alone."
     },
@@ -418,7 +418,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "COTTON",
+      "commodity_id": 328,
       "iso_3166": "USA",
       "reason": "Largest US pair after maize and soy at 1.18 Mt, and southern rather than Midwestern. The one US pair whose denominator carries a product-form conversion: NASS reports ginned lint where MapSPAM and FAOSTAT carry seed cotton, and `usda_nass_quickstats.Series.reported_fraction` divides by 0.36 to cross between them. The first comparison of our own figures clears that constant rather than implicating it -- the two legs' production agrees to 0.78x, and FAOSTAT's own US seed-cotton yield agrees with this denominator to 0.95x -- which leaves the head-to-head on conversion emissions. Orbae covers US cotton at 17 provinces with area, enough for the rank controls."
     },
@@ -434,7 +434,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "USA",
       "reason": "The flooded regime, which no other US pair reaches. Maize, soybean and wheat are all Midwestern row crops on former grassland, so a spread between the legs across them cannot be told apart from a property of that one regime; rice is the cheapest pair that separates the two readings. 0.092 Mt, small on the anchor's own figure and here for what it distinguishes rather than its size. Orbae publishes no US rice, so this pair carries the internal head-to-head alone."
     },
@@ -450,7 +450,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "SUGARCANE",
+      "commodity_id": 156,
       "iso_3166": "USA",
       "reason": "Subtropical, and the only US pair that lands on peat -- the Everglades Agricultural Area that `further_research.md` measures under repeated peatland drainage pulses -- so it exercises the peatland term the grassland pairs never touch. 0.151 Mt. Orbae does publish US sugarcane, but only four provinces carry any area, too few for a rank correlation to mean anything, so this pair carries the internal head-to-head alone."
     },
@@ -494,7 +494,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
+      "commodity_id": 236,
       "iso_3166": "ARG",
       "reason": "6 Mt, temperate grassland-cropland, where the grassland pool has no external anchor at all."
     },
@@ -538,13 +538,13 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "ARG",
       "reason": "Holds the country fixed against ARG SOYBEAN so a crop-allocation change is separable from a country-level one."
     },
     {
       "basis": "ranked",
-      "crop_name": "SOYBEAN",
+      "commodity_id": 236,
       "iso_3166": "BOL",
       "reason": "9 Mt on only 7 provinces, the thinnest provincial coverage carried, which is itself worth watching. Not a control, on three counts: WRI's row here contradicts itself, giving more deforestation-linked area than FAOSTAT reports harvested (share 1.123); only 3 provinces are shared with Orbae, below the five-province floor, so the Orbae/WRI rank cannot be frozen; and over those 3 the rank is -0.500. A control cannot rest on a row its own anchor disagrees with itself about, so PRY SOYBEAN holds the dry-forest/soy slot instead. This pair remains a target: agreement is a result, and thin coverage is worth watching."
     },
@@ -563,7 +563,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "COD",
       "reason": "7 Mt, and the implied intensity of ~1,270 tCO2/ha is far above any biome carbon density, so it is the standing example of emissions allocated onto a small production footprint."
     },
@@ -582,7 +582,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "AGO",
       "reason": "2 Mt, the smallest carried, kept because it guards the low-materiality end where a rounding or coverage bug would surface."
     },
@@ -601,7 +601,7 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "CAF",
       "reason": "NOT eligible at the provincial grain: E3 fails structurally, since GADM gives 17 prefectures where the World Bank gives 7 regions and the relation is many-to-one. Carried as a national ratio only."
     }

@@ -39,7 +39,7 @@ def get_document(**overrides: typing.Any) -> dict[str, typing.Any]:
         "targets": [
             {
                 "iso_3166": "XAA",
-                "crop_name": "MAIZE",
+                "commodity_id": 56,
                 "basis": "control",
                 "reason": "Invented, to exercise the reader",
                 "controls": [control],
@@ -297,7 +297,7 @@ def test_the_document_must_name_a_distinct_and_reasoned_set() -> None:
         )
     document = get_document()
     document["targets"].append(dict(document["targets"][0]))
-    with pytest.raises(AssertionError, match="repeats XAA-MAIZE"):
+    with pytest.raises(AssertionError, match="repeats XAA-56"):
         targets.check_document(document=document)
     document = get_document()
     document["targets"][0]["reason"] = "   "
@@ -363,7 +363,7 @@ def test_a_control_with_no_baseline_is_carried_rather_than_armed() -> None:
         measure=targets.Measure.SLUC_OVER_WRI,
         note="Invented",
         target=targets.Target(
-            basis="control", crop_name="MAIZE", iso_3166="XAA", reason="Invented"
+            basis="control", commodity_id=56, iso_3166="XAA", reason="Invented"
         ),
     )
     assert not carried.is_frozen
@@ -375,9 +375,9 @@ def test_a_target_slug_is_the_pair_a_report_prints() -> None:
     """`render_coverage` prints these and `get_target_anchor_consistency_findings` matches controls
     on them, so the separator is load-bearing in two places that never see each other."""
     target = targets.Target(
-        basis="ranked", crop_name="MAIZE", iso_3166="XAA", reason="Invented"
+        basis="ranked", commodity_id=56, iso_3166="XAA", reason="Invented"
     )
-    assert target.slug == "XAA-MAIZE"
+    assert target.slug == "XAA-56"
 
 
 def test_a_frozen_control_carries_the_anchors_it_was_frozen_against() -> None:
@@ -400,10 +400,8 @@ def test_a_frozen_control_carries_the_anchors_it_was_frozen_against() -> None:
 def test_every_target_names_a_crop_and_a_country_that_resolve() -> None:
     """A name nothing downstream resolves is malformed input, and this is where it surfaces.
 
-    `prepare.get_target_anchor_consistency_findings` indexes `prepare.CROP_NAME_TO_CROP_CODE`
-    directly, so an unknown crop raises there rather than dropping the pair's guard and reporting agreement.  The
-    country half has no reader that would raise, and `check_document` catches neither: both fields
-    are well-formed strings.
+    A commodity id no anchor covers would silently match no comparison and read as an uncompared
+    target, and `check_document` catches neither half: both fields are well-formed values.
 
     Every offender at once rather than a parametrized case per pair, because parametrizing over the
     file's own contents reads it while the module is being collected: a malformed set then fails
@@ -412,7 +410,7 @@ def test_every_target_names_a_crop_and_a_country_that_resolve() -> None:
     unresolvable = sorted(
         target.slug
         for target in targets.iter_targets()
-        if target.crop_name not in prepare.CROP_NAME_TO_CROP_CODE
+        if target.commodity_id not in prepare.COMPARED_COMMODITY_IDS
         or target.iso_3166 not in iso3166.countries_by_alpha3
     )
     assert not unresolvable, (
