@@ -177,14 +177,19 @@ def get_unevaluated_control_findings(
     moved is ADVISORY rather than a DEFECT.
     """
     evaluated = {
-        (row["iso_3166"], row["crop_name"], row["measure"])
+        (row["iso_3166"], row["crop_name"], row["measure"], row["statistic"])
         for row in comparisons.to_dict("records")
     }
     unevaluated = [
         control
         for control in targets.iter_controls()
         if control.is_frozen
-        and (control.target.iso_3166, control.target.crop_name, control.measure)
+        and (
+            control.target.iso_3166,
+            control.target.crop_name,
+            control.measure,
+            control.statistic,
+        )
         not in evaluated
     ]
     if not unevaluated:
@@ -275,14 +280,18 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
         ).to_dict("records")
     ]
     rest = comparisons[~comparisons["is_target"]]
-    # Iterated over the distinct measures rather than grouped, because a groupby key types as
-    # Hashable and a measure carries the name this table is sorted and labeled by.
+    # Iterated over the distinct (measure, statistic) pairs rather than grouped, because a groupby
+    # key types as Hashable and a measure carries the name this table is sorted and labeled by. The
+    # statistic is part of the key because one measure can carry a ratio and a rank.
     summary = []
-    for measure in sorted(set(rest["measure"]), key=lambda value: value.name):
-        group = rest[rest["measure"] == measure]
+    for measure, statistic in sorted(
+        set(zip(rest["measure"], rest["statistic"], strict=True)),
+        key=lambda pair: (pair[0].name, pair[1]),
+    ):
+        group = rest[(rest["measure"] == measure) & (rest["statistic"] == statistic)]
         summary.append(
             [
-                f"{measure.name:s} ({group['statistic'].iloc[0]!s})",
+                f"{measure.name:s} ({statistic!s})",
                 f"{len(group):d}",
                 format_number(float(group["ratio"].median()), 3),
                 format_number(float(group["ratio"].quantile(0.1)), 3),

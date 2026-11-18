@@ -205,6 +205,7 @@ def test_an_armed_control_that_reached_no_row_is_not_silent() -> None:
                     "iso_3166": control.target.iso_3166,
                     "crop_name": control.target.crop_name,
                     "measure": control.measure,
+                    "statistic": control.statistic,
                 }
                 for control in rest
             ]

@@ -321,10 +321,9 @@ def test_a_set_chosen_against_another_wri_release_is_refused() -> None:
 )
 def test_a_measure_names_its_two_sources_in_order(measure: targets.Measure) -> None:
     """The name is what the report prints and the value is what the arithmetic reads, so a measure
-    whose two disagree would label a ratio with its own inverse."""
-    assert (
-        measure.name == f"{measure.numerator.name:s}_OVER_{measure.denominator.name:s}"
-    )
+    whose two disagree would label a ratio with its own inverse, or a factor as emissions."""
+    pair = f"{measure.numerator.name:s}_OVER_{measure.denominator.name:s}"
+    assert measure.name in (pair, f"{pair:s}_{measure.quantity.name:s}")
 
 
 def test_only_a_measure_with_both_terms_ours_is_unanchored() -> None:
@@ -334,7 +333,10 @@ def test_only_a_measure_with_both_terms_ours_is_unanchored() -> None:
     decision about which side of that check it falls on, which a per-member test cannot ask.
     """
     assert {measure for measure in targets.Measure if not measure.is_anchored} == {
-        targets.Measure.SLUC_OVER_JDLUC
+        targets.Measure.JDLUC_OVER_JDLUC_PROXY_EMISSIONS,
+        targets.Measure.JDLUC_PROXY_OVER_SLUC_EMISSIONS,
+        targets.Measure.SLUC_OVER_JDLUC,
+        targets.Measure.SLUC_OVER_JDLUC_EMISSIONS,
     }
 
 

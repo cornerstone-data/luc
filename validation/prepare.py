@@ -877,12 +877,11 @@ def with_crop_codes(frame: pandas.DataFrame) -> pandas.DataFrame:
 def iter_sluc_jdluc_comparisons(
     table: pandas.DataFrame,
 ) -> collections.abc.Iterator[dict[str, object]]:
-    """Our two legs against each other, nationally, per crop both of them model.
+    """The statistical and direct legs' factors against each other, nationally, per crop both model.
 
-    The only comparison in the design with no external anchor in it, and so the only one where a
-    disagreement proves one of our own legs wrong rather than raising a question about a yardstick.
-    It is a filter on `methodology` within one artifact rather than a join between two, which is what
-    `trace.CANONICAL_KEY` carrying `methodology` buys.
+    With no external anchor in it, a disagreement proves one of our own legs wrong rather than
+    raising a question about a yardstick. It is a filter on `methodology` within one table rather
+    than a join between two, which is what `trace.CANONICAL_KEY` carrying `methodology` buys.
 
     The published emissions factor is the quantity compared, because that is what a control on this
     pair guards. It is not a pure emissions ratio: the legs use different production denominators --
@@ -935,6 +934,131 @@ def iter_sluc_jdluc_comparisons(
             "confidence": schema.Confidence.HIGH,
             "worst_tier": schema.SourceTier.MEASURED,
         }
+
+
+def get_emissions_by_methodology(
+    admin_level: str, table: pandas.DataFrame
+) -> pandas.DataFrame:
+    """Each crop row's emissions in tonnes, one column per leg. A leg the table does not hold gets
+    a column of NaN, so a pair including it compares nothing rather than failing.
+    """
+    rows = with_crop_codes(
+        frame=table[
+            table.index.get_level_values("admin_level") == admin_level
+        ].reset_index()
+    )
+    return rows.pivot_table(
+        aggfunc="sum",
+        columns="methodology",
+        index=["admin_id", "crop_code"],
+        values="emissions_mt",
+    ).reindex(
+        columns=[
+            schema.JURISDICTIONAL_DIRECT,
+            schema.JURISDICTIONAL_DIRECT_PROXY,
+            schema.STATISTICAL,
+        ]
+    )
+
+
+def iter_leg_emissions_comparisons(
+    table: pandas.DataFrame,
+) -> collections.abc.Iterator[dict[str, object]]:
+    """Each pair of legs against each other in tonnes, nationally, per crop both model.
+
+    Tonnes leave production out, so a disagreement here is in how a leg splits a country's
+    emissions among its crops. A crop the denominator leg gives nothing is left out.
+    """
+    national = get_emissions_by_methodology(admin_level=schema.NATIONAL, table=table)
+    for numerator, denominator, measure in (
+        (
+            schema.STATISTICAL,
+            schema.JURISDICTIONAL_DIRECT,
+            targets.Measure.SLUC_OVER_JDLUC_EMISSIONS,
+        ),
+        (
+            schema.JURISDICTIONAL_DIRECT_PROXY,
+            schema.STATISTICAL,
+            targets.Measure.JDLUC_PROXY_OVER_SLUC_EMISSIONS,
+        ),
+        (
+            schema.JURISDICTIONAL_DIRECT,
+            schema.JURISDICTIONAL_DIRECT_PROXY,
+            targets.Measure.JDLUC_OVER_JDLUC_PROXY_EMISSIONS,
+        ),
+    ):
+        both = national[[numerator, denominator]].dropna()
+        both = both[both[denominator] > 0].reset_index()
+        for row in both.to_dict("records"):
+            yield {
+                "iso_3166": str(row["admin_id"]),
+                "crop_name": str(row["crop_code"]),
+                "emission_pool": schema.EmissionPool.TOTAL,
+                "measure": measure,
+                "statistic": schema.Statistic.RATIO,
+                "ratio": float(row[numerator]) / float(row[denominator]),
+                "provinces": 0,
+                "comparability": schema.Comparability.LEVEL,
+                "aggregation": schema.Aggregation.AS_PUBLISHED,
+                "coverage_fraction": 1.0,
+                "confidence": schema.Confidence.HIGH,
+                "worst_tier": schema.SourceTier.MEASURED,
+            }
+
+
+def iter_leg_province_comparisons(
+    table: pandas.DataFrame,
+) -> collections.abc.Iterator[dict[str, object]]:
+    """The direct leg against each of the other two, ranking the US states by emissions per crop.
+
+    The direct leg places crops by CDL pixels, so it is the reference for where within a country
+    the emissions sit. A state either leg gives nothing is left out.
+    """
+    provincial = get_emissions_by_methodology(
+        admin_level=schema.PROVINCIAL, table=table
+    )
+    provincial["iso_3166"] = provincial.index.get_level_values("admin_id").str[:3]
+    for numerator, denominator, measure in (
+        (
+            schema.STATISTICAL,
+            schema.JURISDICTIONAL_DIRECT,
+            targets.Measure.SLUC_OVER_JDLUC_EMISSIONS,
+        ),
+        (
+            schema.JURISDICTIONAL_DIRECT,
+            schema.JURISDICTIONAL_DIRECT_PROXY,
+            targets.Measure.JDLUC_OVER_JDLUC_PROXY_EMISSIONS,
+        ),
+    ):
+        either = provincial[(provincial[numerator] > 0) | (provincial[denominator] > 0)]
+        both = either[(either[numerator] > 0) & (either[denominator] > 0)]
+        available = (
+            either.groupby(["iso_3166", either.index.get_level_values("crop_code")])
+            .size()
+            .to_dict()
+        )
+        groups = [
+            (iso_3166, crop_code, group)
+            for (iso_3166, crop_code), group in both.groupby(
+                ["iso_3166", both.index.get_level_values("crop_code")]
+            )
+            if len(group) >= MINIMUM_PROVINCES
+        ]
+        for iso_3166, crop_code, group in groups:
+            yield {
+                "iso_3166": str(iso_3166),
+                "crop_name": str(crop_code),
+                "emission_pool": schema.EmissionPool.TOTAL,
+                "measure": measure,
+                "statistic": schema.Statistic.RANK_CORRELATION,
+                "ratio": float(group[numerator].rank().corr(group[denominator].rank())),
+                "provinces": len(group),
+                "comparability": schema.Comparability.PATTERN_ONLY,
+                "aggregation": schema.Aggregation.AS_PUBLISHED,
+                "coverage_fraction": len(group) / available[(iso_3166, crop_code)],
+                "confidence": schema.Confidence.MEDIUM,
+                "worst_tier": schema.SourceTier.MEASURED,
+            }
 
 
 def iter_trace_wri_comparisons(
@@ -1033,7 +1157,9 @@ def iter_trace_wri_comparisons(
 def iter_orbae_trace_comparisons(
     table: pandas.DataFrame,
 ) -> collections.abc.Iterator[dict[str, object]]:
-    """Each of our legs against Orbae, province by province, as a rank correlation.
+    """Each of our legs against Orbae, province by province, as a rank correlation of the factor
+    and, over the same provinces, of the emissions. The two disagree: in v202611 the proxy leg ranks
+    Brazilian soy's emissions closer to Orbae than the statistical leg, and its factor less close.
 
     Rank rather than ratio, permanently. Every Orbae row is assessment year 2023 against our 2020,
     and no 2020 export is coming, so level cannot cross the offset while rank very nearly can --
@@ -1041,8 +1167,8 @@ def iter_orbae_trace_comparisons(
     holds at +0.961.
 
     LUC_ONLY on both sides, which is what makes the two comparable at all: Orbae's published factor
-    excludes peatland occupation, so ours has to as well. Orbae's own `ef_kg_per_kg` is taken as that
-    figure rather than the sum of its pool columns. The pools do not reconcile against the total for
+    and emissions exclude peatland occupation, so ours have to as well. Orbae's own `ef_kg_per_kg`
+    is taken as that figure rather than the sum of its pool columns. The pools do not reconcile against the total for
     a large minority of rows -- 47% of the schema 2.2.0 rows against 14% of the 2.0.0 ones -- which is
     the mixed-schema defect `get_orbae_findings` already reports, showing up in the decomposition. The
     total is the quantity Orbae publishes; the breakdown is the part that disagrees with itself.
@@ -1069,8 +1195,11 @@ def iter_orbae_trace_comparisons(
     )
     # `admin_id` leads with the ISO, which is the only place the country appears on our rows.
     provincial["iso_3166"] = provincial["admin_id"].str[:3]
+    provincial["luc_only_tonnes"] = (
+        provincial["emissions_mt"] - provincial["peatland_occupation_emissions_mt"]
+    )
     provincial["luc_only_kg_per_kg"] = (
-        (provincial["emissions_mt"] - provincial["peatland_occupation_emissions_mt"])
+        provincial["luc_only_tonnes"]
         * schema.KG_PER_TONNE
         / provincial["production_kg"]
     )
@@ -1078,46 +1207,60 @@ def iter_orbae_trace_comparisons(
         (provincial["production_kg"] > 0) & (provincial["luc_only_kg_per_kg"] > 0)
     ]
 
-    for methodology, measure in (
-        (schema.STATISTICAL, targets.Measure.SLUC_OVER_ORBAE),
-        (schema.JURISDICTIONAL_DIRECT, targets.Measure.JDLUC_OVER_ORBAE),
-        (schema.JURISDICTIONAL_DIRECT_PROXY, targets.Measure.JDLUC_PROXY_OVER_ORBAE),
+    available = orbae.groupby(["iso_3166", "crop_name"]).size().to_dict()
+    for methodology, factor_measure, emissions_measure in (
+        (
+            schema.STATISTICAL,
+            targets.Measure.SLUC_OVER_ORBAE,
+            targets.Measure.SLUC_OVER_ORBAE_EMISSIONS,
+        ),
+        (
+            schema.JURISDICTIONAL_DIRECT,
+            targets.Measure.JDLUC_OVER_ORBAE,
+            targets.Measure.JDLUC_OVER_ORBAE_EMISSIONS,
+        ),
+        (
+            schema.JURISDICTIONAL_DIRECT_PROXY,
+            targets.Measure.JDLUC_PROXY_OVER_ORBAE,
+            targets.Measure.JDLUC_PROXY_OVER_ORBAE_EMISSIONS,
+        ),
     ):
-        ours = provincial[provincial["methodology"] == methodology]
-        merged = ours.merge(
-            orbae[["admin_id", "crop_name", "ef_kg_per_kg"]],
+        merged = provincial[provincial["methodology"] == methodology].merge(
+            orbae[["admin_id", "crop_name", "ef_kg_per_kg", "luc_emissions_tonnes"]],
             left_on=["admin_id", "crop_code"],
             right_on=["admin_id", "crop_name"],
             suffixes=("", "_orbae"),
         )
-        for (iso_3166, crop_code), group in merged.groupby(["iso_3166", "crop_code"]):
-            if len(group) < MINIMUM_PROVINCES:
-                continue
-            available = len(
-                orbae[
-                    (orbae["iso_3166"] == iso_3166) & (orbae["crop_name"] == crop_code)
-                ]
+        groups = [
+            (iso_3166, crop_code, group)
+            for (iso_3166, crop_code), group in merged.groupby(
+                ["iso_3166", "crop_code"]
             )
-            yield {
-                "iso_3166": str(iso_3166),
-                "crop_name": str(crop_code),
-                "emission_pool": schema.EmissionPool.LUC_ONLY,
-                "measure": measure,
-                "statistic": schema.Statistic.RANK_CORRELATION,
-                "ratio": float(
-                    group["luc_only_kg_per_kg"]
-                    .rank()
-                    .corr(group["ef_kg_per_kg"].rank())
-                ),
-                "provinces": len(group),
-                "comparability": schema.Comparability.PATTERN_ONLY,
-                "aggregation": schema.Aggregation.AS_PUBLISHED,
-                "coverage_fraction": len(group) / available if available else 0.0,
-                # Rank is a weaker claim than level, and Orbae is a supplied file rather than a
-                # pinned pull, so this cannot carry what a LEVEL comparison would.
-                "confidence": schema.Confidence.MEDIUM,
-                "worst_tier": schema.SourceTier.SUPPLIED,
-            }
+            if len(group) >= MINIMUM_PROVINCES
+        ]
+        for iso_3166, crop_code, group in groups:
+            for measure, ours_column, orbae_column in (
+                (factor_measure, "luc_only_kg_per_kg", "ef_kg_per_kg"),
+                (emissions_measure, "luc_only_tonnes", "luc_emissions_tonnes"),
+            ):
+                yield {
+                    "iso_3166": str(iso_3166),
+                    "crop_name": str(crop_code),
+                    "emission_pool": schema.EmissionPool.LUC_ONLY,
+                    "measure": measure,
+                    "statistic": schema.Statistic.RANK_CORRELATION,
+                    "ratio": float(
+                        group[ours_column].rank().corr(group[orbae_column].rank())
+                    ),
+                    "provinces": len(group),
+                    "comparability": schema.Comparability.PATTERN_ONLY,
+                    "aggregation": schema.Aggregation.AS_PUBLISHED,
+                    "coverage_fraction": len(group) / available[(iso_3166, crop_code)],
+                    # Rank is a weaker claim than level, and Orbae is a supplied file rather than a
+                    # pinned pull, so this cannot carry what a LEVEL comparison would.
+                    "confidence": schema.Confidence.MEDIUM,
+                    "worst_tier": schema.SourceTier.SUPPLIED,
+                }
 
 
 def get_comparisons(
@@ -1125,7 +1268,7 @@ def get_comparisons(
 ) -> pandas.DataFrame:
     """Every comparison this run can make, with its control expectation attached.
 
-    One row per (target, pool, measure). Orbae-against-WRI reads nothing from `table`, both sides
+    One row per (target, pool, measure, statistic). Orbae-against-WRI reads nothing from `table`, both sides
     being external; every other measure reads it. A measure with no row is absent rather than null,
     so `render_coverage` reports the targets no comparison reached.
 
@@ -1137,20 +1280,36 @@ def get_comparisons(
     frame = pandas.DataFrame.from_records(
         list(iter_orbae_wri_comparisons())
         + list(iter_sluc_jdluc_comparisons(table=table))
+        + list(iter_leg_emissions_comparisons(table=table))
+        + list(iter_leg_province_comparisons(table=table))
         + list(iter_trace_wri_comparisons(table=table))
         + list(iter_orbae_trace_comparisons(table=table))
     )
     assert len(frame), "no comparison could be made, which means a join broke"
+    # Keyed on the statistic too: one measure can carry a national ratio and a provincial rank for
+    # the same pair, and a control guards only the one it was frozen on.
     expectations = {
-        (control.target.iso_3166, control.target.crop_name, control.measure): control
+        (
+            control.target.iso_3166,
+            control.target.crop_name,
+            control.measure,
+            control.statistic,
+        ): control
         for control in targets.iter_controls()
     }
-    crop_to_name = {
+    # The MapSPAM code back to the `statistical.Crop` name targets use. WRI's combined coffee and
+    # millet codes have no such name, so they keep their code.
+    crop_to_name = {code: code for code in frame["crop_name"]} | {
         statistical.Crop[name].value: name for name in statistical.Crop.__members__
     }
     controls = [
         expectations.get(
-            (row["iso_3166"], crop_to_name.get(row["crop_name"], ""), row["measure"])
+            (
+                row["iso_3166"],
+                crop_to_name[row["crop_name"]],
+                row["measure"],
+                row["statistic"],
+            )
         )
         for row in frame.to_dict("records")
     ]
@@ -1163,7 +1322,7 @@ def get_comparisons(
         shares.get((row["iso_3166"], row["crop_name"]))
         for row in frame.to_dict("records")
     ]
-    frame["crop_name"] = [crop_to_name.get(code, code) for code in frame["crop_name"]]
+    frame["crop_name"] = [crop_to_name[code] for code in frame["crop_name"]]
     frame["is_control"] = [control is not None for control in controls]
     # A target pair is what the report is about; everything else is context the comparison happens
     # to reach. `is_control` is narrower -- a target can be compared without carrying an expectation.
@@ -1343,6 +1502,8 @@ ORBAE_TRACEABILITY_TO_ADMIN_LEVEL = {
 }
 ORBAE_LUC_FACTOR_COLUMN = "LUC emission factor [kg CO2e / kg product]"
 ORBAE_LUC_INTENSITY_COLUMN = "LUC emission factor [kg CO2e / hectare]"
+# The LUC factor times production: no peatland occupation, and tonnes, so no conversion factor
+ORBAE_LUC_EMISSIONS_COLUMN = "Total LUC emissions in assessment year [tons CO2e]"
 ORBAE_CONVERSION_FACTOR_COLUMN = (
     "Product conversion factor [kg input product per kg of output product]"
 )
@@ -1376,6 +1537,7 @@ class OrbaeRow:
     schema_version: str
     ef_kg_per_kg: float
     intensity_tonnes_per_ha: float
+    luc_emissions_tonnes: float
     forest_kg_per_kg: float
     grassland_kg_per_kg: float
     peatland_conversion_kg_per_kg: float
@@ -1458,6 +1620,9 @@ def iter_orbae_rows(path_to_zip: pathlib.Path) -> collections.abc.Iterator[Orbae
                 iso_3166=country.alpha3,
                 jurisdiction_name=row["Administrative level 1"]
                 or row["Administrative level 0"],
+                luc_emissions_tonnes=get_float(
+                    column=ORBAE_LUC_EMISSIONS_COLUMN, row=row
+                ),
                 peatland_conversion_kg_per_kg=(
                     get_float(
                         column=ORBAE_POOL_TO_COLUMN[

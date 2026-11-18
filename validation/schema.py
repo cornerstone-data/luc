@@ -105,6 +105,17 @@ class GasScope(enum.StrEnum):
     CO2E = enum.auto()
 
 
+class Quantity(enum.StrEnum):
+    """What a measure compares: emissions in tonnes, or the per-kg emissions factor.
+
+    Emissions leave production out, so a comparison of emissions moves only with the numerator; a
+    factor moves with either side's production too.
+    """
+
+    EMISSIONS = enum.auto()
+    FACTOR = enum.auto()
+
+
 class Statistic(enum.StrEnum):
     """What a control's expected number actually is.
 

@@ -42,44 +42,99 @@ BASES_WITH_CONTROLS = frozenset({"control", "reserved"})
 
 
 class Measure(enum.Enum):
-    """A ratio between two sources. The value holds them, so a measure carries its own arithmetic.
+    """Two sources and the quantity compared between them. The value holds all three, so a measure
+    carries its own arithmetic.
+
+    The name is NUMERATOR_OVER_DENOMINATOR. Where a pair is compared on both quantities, the
+    emissions measure adds `_EMISSIONS`; the other names predate the quantity, and the value is what
+    says which one they compare.
 
     ORBAE_OVER_WRI contains no term of ours. A change in our pipeline moves SLUC_OVER_WRI and
     SLUC_OVER_ORBAE together while leaving ORBAE_OVER_WRI unchanged, so an anchor revision is
     distinguishable from a change in our own figures.
     """
 
-    SLUC_OVER_WRI = (schema.Source.SLUC, schema.Source.WRI)
-    SLUC_OVER_ORBAE = (schema.Source.SLUC, schema.Source.ORBAE)
-    ORBAE_OVER_WRI = (schema.Source.ORBAE, schema.Source.WRI)
-    SLUC_OVER_JDLUC = (schema.Source.SLUC, schema.Source.JDLUC)
+    SLUC_OVER_WRI = (schema.Source.SLUC, schema.Source.WRI, schema.Quantity.EMISSIONS)
+    SLUC_OVER_ORBAE = (schema.Source.SLUC, schema.Source.ORBAE, schema.Quantity.FACTOR)
+    ORBAE_OVER_WRI = (schema.Source.ORBAE, schema.Source.WRI, schema.Quantity.FACTOR)
+    SLUC_OVER_JDLUC = (schema.Source.SLUC, schema.Source.JDLUC, schema.Quantity.FACTOR)
     # Orbae's every row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg
     # too. Our leg is the numerator, matching every measure but ORBAE_OVER_WRI, which is
     # anchor-against-anchor and has no term of ours.
-    JDLUC_OVER_ORBAE = (schema.Source.JDLUC, schema.Source.ORBAE)
+    JDLUC_OVER_ORBAE = (
+        schema.Source.JDLUC,
+        schema.Source.ORBAE,
+        schema.Quantity.FACTOR,
+    )
     # The proxy leg allocates by CROPGRIDS area share rather than MapSPAM expansion share, so WRI,
     # which shares the statistical leg's allocation family, is independent of this one's.
-    JDLUC_PROXY_OVER_WRI = (schema.Source.JDLUC_PROXY, schema.Source.WRI)
-    JDLUC_PROXY_OVER_ORBAE = (schema.Source.JDLUC_PROXY, schema.Source.ORBAE)
+    JDLUC_PROXY_OVER_WRI = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.WRI,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_PROXY_OVER_ORBAE = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.ORBAE,
+        schema.Quantity.FACTOR,
+    )
+    # Orbae's provinces ranked by emissions as well as by factor, since the two rankings disagree:
+    # a leg can place a crop's emissions where Orbae does while ranking its intensity differently.
+    SLUC_OVER_ORBAE_EMISSIONS = (
+        schema.Source.SLUC,
+        schema.Source.ORBAE,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_OVER_ORBAE_EMISSIONS = (
+        schema.Source.JDLUC,
+        schema.Source.ORBAE,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_PROXY_OVER_ORBAE_EMISSIONS = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.ORBAE,
+        schema.Quantity.EMISSIONS,
+    )
+    # The legs against each other in tonnes, which leaves each leg's production out
+    SLUC_OVER_JDLUC_EMISSIONS = (
+        schema.Source.SLUC,
+        schema.Source.JDLUC,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_PROXY_OVER_SLUC_EMISSIONS = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.SLUC,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_OVER_JDLUC_PROXY_EMISSIONS = (
+        schema.Source.JDLUC,
+        schema.Source.JDLUC_PROXY,
+        schema.Quantity.EMISSIONS,
+    )
 
     @property
     def numerator(self) -> schema.Source:
-        numerator, _ = self.value
+        numerator, _, _ = self.value
         return numerator
 
     @property
     def denominator(self) -> schema.Source:
-        _, denominator = self.value
+        _, denominator, _ = self.value
         return denominator
+
+    @property
+    def quantity(self) -> schema.Quantity:
+        _, _, quantity = self.value
+        return quantity
 
     @property
     def is_anchored(self) -> bool:
         """Whether either side of the ratio is an external anchor.
 
-        SLUC_OVER_JDLUC is the one measure where neither is: both terms are ours, so nothing outside
-        this repository can move it. It therefore has no anchor identity to freeze a baseline
-        against, and needs none -- the `trace` table compared identifies everything that can move
-        it, which is exactly why a disagreement here implicates one of our own legs.
+        The measures between two legs have neither: both terms are ours, so nothing outside this
+        repository can move them. They therefore have no anchor identity to freeze a baseline
+        against, and need none -- the `trace` table compared identifies everything that can move
+        them, which is exactly why a disagreement there implicates one of our own legs.
         """
         ours = {schema.Source.SLUC, schema.Source.JDLUC, schema.Source.JDLUC_PROXY}
         return not {self.numerator, self.denominator} <= ours
