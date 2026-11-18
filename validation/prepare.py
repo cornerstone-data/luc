@@ -723,7 +723,7 @@ def get_anchor_versions(measure: targets.Measure) -> dict[str, str]:
                 versions[source.name] = pull.WRI_REVISION[:SOURCE_VERSION_LENGTH]
             case schema.Source.ORBAE:
                 versions[source.name] = get_orbae_export_version()
-            case schema.Source.SLUC | schema.Source.JDLUC:
+            case schema.Source.SLUC | schema.Source.JDLUC | schema.Source.JDLUC_PROXY:
                 continue
             case _:
                 raise NotImplementedError(
@@ -937,10 +937,14 @@ def iter_sluc_jdluc_comparisons(
         }
 
 
-def iter_sluc_wri_comparisons(
+def iter_trace_wri_comparisons(
     table: pandas.DataFrame,
 ) -> collections.abc.Iterator[dict[str, object]]:
-    """Our forest emissions against WRI's published deforestation emissions, tonnes against tonnes.
+    """The statistical and proxy legs' forest emissions against WRI's published deforestation
+    emissions, tonnes against tonnes.
+
+    The direct leg is left out: it is US-only, and WRI's US crops sit in its national rows, which
+    the statistical and proxy legs already compare.
 
     Nationally, with no yield, area or production term on either side. A provincial rollup is ruled
     out by arithmetic rather than by preference. WRI's provincial
@@ -978,48 +982,52 @@ def iter_sluc_wri_comparisons(
         wri.assign(
             crop_name=wri["crop_name"].replace(SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE)
         )
-        .groupby(["iso_3166", "crop_name"])["deforestation_tonnes"]
+        .groupby(["iso_3166", "crop_name"], as_index=False)["deforestation_tonnes"]
         .sum()
-        .to_dict()
     )
     levels = table.index.get_level_values
     national = with_crop_codes(
-        frame=table[
-            (levels("admin_level") == schema.NATIONAL)
-            & (levels("methodology") == schema.STATISTICAL)
-        ].reset_index()
+        frame=table[levels("admin_level") == schema.NATIONAL].reset_index()
     )
-    for row in sorted(
-        national.to_dict("records"),
-        key=lambda record: (record["admin_id"], record["crop_code"]),
+    # A leg with no production of a crop in a country attributes nothing to it, and the ratio is a
+    # hard zero. That is an absence rather than a disagreement, and would drag any statistic over
+    # these rows. A zero ratio where production *is* present stays: attributing nothing to a crop we
+    # grow is a finding.
+    compared = national[national["production_kg"] > 0].merge(
+        deforestation,
+        left_on=["admin_id", "crop_code"],
+        right_on=["iso_3166", "crop_name"],
+    )
+    for methodology, measure in (
+        (schema.STATISTICAL, targets.Measure.SLUC_OVER_WRI),
+        (schema.JURISDICTIONAL_DIRECT_PROXY, targets.Measure.JDLUC_PROXY_OVER_WRI),
     ):
-        anchor_tonnes = deforestation.get((row["admin_id"], row["crop_code"]))
-        if not anchor_tonnes:
-            continue
-        if row["production_kg"] <= 0:
-            # MapSPAM puts no production of this crop in this country, so we attribute nothing and
-            # the ratio is a hard zero. That is an absence rather than a disagreement, and seven of
-            # them would drag any statistic over these rows. A zero ratio where production *is*
-            # present stays: attributing nothing to a crop we do grow is a finding.
-            continue
-        yield {
-            "iso_3166": row["admin_id"],
-            "crop_name": row["crop_code"],
-            "emission_pool": schema.EmissionPool.FOREST,
-            "measure": targets.Measure.SLUC_OVER_WRI,
-            "statistic": schema.Statistic.RATIO,
-            "ratio": float(row["forest_emissions_mt"]) / anchor_tonnes,
-            # Nothing is joined provincially, so nothing can be dropped: both sides are the whole
-            # national figure, and a zero here means "no provinces used" rather than "a thin join".
-            "provinces": 0,
-            "comparability": schema.Comparability.LEVEL,
-            "aggregation": schema.Aggregation.AS_PUBLISHED,
-            "coverage_fraction": 1.0,
-            # One anchor, and it shares this leg's MapSPAM expansion-share family, so it
-            # corroborates the forest pool and carbon density rather than the allocation.
-            "confidence": schema.Confidence.MEDIUM,
-            "worst_tier": schema.SourceTier.PULLED,
-        }
+        for row in (
+            compared[compared["methodology"] == methodology]
+            .sort_values(["admin_id", "crop_code"])
+            .to_dict("records")
+        ):
+            yield {
+                "iso_3166": row["admin_id"],
+                "crop_name": row["crop_code"],
+                "emission_pool": schema.EmissionPool.FOREST,
+                "measure": measure,
+                "statistic": schema.Statistic.RATIO,
+                "ratio": float(row["forest_emissions_mt"])
+                / float(row["deforestation_tonnes"]),
+                # Nothing is joined provincially, so nothing can be dropped: both sides are the
+                # whole national figure, and a zero here means "no provinces used" rather than "a
+                # thin join".
+                "provinces": 0,
+                "comparability": schema.Comparability.LEVEL,
+                "aggregation": schema.Aggregation.AS_PUBLISHED,
+                "coverage_fraction": 1.0,
+                # One anchor. It shares the statistical leg's MapSPAM expansion-share family, so for
+                # that leg it corroborates the forest pool and carbon density rather than the
+                # allocation.
+                "confidence": schema.Confidence.MEDIUM,
+                "worst_tier": schema.SourceTier.PULLED,
+            }
 
 
 def iter_orbae_trace_comparisons(
@@ -1039,8 +1047,8 @@ def iter_orbae_trace_comparisons(
     the mixed-schema defect `get_orbae_findings` already reports, showing up in the decomposition. The
     total is the quantity Orbae publishes; the breakdown is the part that disagrees with itself.
 
-    JDLUC_OVER_ORBAE is the only method-family-matched comparison in the design: every Orbae row is
-    `Method = jdLUC`, and the USA is the one jurisdiction where we run a jdLUC leg too.
+    Every Orbae row is `Method = jdLUC`, the family the direct and proxy legs belong to. The direct
+    leg is US-only; the proxy leg runs wherever Orbae does.
     """
     admin_ids = get_orbae_admin_ids()
     orbae = read_orbae()
@@ -1073,6 +1081,7 @@ def iter_orbae_trace_comparisons(
     for methodology, measure in (
         (schema.STATISTICAL, targets.Measure.SLUC_OVER_ORBAE),
         (schema.JURISDICTIONAL_DIRECT, targets.Measure.JDLUC_OVER_ORBAE),
+        (schema.JURISDICTIONAL_DIRECT_PROXY, targets.Measure.JDLUC_PROXY_OVER_ORBAE),
     ):
         ours = provincial[provincial["methodology"] == methodology]
         merged = ours.merge(
@@ -1128,7 +1137,7 @@ def get_comparisons(
     frame = pandas.DataFrame.from_records(
         list(iter_orbae_wri_comparisons())
         + list(iter_sluc_jdluc_comparisons(table=table))
-        + list(iter_sluc_wri_comparisons(table=table))
+        + list(iter_trace_wri_comparisons(table=table))
         + list(iter_orbae_trace_comparisons(table=table))
     )
     assert len(frame), "no comparison could be made, which means a join broke"
@@ -1277,10 +1286,10 @@ def get_deforestation_share(
 # +0.961 at the median over 3,186 (country, crop) pairs, 95% of them above +0.7 and none below +0.3, and
 # every Orbae-covered control pair sits between +0.964 and +0.995. So a rank comparison against Orbae
 # survives the offset and a ratio does not.
-# Two further hazards are recorded rather than fixed. The export mixes schema versions -- 2.0.0, 2.1.0
-# and 2.2.0 in one file, so a cross-country comparison drawn from it spans anchor versions. And
-# provincial ids are opaque Orbae strings (`AUS-20230119-1`), so a provincial join needs
-# name matching like the GADM-to-World-Bank map, which is not built.
+# The export mixes schema versions -- 2.0.0, 2.1.0 and 2.2.0 in one file -- so a cross-country
+# comparison drawn from it spans anchor versions; that is recorded rather than fixed. Provincial ids
+# are opaque Orbae strings (`AUS-20230119-1`), so its provinces reach a World Bank `admin_id` by name,
+# through the committed `orbae_to_world_bank_admin_1.json` that `get_orbae_admin_ids` reads.
 
 
 ORBAE_EXPORT = pull.RAW / "orbae" / "20260807_orbae_export.zip"

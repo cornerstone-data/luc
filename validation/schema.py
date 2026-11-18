@@ -47,11 +47,13 @@ JURISDICTIONAL_DIRECT_PROXY = "JURISDICTIONAL_DIRECT_PROXY"
 class Source(enum.StrEnum):
     """Who reports a figure.
 
-    SLUC and JDLUC are the legs under test; the rest are what they are tested against.
+    SLUC, JDLUC and JDLUC_PROXY are the statistical, direct and proxy legs under test; the rest
+    are what they are tested against.
     """
 
     SLUC = enum.auto()
     JDLUC = enum.auto()
+    JDLUC_PROXY = enum.auto()
     WRI = enum.auto()
     ORBAE = enum.auto()
     EPA = enum.auto()

@@ -53,10 +53,14 @@ class Measure(enum.Enum):
     SLUC_OVER_ORBAE = (schema.Source.SLUC, schema.Source.ORBAE)
     ORBAE_OVER_WRI = (schema.Source.ORBAE, schema.Source.WRI)
     SLUC_OVER_JDLUC = (schema.Source.SLUC, schema.Source.JDLUC)
-    # The only method-family-matched comparison in the design: Orbae's every row is Method=jdLUC, and
-    # the USA is the one jurisdiction where we run a jdLUC leg too. Our leg is the numerator, matching
-    # every measure but ORBAE_OVER_WRI, which is anchor-against-anchor and has no term of ours.
+    # Orbae's every row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg
+    # too. Our leg is the numerator, matching every measure but ORBAE_OVER_WRI, which is
+    # anchor-against-anchor and has no term of ours.
     JDLUC_OVER_ORBAE = (schema.Source.JDLUC, schema.Source.ORBAE)
+    # The proxy leg allocates by CROPGRIDS area share rather than MapSPAM expansion share, so WRI,
+    # which shares the statistical leg's allocation family, is independent of this one's.
+    JDLUC_PROXY_OVER_WRI = (schema.Source.JDLUC_PROXY, schema.Source.WRI)
+    JDLUC_PROXY_OVER_ORBAE = (schema.Source.JDLUC_PROXY, schema.Source.ORBAE)
 
     @property
     def numerator(self) -> schema.Source:
@@ -77,7 +81,7 @@ class Measure(enum.Enum):
         against, and needs none -- the `trace` table compared identifies everything that can move
         it, which is exactly why a disagreement here implicates one of our own legs.
         """
-        ours = {schema.Source.SLUC, schema.Source.JDLUC}
+        ours = {schema.Source.SLUC, schema.Source.JDLUC, schema.Source.JDLUC_PROXY}
         return not {self.numerator, self.denominator} <= ours
 
 
