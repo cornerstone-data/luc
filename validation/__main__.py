@@ -1,9 +1,13 @@
-"""One entrypoint. Retrieve the anchors, compare against them, print the result.
+"""One entrypoint. Retrieve the anchors, compare a `trace` table against them, print the result.
 
-  uv run python -m validation                       everything the anchors support
-  uv run python -m validation --stage pull          retrieve and lock, nothing else
-  uv run python -m validation --section comparisons only that section
-  uv run python -m validation --year 2015           a different FAOSTAT vintage
+  uv run python -m validation --table v202611.parquet                       every section
+  uv run python -m validation --table v202611.parquet --section comparisons only that section
+  uv run python -m validation --table v202611.parquet --year 2015           another FAOSTAT year
+  uv run python -m validation --stage pull                                  retrieve and lock
+
+`--table` is a parquet `trace` wrote: a release's table, or a branch's `trace.py <countries>
+--methodology-name ...` runs merged into one, every leg in it compared at once. A check before a
+release therefore needs a `trace` run of the target countries.
 
 **Sections are individually selectable because the whole document will not always fit.** GitHub caps a
 pull-request body at 65,536 characters and the comparison table alone will exceed that once provincial
@@ -13,10 +17,6 @@ rows land, so a slice has to be pastable on its own. Every section stands alone 
 news, because a report that fails on a bad result cannot be used to characterize bad results. It fails
 only on unreadable input or a missing join key. `tools/` is the deliberate exception: a generator that
 emits a broken committed artifact exits nonzero.
-
-`capture` is not a stage here. It runs our own pipeline, so it is `validation.capture`, run
-by hand; until it has been run, every measure with a term of ours is
-reported as not-yet-run rather than omitted -- a missing section reads as a passing one.
 """
 
 import argparse
@@ -24,6 +24,8 @@ import enum
 import logging
 import pathlib
 import typing
+
+import pandas
 
 from validation import prepare, pull, report, targets
 
@@ -35,7 +37,7 @@ DEFAULT_ELIGIBLE_ROWS = 20
 
 
 class Stage(enum.StrEnum):
-    """What to run. `capture` is not here; see the module docstring."""
+    """What to run."""
 
     PULL = enum.auto()
     REPORT = enum.auto()
@@ -45,7 +47,7 @@ class Section(enum.StrEnum):
     """The report's sections, in the order they are printed.
 
     Ordering is deliberate. `ELIGIBLE` comes first because it establishes the universe the rest is
-    drawn from, and because it carries the one BLOCKING finding measurable without a capture: the
+    drawn from, and because it carries the one BLOCKING finding measurable from the anchors alone: the
     pairs the pipeline cannot produce a comparable number for at all outrank any disagreement about
     a number it can. Denominators come next, because a product-form mismatch makes every factor
     built on that denominator incomparable. `COMPARISONS` carries the
@@ -59,12 +61,12 @@ class Section(enum.StrEnum):
 
 
 def get_document(
-    repo_root: pathlib.Path, show: int, wanted: tuple[Section, ...], year: int
+    show: int, table: pandas.DataFrame, wanted: tuple[Section, ...], year: int
 ) -> str:
     """Render the requested sections, in `Section` order, joined into one document.
 
     Everything is computed once whether or not the section that uses it was asked for. None of these
-    reads is expensive -- the largest is a 1.4 MiB parquet -- so a compute-only-what-you-need branch per
+    reads is expensive -- the largest is the `trace` table -- so a compute-only-what-you-need branch per
     section bought a little speed at the cost of four conditionals around the code that does the work.
     """
     wri_yields = prepare.read_wri_yields(grain_name="national")
@@ -79,11 +81,9 @@ def get_document(
         faostat_areas=prepare.read_faostat_areas(year=year),
         year=year,
     )
-    comparisons = prepare.get_comparisons(
-        deforestation=deforestation, repo_root=repo_root
-    )
+    comparisons = prepare.get_comparisons(deforestation=deforestation, table=table)
 
-    uncompared = prepare.get_uncompared_targets(comparisons=comparisons)
+    uncompared = prepare.get_uncompared_targets(comparisons=comparisons, table=table)
     eligible = prepare.get_eligible()
     rendered = {
         Section.ELIGIBLE: report.render_eligible(
@@ -159,9 +159,8 @@ def main() -> int:
         help="pull stage only: re-retrieve this source even where the digest matches",
     )
     parser.add_argument(
-        "--repo-root",
-        default=pathlib.Path(__file__).resolve().parent.parent,
-        help="the jdluc checkout, read for code_version",
+        "--table",
+        help="report stage only: the `trace` parquet to compare against the anchors",
         type=pathlib.Path,
     )
     parser.add_argument(
@@ -195,9 +194,10 @@ def main() -> int:
                 f"{counts['reused']:d} already current, {counts['changed']:d} changed upstream"
             )
         case Stage.REPORT:
+            assert args.table, "the report stage compares a `trace` table; pass --table"
             document = get_document(
-                repo_root=args.repo_root,
                 show=args.show,
+                table=prepare.read_trace_table(path=args.table),
                 wanted=tuple(args.section) or tuple(Section),
                 year=args.year,
             )

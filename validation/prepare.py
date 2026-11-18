@@ -1,7 +1,7 @@
 """Read the pulled anchors into the frames `report` renders, and check them against each other.
 
-Anchors only, for now: WRI's factors and yield factors, and FAOSTAT's production. The capture side
--- our own `efs.parquet` -- joins here once it exists, which runs the pipeline and so is separate.
+The anchors are WRI's factors and yield factors, Orbae's export and FAOSTAT's production. Our side is
+a `trace` table, which `read_trace_table` reads from the parquet the command line names.
 
 The yield cross-check is the first thing this does, and it runs before any emissions comparison for
 a reason. WRI's factor is an intensity over a yield:
@@ -11,7 +11,7 @@ a reason. WRI's factor is an intensity over a yield:
 so a yield disagreement moves every factor built on it. If WRI and FAOSTAT are on different product
 forms for a crop -- fruit bunches against palm oil, seed cotton against ginned lint -- the ratio is
 off by the milling yield, several-fold, and every emissions comparison for that crop inherits it
-while looking like a methodology gap. This finds that before a capture is spent on it.
+while looking like a methodology gap. This finds that before any figure of ours is compared.
 
   Transforms only; `python -m validation` runs them and renders the result.
 """
@@ -97,10 +97,10 @@ SOURCE_VERSION_LENGTH = 12
 # not. Recomputing all 864 pairs from those anchors takes about a tenth of a second, and it cannot go
 # stale against the pin because it is read from whatever the pin currently names.
 TILED_ISO_3166S = pull.DATA / "tiled_iso_3166s.json"
-# E4. An emissions factor that cannot move a companywide number is not worth capture time.
+# E4. An emissions factor that cannot move a companywide number is not worth a target.
 MINIMUM_PRODUCTION_KG = 100 * 1_000 * 1_000
-# E3. Land area, a proxy for the cropland weighting that would need a capture -- and the capture needs
-# the target set, which needs E3, which is why the proxy stands.
+# E3. Land area, a proxy for cropland weighting. Cropland weighting would need a `trace` table, and
+# eligibility is computed from the anchors alone.
 MINIMUM_AREA_COVERAGE = 0.5
 # The conversion matrix names cropland and pasture as destinations and nothing else, so forest
 # cleared for a woody perennial resolves to no destination: the clearance is identified and dated,
@@ -434,13 +434,13 @@ def get_eligible() -> pandas.DataFrame:
 def get_perennial_findings(eligible: pandas.DataFrame) -> list[schema.Finding]:
     """What it means that some of the largest eligible pairs are crops the pipeline cannot see.
 
-    Sized from the anchors alone, so it needs no capture: these pairs carry WRI's own deforestation
+    Sized from the anchors alone, so it needs no `trace` table: these pairs carry WRI's own deforestation
     attribution while no destination layer resolves what replaced the forest. This survived dropping
     the scorer unchanged, which is the clearest evidence the ranking was never what produced it.
 
-    Nothing here quotes how far the legs land from the anchor. That is a captured quantity and it
+    Nothing here quotes how far the legs land from the anchor. That is read from a `trace` table and
     moves with the emissions model, so it belongs in the comparisons table rather than frozen into
-    a finding that runs without a capture.
+    a finding computed from the anchors alone.
 
     BLOCKING rather than advisory. For these pairs the pipeline is not disagreeing with an anchor, it
     is structurally unable to produce a comparable number at all.
@@ -490,7 +490,7 @@ def get_target_anchor_consistency_findings(
         (row["iso_3166"], row["crop_name"]): row["deforestation_share"]
         for row in deforestation.to_dict("records")
     }
-    armed = {target.slug for target in targets.iter_control_targets()}
+    armed = {control.target.slug for control in targets.iter_controls()}
     findings = []
     for target in targets.iter_targets():
         # The deforestation frame is keyed on MapSPAM codes, where a target names the crop.  An
@@ -572,7 +572,7 @@ def get_anchor_disagreement_findings(
 
     This is an anchor-quality row, not a pipeline gap: it says the two sources cannot corroborate each
     other for these crops, so neither can be treated as independent confirmation of the other. It is
-    measurable with no capture, which is why it is seeded rather than waiting.
+    measurable from the anchors alone, which is why it is seeded rather than waiting.
     """
     weak = agreement[
         agreement["rank_correlation"] < MINIMUM_CROSS_COUNTRY_RANK_AGREEMENT
@@ -604,7 +604,7 @@ def get_anchor_disagreement_findings(
 
 
 def get_orbae_admin_ids() -> dict[tuple[str, str], str]:
-    """(iso_3166, Orbae province name) to the World Bank `admin_id` our capture is keyed on.
+    """(iso_3166, Orbae province name) to the World Bank `admin_id` a `trace` table is keyed on.
 
     Orbae's provincial ids are opaque strings, so its provinces reach anything else by name through a
     committed, reviewed map -- a strict lookup, with no matching at runtime.
@@ -643,7 +643,7 @@ def iter_orbae_wri_comparisons(
 ) -> collections.abc.Iterator[dict[str, object]]:
     """Orbae against WRI, one row per (country, crop), as a provincial rank correlation.
 
-    The only comparison that can be made before a capture, because both sides are external. Rank
+    The only comparison with no term of ours, because both sides are external. Rank
     rather than ratio: Orbae's export is permanently three years off ours and WRI's own level spans
     1.42x over that gap while its provincial rank holds at +0.961.
 
@@ -724,7 +724,7 @@ def get_orbae_export_version() -> str:
 def get_anchor_versions(measure: targets.Measure) -> dict[str, str]:
     """The identity of every external anchor a measure divides, keyed by `schema.Source` name.
 
-    Our own legs are absent rather than null, since `code_version` already identifies them. That
+    Our own legs are absent rather than null, since the `trace` table identifies them. That
     makes ORBAE_OVER_WRI the case this exists for: it has no term of ours, so these versions are its
     whole identity, and a change in them is the only thing that can move it.
     """
@@ -745,21 +745,25 @@ def get_anchor_versions(measure: targets.Measure) -> dict[str, str]:
     return versions
 
 
-def read_efs() -> pandas.DataFrame | None:
-    """The captured emissions factors for `schema.ASSESSMENT_YEAR`, or None before a capture has
-    run.
+def read_trace_table(path: pathlib.Path) -> pandas.DataFrame:
+    """A `trace` table's rows for `schema.ASSESSMENT_YEAR`, every leg it holds.
 
-    Read here rather than through `validation.capture` so the reporting path never imports the
-    module that runs the pipeline. Only the one year is kept, since the comparisons below pivot and
-    sum over the other levels and would add years together.
+    A release table, or a branch's `trace` runs merged into one parquet. One table from one run
+    cannot mix code versions, so nothing here checks for that. Only the one year is kept, since the
+    comparisons below pivot and sum over the other levels and would add years together.
     """
-    if not pull.EFS.exists():
-        return None
-    efs = pandas.read_parquet(pull.EFS)
-    return efs[efs.index.get_level_values("assessment_year") == schema.ASSESSMENT_YEAR]
+    table = pandas.read_parquet(path)
+    assert table.index.names == list(schema.CANONICAL_KEY), (
+        f"{path} is indexed by {table.index.names}, not {schema.CANONICAL_KEY}"
+    )
+    table = table[
+        table.index.get_level_values("assessment_year") == schema.ASSESSMENT_YEAR
+    ]
+    assert len(table), f"{path} holds no rows for {schema.ASSESSMENT_YEAR:d}"
+    return table
 
 
-# The MapSPAM code each captured crop row is compared under. The capture keys on FAOSTAT items, and
+# The MapSPAM code each `trace` crop row is compared under. `trace` keys on FAOSTAT items, and
 # FAOSTAT has one item each for coffee and millet where MapSPAM 2005 onward has two, so those two
 # take MapSPAM 2000's combined codes.
 COMMODITY_ID_TO_CROP_CODE = {
@@ -882,7 +886,9 @@ def with_crop_codes(frame: pandas.DataFrame) -> pandas.DataFrame:
     return crops
 
 
-def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]:
+def iter_sluc_jdluc_comparisons(
+    table: pandas.DataFrame,
+) -> collections.abc.Iterator[dict[str, object]]:
     """Our two legs against each other, nationally, per crop both of them model.
 
     The only comparison in the design with no external anchor in it, and so the only one where a
@@ -896,12 +902,9 @@ def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]
     denominator. Localizing it further would need the two legs' production compared directly, which
     nothing here does.
     """
-    efs = read_efs()
-    if efs is None:
-        return
     national = with_crop_codes(
-        frame=efs[
-            efs.index.get_level_values("admin_level") == schema.NATIONAL
+        frame=table[
+            table.index.get_level_values("admin_level") == schema.NATIONAL
         ].reset_index()
     )
     by_methodology = national.pivot_table(
@@ -909,8 +912,8 @@ def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]
         index=["admin_id", "crop_code"],
         values="emissions_factor_kgco2e_per_kg",
     )
-    # NB: the jurisdictional-direct leg is US-only, so a capture scoped to countries it does not
-    # cover has no column for it at all. A head-to-head needs both legs, and holding only one is
+    # NB: the jurisdictional-direct leg is US-only, so a table of countries it does not cover has
+    # no column for it at all. A head-to-head needs both legs, and holding only one is
     # not a disagreement about anything -- there is simply nothing here to compare.
     if not {schema.STATISTICAL, schema.JURISDICTIONAL_DIRECT}.issubset(
         by_methodology.columns
@@ -946,7 +949,9 @@ def iter_sluc_jdluc_comparisons() -> collections.abc.Iterator[dict[str, object]]
         }
 
 
-def iter_sluc_wri_comparisons() -> collections.abc.Iterator[dict[str, object]]:
+def iter_sluc_wri_comparisons(
+    table: pandas.DataFrame,
+) -> collections.abc.Iterator[dict[str, object]]:
     """Our forest emissions against WRI's published deforestation emissions, tonnes against tonnes.
 
     Nationally, with no yield, area or production term on either side. A provincial rollup is ruled
@@ -977,9 +982,6 @@ def iter_sluc_wri_comparisons() -> collections.abc.Iterator[dict[str, object]]:
     FOREST throughout, because WRI is forest-only. Against our total this would be the category
     mismatch that makes a grassland-dominated country read as a 35x disagreement.
     """
-    efs = read_efs()
-    if efs is None:
-        return
     wri = read_wri_national_emissions(gas_scope="CO2e")
     wri = wri[(wri["year"] == REFERENCE_YEAR) & (wri["deforestation_tonnes"] > 0)]
     # Tonnes add, so WRI's two coffees and two millets sum to the one FAOSTAT item each that our
@@ -992,9 +994,9 @@ def iter_sluc_wri_comparisons() -> collections.abc.Iterator[dict[str, object]]:
         .sum()
         .to_dict()
     )
-    levels = efs.index.get_level_values
+    levels = table.index.get_level_values
     national = with_crop_codes(
-        frame=efs[
+        frame=table[
             (levels("admin_level") == schema.NATIONAL)
             & (levels("methodology") == schema.STATISTICAL)
         ].reset_index()
@@ -1032,7 +1034,9 @@ def iter_sluc_wri_comparisons() -> collections.abc.Iterator[dict[str, object]]:
         }
 
 
-def iter_orbae_capture_comparisons() -> collections.abc.Iterator[dict[str, object]]:
+def iter_orbae_trace_comparisons(
+    table: pandas.DataFrame,
+) -> collections.abc.Iterator[dict[str, object]]:
     """Each of our legs against Orbae, province by province, as a rank correlation.
 
     Rank rather than ratio, permanently. Every Orbae row is assessment year 2023 against our 2020,
@@ -1050,9 +1054,6 @@ def iter_orbae_capture_comparisons() -> collections.abc.Iterator[dict[str, objec
     JDLUC_OVER_ORBAE is the only method-family-matched comparison in the design: every Orbae row is
     `Method = jdLUC`, and the USA is the one jurisdiction where we run a jdLUC leg too.
     """
-    efs = read_efs()
-    if efs is None:
-        return
     admin_ids = get_orbae_admin_ids()
     orbae = read_orbae()
     orbae = orbae[
@@ -1066,9 +1067,9 @@ def iter_orbae_capture_comparisons() -> collections.abc.Iterator[dict[str, objec
     ]
     orbae = orbae.dropna(subset=["admin_id"])
 
-    levels = efs.index.get_level_values
+    levels = table.index.get_level_values
     provincial = with_crop_codes(
-        frame=efs[levels("admin_level") == schema.PROVINCIAL].reset_index()
+        frame=table[levels("admin_level") == schema.PROVINCIAL].reset_index()
     )
     # `admin_id` leads with the ISO, which is the only place the country appears on our rows.
     provincial["iso_3166"] = provincial["admin_id"].str[:3]
@@ -1123,13 +1124,13 @@ def iter_orbae_capture_comparisons() -> collections.abc.Iterator[dict[str, objec
 
 
 def get_comparisons(
-    repo_root: pathlib.Path, deforestation: pandas.DataFrame
+    deforestation: pandas.DataFrame, table: pandas.DataFrame
 ) -> pandas.DataFrame:
     """Every comparison this run can make, with its control expectation attached.
 
-    One row per (target, pool, measure). Orbae-against-WRI needs no capture, both sides being
-    external; sLUC-against-jdLUC needs one and yields nothing until it has run. A measure with no row
-    is absent rather than null, so `render_coverage` reports the targets no comparison reached.
+    One row per (target, pool, measure). Orbae-against-WRI reads nothing from `table`, both sides
+    being external; every other measure reads it. A measure with no row is absent rather than null,
+    so `render_coverage` reports the targets no comparison reached.
 
     `deforestation` rides along so each row carries whether its own anchor is self-consistent. That
     fact belongs on the row for the same reason `comparability` does: a comparison against a WRI row
@@ -1138,9 +1139,9 @@ def get_comparisons(
     """
     frame = pandas.DataFrame.from_records(
         list(iter_orbae_wri_comparisons())
-        + list(iter_sluc_jdluc_comparisons())
-        + list(iter_sluc_wri_comparisons())
-        + list(iter_orbae_capture_comparisons())
+        + list(iter_sluc_jdluc_comparisons(table=table))
+        + list(iter_sluc_wri_comparisons(table=table))
+        + list(iter_orbae_trace_comparisons(table=table))
     )
     assert len(frame), "no comparison could be made, which means a join broke"
     expectations = {
@@ -1182,7 +1183,6 @@ def get_comparisons(
     frame["baseline_source_version"] = [
         control.baseline_source_version if control else None for control in controls
     ]
-    frame["code_version"] = schema.get_code_version(repo_root=repo_root)
     # Every anchor the row divides, not just WRI: an ORBAE_OVER_WRI ratio moves when either side is
     # revised, and recording one of the two would let an Orbae re-export pass as a pipeline change.
     frame["source_version"] = [
@@ -1193,31 +1193,28 @@ def get_comparisons(
 
 
 def get_uncompared_targets(
-    comparisons: pandas.DataFrame,
+    comparisons: pandas.DataFrame, table: pandas.DataFrame
 ) -> targets.UncomparedTargets:
-    """Targets no comparison reached, split by whether the capture could have reached them.
+    """Targets no comparison reached, split by whether `table` holds their country.
 
-    Two silences that read alike and mean opposite things. A target whose country the capture
-    covers, and which still has no comparison, has no anchor -- a fact about WRI and Orbae that
-    running more of our own pipeline cannot change. A target whose country the capture skipped
-    says nothing about anchors at all, and is answered by capturing it. Reporting the second as
-    the first is how a capture scoped with `--isos` comes to look like an absent yardstick.
+    Two silences that read alike and mean opposite things. A target whose country the table holds,
+    and which still has no comparison, has no anchor -- a fact about WRI and Orbae that running more
+    of our own pipeline cannot change. A target whose country the table lacks says nothing about
+    anchors at all, and is answered by a `trace` run that includes it. Reporting the second as the
+    first is how a table of a few countries comes to look like an absent yardstick.
     """
     compared = set(zip(comparisons["iso_3166"], comparisons["crop_name"], strict=True))
-    efs = read_efs()
-    captured = (
-        set()
-        if efs is None
-        else {str(admin_id)[:3] for admin_id in efs.index.get_level_values("admin_id")}
-    )
+    traced = {
+        str(admin_id)[:3] for admin_id in table.index.get_level_values("admin_id")
+    }
     uncompared = [
         target
         for target in targets.iter_targets()
         if (target.iso_3166, target.crop_name) not in compared
     ]
     return targets.UncomparedTargets(
-        unanchored=tuple(t for t in uncompared if t.iso_3166 in captured),
-        uncaptured=tuple(t for t in uncompared if t.iso_3166 not in captured),
+        not_in_table=tuple(t for t in uncompared if t.iso_3166 not in traced),
+        unanchored=tuple(t for t in uncompared if t.iso_3166 in traced),
     )
 
 
@@ -1293,8 +1290,8 @@ def get_deforestation_share(
 # every Orbae-covered control pair sits between +0.964 and +0.995. So a rank comparison against Orbae
 # survives the offset and a ratio does not.
 # Two further hazards are recorded rather than fixed. The export mixes schema versions -- 2.0.0, 2.1.0
-# and 2.2.0 in one file -- which is the same defect `code_version` guards against in our own
-# artifact. And provincial ids are opaque Orbae strings (`AUS-20230119-1`), so a provincial join needs
+# and 2.2.0 in one file, so a cross-country comparison drawn from it spans anchor versions. And
+# provincial ids are opaque Orbae strings (`AUS-20230119-1`), so a provincial join needs
 # name matching like the GADM-to-World-Bank map, which is not built.
 
 
@@ -1553,8 +1550,7 @@ def get_orbae_findings(frame: pandas.DataFrame) -> list[schema.Finding]:
             message=(
                 f"The export mixes {len(versions):d} schema versions "
                 f"({', '.join(versions)}) in one file, so a cross-country comparison drawn from it "
-                "spans anchor versions. This is the defect a `code_version` column exists to catch "
-                "in our own artifact, here on the anchor side"
+                "spans anchor versions"
             ),
             severity=schema.Severity.ADVISORY,
             slug="orbae-mixed-schema-version",

@@ -1,4 +1,4 @@
-"""Invented rows that exercise the schema, so `report` can be developed before any capture exists.
+"""Invented rows that exercise the schema, so `report` can be developed without a `trace` table.
 
 Deliberately synthetic and deliberately round. The fixture proves plumbing, never numbers, so
 nothing here should be mistakable for a result: the countries are fictional ISO codes in the
@@ -8,7 +8,7 @@ It covers what the report has to survive: a control inside tolerance and one out
 control inside its absolute band whose movement would exceed a relative one and a rank control
 outside it either way, a grassland row that exists only as a remainder, a
 `PATTERN_ONLY` row that must not be read as a level, a `ROLLED_UP` row with partial coverage, a
-`BORROWED` row whose confidence is degraded, a control frozen against anchors this run did not read,
+control frozen against anchors this run did not read,
 a pair whose own anchor contradicts itself across two of its rows, and a target with no anchor at all
 so the coverage section has something to report.
 """
@@ -17,11 +17,6 @@ import pandas
 
 from validation import schema, targets
 
-CODE_VERSION = "0000000fixture"
-# No row carries this. A table spanning two code versions is a defect state rather than a fixture
-# row, so the test that needs one applies this to a copy; it lives here to keep every invented
-# identifier in one place.
-SUPERSEDED_CODE_VERSION = "0000000stale00"
 # The anchors every row here was measured against, and the one a stale control was frozen against.
 # Two distinct values are the whole point: a control frozen against anchors the run did not read
 # cannot have its movement attributed.
@@ -71,7 +66,7 @@ def get_comparisons() -> pandas.DataFrame:
         },
         # Anchor-versus-anchor, and not a control here only because the two frozen rank controls
         # below already cover that path. In targets.json five of these are frozen: both sides are
-        # external, so the pair can be baselined before any capture exists.
+        # external, so the pair can be baselined without a `trace` table.
         {
             "iso_3166": "XAB",
             "crop_name": "SOYBEAN",
@@ -86,8 +81,8 @@ def get_comparisons() -> pandas.DataFrame:
             "is_control": False,
             "baseline": None,
             "tolerance": targets.DEFAULT_TOLERANCE,
-            "worst_tier": schema.SourceTier.BORROWED,
-            "confidence": schema.Confidence.LOW,
+            "worst_tier": schema.SourceTier.SUPPLIED,
+            "confidence": schema.Confidence.MEDIUM,
         },
         # Grassland exists only as the remainder, and has no external anchor at all
         {
@@ -206,7 +201,6 @@ def get_comparisons() -> pandas.DataFrame:
     # `ratio` directly, and the quotient is derived only where the two parts exist. from_records
     # fills each absent key with NaN, which is what makes the two shapes coexist in one frame.
     frame["ratio"] = frame["ratio"].fillna(frame["numerator"] / frame["denominator"])
-    frame["code_version"] = CODE_VERSION
     frame["source_version"] = SOURCE_VERSION
     # Every invented row sits on a chosen pair: the fixture exercises rendering, and a row excluded
     # from the table would exercise nothing.
@@ -226,20 +220,20 @@ def get_uncompared_targets() -> targets.UncomparedTargets:
     would let the second's branch go unexercised.
     """
     return targets.UncomparedTargets(
+        not_in_table=(
+            targets.Target(
+                basis="ranked",
+                crop_name="BARLEY",
+                iso_3166="XAF",
+                reason="Invented, to exercise the coverage section's not-in-table branch",
+            ),
+        ),
         unanchored=(
             targets.Target(
                 basis="ranked",
                 crop_name="WHEAT",
                 iso_3166="XAE",
                 reason="Invented, to exercise the coverage section's unanchored branch",
-            ),
-        ),
-        uncaptured=(
-            targets.Target(
-                basis="ranked",
-                crop_name="BARLEY",
-                iso_3166="XAF",
-                reason="Invented, to exercise the coverage section's uncaptured branch",
             ),
         ),
     )

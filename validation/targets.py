@@ -6,7 +6,7 @@ set. Selection is a person's judgement over the shortlist `prepare.get_eligible`
 `docs/validation.md` section 3.
 
 Each control holds two numbers. `inherited` is a figure from earlier work, used once as a sanity check
-when the first capture sets `baseline`; a large difference between the two is itself reported.
+when `baseline` is first set; a large difference between the two is itself reported.
 Controls fire against `baseline` alone, and a null baseline means not yet frozen. Tolerance is a
 flagging threshold, not a noise band: the pipeline is deterministic, so movement comes only from a
 code or data change.
@@ -74,8 +74,8 @@ class Measure(enum.Enum):
 
         SLUC_OVER_JDLUC is the one measure where neither is: both terms are ours, so nothing outside
         this repository can move it. It therefore has no anchor identity to freeze a baseline
-        against, and needs none -- `code_version` already identifies everything that can move it,
-        which is exactly why a disagreement here implicates one of our own legs.
+        against, and needs none -- the `trace` table compared identifies everything that can move
+        it, which is exactly why a disagreement here implicates one of our own legs.
         """
         ours = {schema.Source.SLUC, schema.Source.JDLUC}
         return not {self.numerator, self.denominator} <= ours
@@ -83,10 +83,10 @@ class Measure(enum.Enum):
 
 @dataclasses.dataclass(frozen=True)
 class UncomparedTargets:
-    """Targets no comparison reached, split by whether the capture could have reached them."""
+    """Targets no comparison reached, split by whether the `trace` table holds their country."""
 
+    not_in_table: tuple[Target, ...]
     unanchored: tuple[Target, ...]
-    uncaptured: tuple[Target, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -193,7 +193,7 @@ def check_document(document: dict[str, typing.Any]) -> None:
             else:
                 assert not frozen_against, (
                     f"{slug}: {row['measure']} divides no external anchor, so it cannot be frozen "
-                    "against one; what can move it is our own code, which `code_version` records"
+                    "against one; what can move it is our own `trace` table"
                 )
             # A correlation outside [-1, 1] is not a correlation, and a ratio is never negative.
             for field in ("inherited", "baseline"):
@@ -277,16 +277,3 @@ def iter_controls() -> collections.abc.Iterator[Control]:
                     "tolerance", get_default_tolerance(statistic=statistic)
                 ),
             )
-
-
-def iter_control_targets() -> collections.abc.Iterator[Target]:
-    """The distinct targets carrying a control, in file order.
-
-    A capture must include all of these: a control whose target was not computed removes its own
-    guard, and does so silently.
-    """
-    seen: set[str] = set()
-    for control in iter_controls():
-        if control.target.slug not in seen:
-            seen.add(control.target.slug)
-            yield control.target

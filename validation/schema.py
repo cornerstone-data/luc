@@ -5,10 +5,9 @@ column holds.
 
 Two conventions are load-bearing.
 
-Provenance travels in the row, not in a sidecar. Every produced row carries `code_version` and
-`source_version`. A merged artifact can hold rows from several runs, since `capture`'s per-ISO merge
-keeps rows it did not recompute, so a table spanning more than one `code_version` is a defect and is
-reported as one.
+Anchor provenance travels in the row, not in a sidecar. Every comparison carries `source_version`,
+naming every external anchor behind it. Our own side is one `trace` table from one run, so it needs
+no column of its own.
 
 `Comparability` records whether a ratio can be read as a level. WRI publishes emissions factors at
 the provincial grain but no production there, so a provincial per-kg factor cannot be rebased onto
@@ -18,9 +17,6 @@ this per row keeps the two from being averaged together.
 
 import dataclasses
 import enum
-import hashlib
-import pathlib
-import subprocess
 import typing
 
 # The emissions columns are metric tonnes despite the `_mt` suffix reading as megatonnes:
@@ -28,13 +24,9 @@ import typing
 # by TONNES_PER_MEGATONNE once, in the formatter, so no intermediate carries mixed units.
 KG_PER_TONNE = 1000
 TONNES_PER_MEGATONNE = 1e6
-# Uncommitted changes outside these cannot move a number, so they do not belong in `code_version`.
-# Same set tools/measure-drift.py uses.
-RESULT_BEARING_PATHS = ("jdluc", "pyproject.toml", "uv.lock")
-# efs.parquet's own index, and what any other capture is re-keyed onto. admin_id rather than
-# jurisdiction_name: a machine identifier, where a display string could be renamed. `methodology`
-# is a key level because both legs share one artifact, so it separates sLUC from jdLUC, and so is
-# `assessment_year`, because captures of several years can share it too.
+# A `trace` table's index. admin_id rather than jurisdiction_name: a machine identifier, where a
+# display string could be renamed. `methodology` is a key level because every leg shares one table,
+# and so is `assessment_year`, because tables of several years can be merged too.
 CANONICAL_KEY = (
     "admin_id",
     "admin_level",
@@ -42,13 +34,14 @@ CANONICAL_KEY = (
     "commodity_id",
     "methodology",
 )
-# The assessment year the comparisons read from efs.parquet
+# The assessment year the comparisons read from a `trace` table
 ASSESSMENT_YEAR = 2020
 NATIONAL = "NATIONAL"
 PROVINCIAL = "PROVINCIAL"
-# The two legs, as `methodology` records them in efs.parquet.
+# The legs, as `methodology` records them in a `trace` table
 STATISTICAL = "STATISTICAL"
 JURISDICTIONAL_DIRECT = "JURISDICTIONAL_DIRECT"
+JURISDICTIONAL_DIRECT_PROXY = "JURISDICTIONAL_DIRECT_PROXY"
 # A yield ratio outside this is not a disagreement about one quantity, it is two different
 # quantities: milling and ginning yields all fall well outside it, and no genuine national yield
 # estimate differs from another by half.
@@ -85,9 +78,6 @@ class SourceTier(enum.StrEnum):
     SUPPLIED = enum.auto()
     # Computed here from ingested rasters
     MEASURED = enum.auto()
-    # Copied from a working directory with no recorded provenance. Sufficient for ranking a
-    # magnitude, not for a claim
-    BORROWED = enum.auto()
 
 
 class EmissionPool(enum.StrEnum):
@@ -165,8 +155,8 @@ class DiscountBasis(enum.StrEnum):
 class Confidence(enum.IntEnum):
     """How much weight a finding's magnitude can carry. Ordered, because the register sorts on it.
 
-    Reduced by BORROWED evidence, by having one anchor where a comparison elsewhere has two, and by
-    PATTERN_ONLY comparability. Carbon density is permanently LOW: SoilGrids, Harris and Huang are
+    Reduced by having one anchor where a comparison elsewhere has two, and by PATTERN_ONLY
+    comparability. Carbon density is permanently LOW: SoilGrids, Harris and Huang are
     the datasets our carbon densities come from, so there is no external anchor for them.
     """
 
@@ -269,13 +259,6 @@ class Finding:
     affected_iso_3166s: tuple[str, ...] = ()
 
 
-def git(*arguments: str, cwd: pathlib.Path) -> str:
-    result = subprocess.run(
-        ["git", *arguments], check=True, cwd=cwd, stdout=subprocess.PIPE, text=True
-    )
-    return result.stdout.strip()
-
-
 def get_source_version_key(versions: dict[str, str]) -> str:
     """Every external anchor behind a figure, as one comparable string.
 
@@ -283,21 +266,3 @@ def get_source_version_key(versions: dict[str, str]) -> str:
     a mapping because it occupies one column and travels into a parquet.
     """
     return ",".join(f"{name:s}={versions[name]:s}" for name in sorted(versions))
-
-
-def get_code_version(repo_root: pathlib.Path) -> str:
-    """The commit that produced a row, with a digest of any uncommitted result-bearing change.
-
-    A bare SHA does not identify a dirty tree, and two dirty runs at one SHA would be
-    indistinguishable, so the diff is hashed in. Returned as a single string because it occupies a
-    single column.
-
-    This identifies the code that ran, not the code whose results were used: jdluc's cache keys on
-    (module, qualname, version=, args) and never on file contents, so a stale cached layer can
-    contradict the version recorded here.
-    """
-    sha = git("rev-parse", "HEAD", cwd=repo_root)[:12]
-    diff = git("diff", "HEAD", "--", *RESULT_BEARING_PATHS, cwd=repo_root)
-    if not diff:
-        return sha
-    return f"{sha:s}+{hashlib.sha256(diff.encode()).hexdigest()[:8]:s}"

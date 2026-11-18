@@ -354,7 +354,7 @@ def test_every_statistic_has_a_default_band(statistic: schema.Statistic) -> None
 
 def test_a_control_with_no_baseline_is_carried_rather_than_armed() -> None:
     """Every control in the file is frozen, so this state exists only here -- and it is the state a
-    newly added control arrives in, where reading it as armed would fire on the first capture."""
+    newly added control arrives in, where reading it as armed would fire on the first report."""
     carried = targets.Control(
         baseline=None,
         emission_pool=schema.EmissionPool.FOREST,
@@ -371,26 +371,12 @@ def test_a_control_with_no_baseline_is_carried_rather_than_armed() -> None:
 
 
 def test_a_target_slug_is_the_pair_a_report_prints() -> None:
-    """`render_coverage` prints these and `iter_control_targets` dedups on them, so the separator is
-    load-bearing in two places that never see each other."""
+    """`render_coverage` prints these and `get_target_anchor_consistency_findings` matches controls
+    on them, so the separator is load-bearing in two places that never see each other."""
     target = targets.Target(
         basis="ranked", crop_name="MAIZE", iso_3166="XAA", reason="Invented"
     )
     assert target.slug == "XAA-MAIZE"
-
-
-def test_the_control_targets_are_the_pairs_carrying_controls_in_file_order() -> None:
-    """A capture is driven off this list, so a pair missing from it silently loses its guard.
-
-    Deduplicated, because a pair carrying three controls is one target to compute and not three, and
-    in file order, which is materiality order by construction.
-    """
-    slugs = [target.slug for target in targets.iter_control_targets()]
-    assert len(slugs) == len(set(slugs))
-    assert set(slugs) == {control.target.slug for control in targets.iter_controls()}
-    assert slugs == [
-        target.slug for target in targets.iter_targets() if target.slug in set(slugs)
-    ]
 
 
 def test_a_frozen_control_carries_the_anchors_it_was_frozen_against() -> None:

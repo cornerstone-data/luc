@@ -1,4 +1,4 @@
-"""Checks on how captured rows, keyed by FAOSTAT item, are put back into MapSPAM codes."""
+"""Checks on how `trace` rows, keyed by FAOSTAT item, are put back into MapSPAM codes."""
 
 import pandas
 import pytest

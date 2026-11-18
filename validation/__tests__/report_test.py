@@ -3,8 +3,8 @@
 What these have in common is that the failure is invisible in the output. The report is Markdown, so
 a malformed cell is not an error -- it renders as a broken table nobody notices -- and a body that
 overruns GitHub's limit is not an error either, it is silently truncated. So: a pipe that ends a cell
-early, an empty table reading as agreement, a shape-only ratio indistinguishable from a level, a
-control checked with the wrong arithmetic, and a table drawn from two runs of the pipeline.
+early, an empty table reading as agreement, a shape-only ratio indistinguishable from a level, and a
+control checked with the wrong arithmetic.
 """
 
 import pandas
@@ -96,51 +96,6 @@ def test_a_control_whose_anchors_moved_is_advisory_not_a_defect() -> None:
     stale = findings["stale-baseline-xah-soybean-orbae_over_wri"]
     assert stale.severity == schema.Severity.ADVISORY
     assert fixture.SUPERSEDED_SOURCE_VERSION in stale.message
-
-
-def test_borrowed_evidence_is_reported_at_all() -> None:
-    """BORROWED means no recorded provenance, which the figure agreeing does not repair.
-
-    `schema.SourceTier` calls it sufficient for ranking a magnitude and not for a claim, so the row
-    has to be named even when nothing about its number looks wrong.
-    """
-    findings = {
-        finding.slug: finding
-        for finding in report.get_provenance_findings(
-            comparisons=fixture.get_comparisons()
-        )
-    }
-    borrowed = findings["borrowed-evidence"]
-    assert borrowed.severity == schema.Severity.ADVISORY
-    assert borrowed.confidence == schema.Confidence.LOW
-    assert borrowed.affected_rows == 1
-    assert borrowed.affected_iso_3166s == ("XAB",)
-
-
-def test_a_table_spanning_two_code_versions_is_a_defect() -> None:
-    """A per-ISO merge keeps rows it did not recompute, so one artifact can hold two versions.
-
-    This is a disagreement between two runs of ours rather than between two sources, so no anchor
-    can catch it and nothing about the numbers looks wrong.
-    """
-    comparisons = fixture.get_comparisons()
-    assert "mixed-code-version" not in {
-        finding.slug
-        for finding in report.get_provenance_findings(comparisons=comparisons)
-    }
-    comparisons.loc[comparisons.index[0], "code_version"] = (
-        fixture.SUPERSEDED_CODE_VERSION
-    )
-    findings = {
-        finding.slug: finding
-        for finding in report.get_provenance_findings(comparisons=comparisons)
-    }
-    mixed = findings["mixed-code-version"]
-    assert mixed.severity == schema.Severity.DEFECT
-    # Both versions, since the fix is to recapture whichever of the two is the stale one.
-    assert fixture.CODE_VERSION in mixed.message
-    assert fixture.SUPERSEDED_CODE_VERSION in mixed.message
-    assert mixed.affected_rows == len(comparisons)
 
 
 def test_every_pattern_only_row_is_labelled_as_shape_and_not_level() -> None:

@@ -168,11 +168,11 @@ def get_unevaluated_control_findings(
     `get_control_findings` reads the expectation attached to a row, so a control whose row was never
     built is not read at all. `prepare.get_uncompared_targets` does not cover it either: that is
     keyed on the target, and a target keeps its place in the tables on whichever of its measures
-    needs no capture -- USA MAIZE reports an ORBAE_OVER_WRI sitting on its baseline while the three
-    controls that need a capture say nothing at all.
+    reads no `trace` table -- USA MAIZE reports an ORBAE_OVER_WRI sitting on its baseline while the
+    three controls that read one say nothing at all.
 
     ADVISORY, and one finding for all of them. Why a control did not fire is a question the coverage
-    section already answers -- its country was outside the capture, or no anchor reached the pair --
+    section already answers -- its country was not in the table, or no anchor reached the pair --
     and neither is evidence that anything is wrong. That is the same reason a control whose anchors
     moved is ADVISORY rather than a DEFECT.
     """
@@ -211,48 +211,6 @@ def get_unevaluated_control_findings(
     ]
 
 
-def get_provenance_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
-    """Borrowed evidence, and tables built from more than one `code_version`.
-
-    A mixed-version table is a defect: a cross-country comparison drawn from two pipeline versions
-    is not a comparison. Checked at read time, so it holds regardless of how the artifact was
-    assembled.
-    """
-    findings = []
-    versions = sorted(set(comparisons["code_version"]))
-    if len(versions) > 1:
-        findings.append(
-            schema.Finding(
-                affected_rows=len(comparisons),
-                confidence=schema.Confidence.HIGH,
-                message=(
-                    f"These rows span {len(versions):d} code versions "
-                    f"({', '.join(versions)}). Rows carried forward by a per-ISO merge keep "
-                    "their own version, so a cross-country comparison here would mix "
-                    "pipeline versions"
-                ),
-                severity=schema.Severity.DEFECT,
-                slug="mixed-code-version",
-            )
-        )
-    borrowed = comparisons[comparisons["worst_tier"] == schema.SourceTier.BORROWED]
-    if len(borrowed):
-        findings.append(
-            schema.Finding(
-                affected_iso_3166s=tuple(sorted(set(borrowed["iso_3166"]))),
-                affected_rows=len(borrowed),
-                confidence=schema.Confidence.LOW,
-                message=(
-                    f"{len(borrowed):d} comparison(s) rest on borrowed inputs with no "
-                    "provenance. Usable for ranking a magnitude, never for a claim"
-                ),
-                severity=schema.Severity.ADVISORY,
-                slug="borrowed-evidence",
-            )
-        )
-    return findings
-
-
 def render_findings(findings: list[schema.Finding]) -> str:
     """Severity first, then magnitude, so a blocking result cannot be buried under advisories."""
     if not findings:
@@ -281,8 +239,8 @@ def render_findings(findings: list[schema.Finding]) -> str:
 def render_comparisons(comparisons: pandas.DataFrame) -> str:
     """The target rows in full, and everything else summarised by measure.
 
-    `comparisons` reaches well beyond the chosen set -- every country where an anchor and our capture
-    happen to overlap -- and tabulating all of it costs more characters than a pull-request body
+    `comparisons` reaches well beyond the chosen set -- every country where an anchor and our `trace`
+    table happen to overlap -- and tabulating all of it costs more characters than a pull-request body
     holds. The chosen pairs are what the report is about, so those are listed; the rest is a
     distribution per measure rather than nothing, because a row that is silently dropped reads as a
     row that was never computed.
@@ -363,7 +321,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
             format_markdown_table(
                 headers=("Measure", "rows", "median", "p10", "p90"), rows=summary
             ),
-            "_These are every pair where an anchor and the capture happen to overlap. They are not "
+            "_These are every pair where an anchor and the `trace` table happen to overlap. They are not "
             "targets and carry no expectation, but they are what a chosen pair's figure should be "
             "read against — a control at the median of its own measure is a different claim from "
             "one in the tail._",
@@ -384,14 +342,15 @@ def render_coverage(
         lines.append(
             f"- **{len(uncompared.unanchored):d} target(s) had no anchor at all**: "
             + ", ".join(target.slug for target in uncompared.unanchored)
-            + ". Their country was captured, so the silence is the anchors' and not ours, and it "
-            "is not agreement."
+            + ". Their country is in the `trace` table, so the silence is the anchors' and not "
+            "ours, and it is not agreement."
         )
-    if uncompared.uncaptured:
+    if uncompared.not_in_table:
         lines.append(
-            f"- **{len(uncompared.uncaptured):d} target(s) were not captured**: "
-            + ", ".join(target.slug for target in uncompared.uncaptured)
-            + ". Whether an anchor covers them is unknown until their country is captured."
+            f"- **{len(uncompared.not_in_table):d} target(s) are not in the `trace` table**: "
+            + ", ".join(target.slug for target in uncompared.not_in_table)
+            + ". Whether an anchor covers them is unknown until a `trace` run includes their "
+            "country."
         )
     pattern_only = int(
         (comparisons["comparability"] == schema.Comparability.PATTERN_ONLY).sum()
@@ -414,7 +373,7 @@ def render_anchor_emissions(
     scope_ratios: pandas.Series,
     stability: pandas.DataFrame,
 ) -> str:
-    """WRI measured against itself, which is all an emissions section can do before a capture.
+    """WRI measured against itself, which is all an emissions section can do without our figures.
 
     Three facts, none needing a number of ours. The reporting-year spread bounds what a comparison
     against WRI can resolve while the year is unpinned; the scope ratio removes any guessing about
@@ -570,7 +529,6 @@ def render(
     findings = (
         get_control_findings(comparisons=comparisons)
         + get_unevaluated_control_findings(comparisons=comparisons)
-        + get_provenance_findings(comparisons=comparisons)
         + (extra_findings or [])
     )
     document = "\n\n".join(

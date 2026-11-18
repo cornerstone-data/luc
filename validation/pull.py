@@ -42,13 +42,6 @@ DATA = pathlib.Path(__file__).resolve().parent / "data"
 LOCK = DATA / "sources.lock.json"
 CACHE = DATA / ".cache"
 RAW = CACHE / "raw"
-# What `validation.capture` writes. Not committed: it is a re-keyed extract of the pipeline's
-# own parquet outputs, so a copy here would be a second one. Unlike everything else under CACHE
-# it is not re-fetchable either -- producing it takes hours of pipeline -- so a report carrying
-# capture-dependent numbers reproduces only alongside the run that made it. `prepare` reads it
-# back, so the report can render a capture's results without importing the module that made it.
-CAPTURE = CACHE / "capture"
-EFS = CAPTURE / "efs.parquet"
 
 # The commit these files were read at. Bumping it is a deliberate act: every anchor number moves.
 WRI_REVISION = "559fe23eb752e9df270a1bf93e7f290044026bab"
