@@ -42,13 +42,6 @@ PROVINCIAL = "PROVINCIAL"
 STATISTICAL = "STATISTICAL"
 JURISDICTIONAL_DIRECT = "JURISDICTIONAL_DIRECT"
 JURISDICTIONAL_DIRECT_PROXY = "JURISDICTIONAL_DIRECT_PROXY"
-# A yield ratio outside this is not a disagreement about one quantity, it is two different
-# quantities: milling and ginning yields all fall well outside it, and no genuine national yield
-# estimate differs from another by half.
-PRODUCT_FORM_BOUNDS = (0.5, 2.0)
-# Within those bounds, how far a median may sit from parity before it is worth reporting. MapSPAM
-# runs about 7% under FAOSTAT, so a tolerance below that would fire on every crop.
-YIELD_RATIO_TOLERANCE = 0.15
 
 
 class Source(enum.StrEnum):
@@ -165,29 +158,6 @@ class Confidence(enum.IntEnum):
     HIGH = 3
 
 
-class UnpairedReason(enum.Enum):
-    """Why a crop one source publishes has no counterpart in the other.
-
-    The value is the sentence the report prints, so a reason cannot be shown without its
-    explanation. None of these is a disagreement: they are all reasons a comparison was never
-    attempted, which is what makes them worth naming rather than omitting.
-    """
-
-    SPAM_GROUP = (
-        "MapSPAM aggregates several FAOSTAT items under one name, and the member list is "
-        "MapSPAM's to define, so no FAOSTAT figure can be assigned yet"
-    )
-    SPAM_SPLIT = (
-        "MapSPAM splits one FAOSTAT item in two, so giving either name the figure would invent "
-        "the split and giving both would double the total"
-    )
-    UNMAPPED = (
-        "outside the canonical MapSPAM taxonomy the dataset maps, so it has no FAOSTAT item code "
-        "at all"
-    )
-    TOO_FEW_COUNTRIES = "reported by too few countries for a median to describe the crop rather than its reporters"
-
-
 class Severity(enum.StrEnum):
     """Why a finding is worth reading, independent of its size.
 
@@ -211,30 +181,6 @@ class Severity(enum.StrEnum):
                 return "--"
             case _:
                 typing.assert_never(self)
-
-
-@dataclasses.dataclass(frozen=True)
-class YieldAgreement:
-    """How one source's yield for a crop compares against another's, over the countries with both.
-
-    Here rather than in `prepare` because the two thresholds below are what "mismatch" means, and
-    `report` labels rows by them. A definition both modules read cannot drift between them.
-    """
-
-    crop_name: str
-    countries: int
-    median_ratio: float
-    lowest_ratio: float
-    highest_ratio: float
-
-    @property
-    def is_product_form_mismatch(self) -> bool:
-        low, high = PRODUCT_FORM_BOUNDS
-        return not low <= self.median_ratio <= high
-
-    @property
-    def is_beyond_tolerance(self) -> bool:
-        return abs(self.median_ratio - 1.0) > YIELD_RATIO_TOLERANCE
 
 
 @dataclasses.dataclass(frozen=True)

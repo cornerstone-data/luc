@@ -466,60 +466,6 @@ def render_eligible(
     )
 
 
-def render_yield_agreement(
-    agreements: tuple[schema.YieldAgreement, ...],
-    findings: list[schema.Finding],
-    unpaired: dict[schema.UnpairedReason, tuple[str, ...]],
-    year: int,
-) -> str:
-    """WRI's yields against FAOSTAT's, per crop.
-
-    A denominator section rather than an emissions one, and it belongs ahead of the comparisons: a
-    crop whose two yields are on different product forms has no comparable emissions factor, so its
-    rows below are not worth reading.
-    """
-    rows = [
-        [
-            agreement.crop_name,
-            str(agreement.countries),
-            format_number(agreement.median_ratio, 3),
-            format_number(agreement.lowest_ratio, 2),
-            format_number(agreement.highest_ratio, 2),
-            (
-                "product form"
-                if agreement.is_product_form_mismatch
-                else "off"
-                if agreement.is_beyond_tolerance
-                else "ok"
-            ),
-        ]
-        for agreement in sorted(agreements, key=lambda a: a.median_ratio)
-    ]
-    sections = [
-        f"### Yield agreement, WRI against FAOSTAT {year:d}",
-        format_markdown_table(
-            headers=("Crop", "countries", "median", "min", "max", ""), rows=rows
-        ),
-        render_findings(findings=findings),
-    ]
-    if unpaired:
-        total = sum(len(names) for names in unpaired.values())
-        sections.append(
-            "\n".join(
-                [
-                    f"**{total:d} of WRI's crops are not compared.** Their absence is not "
-                    "agreement.",
-                    "",
-                    *[
-                        f"- `{', '.join(names)}` — {reason.value:s}"
-                        for reason, names in unpaired.items()
-                    ],
-                ]
-            )
-        )
-    return "\n\n".join(sections)
-
-
 def render(
     comparisons: pandas.DataFrame,
     uncompared: targets.UncomparedTargets,

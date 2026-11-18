@@ -49,13 +49,10 @@ class Section(enum.StrEnum):
     Ordering is deliberate. `ELIGIBLE` comes first because it establishes the universe the rest is
     drawn from, and because it carries the one BLOCKING finding measurable from the anchors alone: the
     pairs the pipeline cannot produce a comparable number for at all outrank any disagreement about
-    a number it can. Denominators come next, because a product-form mismatch makes every factor
-    built on that denominator incomparable. `COMPARISONS` carries the
-    findings, which outrank the anchor tables inside it.
+    a number it can. `COMPARISONS` carries the findings, which outrank the anchor tables inside it.
     """
 
     ELIGIBLE = enum.auto()
-    YIELDS = enum.auto()
     ANCHORS = enum.auto()
     COMPARISONS = enum.auto()
 
@@ -69,11 +66,6 @@ def get_document(
     reads is expensive -- the largest is the `trace` table -- so a compute-only-what-you-need branch per
     section bought a little speed at the cost of four conditionals around the code that does the work.
     """
-    wri_yields = prepare.read_wri_yields(grain_name="national")
-    comparison = prepare.get_yield_comparison(
-        faostat_yields=prepare.get_faostat_yields(), wri_yields=wri_yields, year=year
-    )
-    agreements = tuple(prepare.iter_yield_agreements(comparison=comparison))
     emissions = prepare.read_wri_national_emissions()
     stability = prepare.get_anchor_stability(emissions=emissions)
     deforestation = prepare.get_deforestation_share(
@@ -90,14 +82,6 @@ def get_document(
             eligible=eligible,
             findings=prepare.get_perennial_findings(eligible=eligible),
             show=show,
-        ),
-        Section.YIELDS: report.render_yield_agreement(
-            agreements=agreements,
-            findings=prepare.get_yield_findings(agreements=agreements, year=year),
-            unpaired=prepare.get_unpaired_crop_names(
-                comparison=comparison, wri_yields=wri_yields
-            ),
-            year=year,
         ),
         Section.ANCHORS: report.render_anchor_emissions(
             deforestation=deforestation,
@@ -172,7 +156,7 @@ def main() -> int:
     parser.add_argument(
         "--year",
         default=prepare.REFERENCE_YEAR,
-        help="the FAOSTAT year to compare WRI's undated yield against",
+        help="the FAOSTAT year of harvested area the deforestation share divides by",
         type=int,
     )
     args = parser.parse_args()

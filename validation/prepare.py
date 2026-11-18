@@ -3,16 +3,6 @@
 The anchors are WRI's factors and yield factors, Orbae's export and FAOSTAT's production. Our side is
 a `trace` table, which `read_trace_table` reads from the parquet the command line names.
 
-The yield cross-check is the first thing this does, and it runs before any emissions comparison for
-a reason. WRI's factor is an intensity over a yield:
-
-    EF [kgCO2/kg] = intensity [kgCO2/ha] x yield_factor_kg [ha/kg]
-
-so a yield disagreement moves every factor built on it. If WRI and FAOSTAT are on different product
-forms for a crop -- fruit bunches against palm oil, seed cotton against ginned lint -- the ratio is
-off by the milling yield, several-fold, and every emissions comparison for that crop inherits it
-while looking like a methodology gap. This finds that before any figure of ours is compared.
-
   Transforms only; `python -m validation` runs them and renders the result.
 """
 
@@ -24,7 +14,6 @@ import io
 import json
 import logging
 import pathlib
-import statistics
 import zipfile
 
 import iso3166
@@ -36,9 +25,8 @@ from validation import pull, schema, targets
 
 logger = logging.getLogger(__name__)
 
-# WRI publishes one yield per (country, crop) with no year on it, so which year it is drawn from has
-# to be inferred rather than read. 2020 is the comparison year for everything else here, and
-# `--year` sweeps the neighbourhood to see which fits best.
+# The comparison year: FAOSTAT's harvested area for the deforestation share is read for it, unless
+# `--year` names another.
 #
 # It is also the WRI *reporting* year to read, and that is a match of windows rather than a
 # convention: a reporting year names where the LSRS 20-year window sits, so 2020 covers loss years
@@ -1583,152 +1571,7 @@ def read_faostat_production() -> pandas.DataFrame:
     return frame.rename(columns={"admin_id": "iso_3166"})
 
 
-def get_faostat_yields() -> pandas.DataFrame:
-    """FAOSTAT's yield per country, crop and year, derived rather than read.
-
-    `jdluc.datasets.faostat` carries area and production and deliberately not yield,
-    because a MapSPAM group crop's yield is not the sum of its constituents'. Dividing here
-    reproduces FAOSTAT's own published yield exactly for the one-to-one crops, which are all this
-    compares.
-
-    Read through `read_faostat_production`, so this comes from the ingested parquet rather than
-    from a second copy of the upstream archive. Its digest is recorded in sources.lock.json, so
-    the bytes are pinned either way.
-    """
-    frame = read_faostat_production()
-    frame["yield_kg"] = frame["production_kg"] / frame["area_hectares"]
-    return frame[frame["area_hectares"] > 0][
-        ["iso_3166", "crop_name", "year", "yield_kg"]
-    ]
-
-
 def read_faostat_areas(year: int) -> pandas.DataFrame:
     """FAOSTAT's harvested area per country and crop for one year."""
     frame = read_faostat_production()
     return frame[frame["year"] == year][["iso_3166", "crop_name", "area_hectares"]]
-
-
-def get_yield_comparison(
-    faostat_yields: pandas.DataFrame, wri_yields: pandas.DataFrame, year: int
-) -> pandas.DataFrame:
-    """One row per country and crop the two sources both report, with their ratio.
-
-    An inner join, so a crop WRI publishes and FAOSTAT does not simply does not appear. That is the
-    intended behavior and `get_unpaired_crop_names` reports what it dropped, since a crop silently
-    absent from a comparison reads as a crop that agreed.
-    """
-    for_year = faostat_yields[faostat_yields["year"] == year]
-    assert len(for_year), f"FAOSTAT has no rows for {year:d}"
-    merged = wri_yields.merge(
-        for_year, on=["iso_3166", "crop_name"], suffixes=("_wri", "_faostat")
-    )
-    merged = merged[(merged["yield_kg_wri"] > 0) & (merged["yield_kg_faostat"] > 0)]
-    merged["ratio"] = merged["yield_kg_wri"] / merged["yield_kg_faostat"]
-    return merged
-
-
-def iter_yield_agreements(
-    comparison: pandas.DataFrame,
-) -> collections.abc.Iterator[schema.YieldAgreement]:
-    """Per crop, the median ratio over countries and the spread around it.
-
-    Median rather than mean, and spread rather than a standard deviation: a handful of countries
-    with a near-zero denominator produce ratios in the hundreds, which would move a mean and tell
-    us nothing about the product form.
-    """
-    for crop_name, group in comparison.groupby("crop_name"):
-        ratios = sorted(group["ratio"])
-        if len(ratios) < MINIMUM_COUNTRIES:
-            continue
-        yield schema.YieldAgreement(
-            countries=len(ratios),
-            crop_name=str(crop_name),
-            highest_ratio=ratios[-1],
-            lowest_ratio=ratios[0],
-            median_ratio=statistics.median(ratios),
-        )
-
-
-def get_unpaired_crop_names(
-    comparison: pandas.DataFrame, wri_yields: pandas.DataFrame
-) -> dict[schema.UnpairedReason, tuple[str, ...]]:
-    """WRI's crops the comparison could not reach, grouped by why.
-
-    Grouped rather than listed, because the reasons are not interchangeable and a single list
-    invites one explanation to be read over all of them. A group crop cannot be compared until
-    someone writes down its member items; a crop outside the canonical taxonomy is simply not
-    mapped yet; and one short of MINIMUM_COUNTRIES has a median that would say more about its
-    reporting countries than about the crop.
-    """
-    unpaired = set(wri_yields["crop_name"]) - set(comparison["crop_name"])
-    compared = set(comparison["crop_name"])
-    mapped = set(FAOSTAT_ITEM_CODE_TO_CROP_CODE.values())
-    split = set(SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE)
-    reasons: dict[schema.UnpairedReason, tuple[str, ...]] = {}
-    for reason, names in (
-        (
-            schema.UnpairedReason.SPAM_GROUP,
-            unpaired & SPAM_GROUP_CROP_CODES,
-        ),
-        (
-            schema.UnpairedReason.SPAM_SPLIT,
-            unpaired & split,
-        ),
-        (schema.UnpairedReason.TOO_FEW_COUNTRIES, (unpaired & mapped) - compared),
-        (
-            schema.UnpairedReason.UNMAPPED,
-            unpaired - mapped - SPAM_GROUP_CROP_CODES - split,
-        ),
-    ):
-        if names:
-            reasons[reason] = tuple(sorted(names))
-    assert sum(map(len, reasons.values())) == len(unpaired), (
-        f"{len(unpaired):d} unpaired crops but {sum(map(len, reasons.values())):d} explained"
-    )
-    return reasons
-
-
-def get_yield_findings(
-    agreements: tuple[schema.YieldAgreement, ...], year: int
-) -> list[schema.Finding]:
-    """A finding per crop whose two yields do not agree, product-form mismatches first.
-
-    A mismatch is BLOCKING rather than a disagreement: it means the comparison was never
-    like-for-like, so the emissions factors built on that yield cannot be read at all until the
-    product form is settled.
-    """
-    findings = []
-    for agreement in agreements:
-        if agreement.is_product_form_mismatch:
-            findings.append(
-                schema.Finding(
-                    affected_rows=agreement.countries,
-                    confidence=schema.Confidence.HIGH,
-                    message=(
-                        f"{agreement.crop_name:s}: WRI's yield is {agreement.median_ratio:.2f}x "
-                        f"FAOSTAT's across {agreement.countries:d} countries in {year:d}. That is "
-                        "a different product form, not a disagreement -- a milling or ginning "
-                        "yield -- so every emissions factor built on this yield is off by the same "
-                        "factor and cannot be compared until the form is settled"
-                    ),
-                    severity=schema.Severity.BLOCKING,
-                    slug=f"yield-product-form-{agreement.crop_name.lower():s}",
-                )
-            )
-        elif agreement.is_beyond_tolerance:
-            findings.append(
-                schema.Finding(
-                    affected_rows=agreement.countries,
-                    confidence=schema.Confidence.MEDIUM,
-                    message=(
-                        f"{agreement.crop_name:s}: WRI's yield is {agreement.median_ratio:.3f}x "
-                        f"FAOSTAT's across {agreement.countries:d} countries in {year:d}, beyond "
-                        f"the {schema.YIELD_RATIO_TOLERANCE:.0%} tolerance. The two are on the same "
-                        "product form, so this is a denominator difference and it moves every "
-                        "factor for this crop proportionally"
-                    ),
-                    severity=schema.Severity.ADVISORY,
-                    slug=f"yield-disagreement-{agreement.crop_name.lower():s}",
-                )
-            )
-    return findings
