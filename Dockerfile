@@ -1,25 +1,29 @@
 # syntax=docker/dockerfile:1.19
-# Build from a full clone, not a git worktree: a worktree's .git is a file pointing outside the
-# build context, and the image needs the repository for git provenance (utils.get_git_version).
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
-FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
+COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d /uv /uvx /bin/
+
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
 
 WORKDIR /app
 
-# The rasterio/GDAL wheels vendor GDAL but still link libexpat, which the slim image omits.
-# safe.directory lets git read /app when the container runs as a user other than its owner.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git libexpat1 \
+RUN : \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        ca-certificates \
+        git \
+        libexpat1 \
     && rm -rf /var/lib/apt/lists/* \
-    && git config --system --add safe.directory /app
+    && git config --system --add safe.directory /app \
+    && :
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-install-project --no-dev
 
 COPY --exclude=.git . .
 RUN uv sync --frozen --no-dev
 
-# .git in its own last layer, so a commit that changes no source rebuilds only this layer.
 COPY .git .git
+RUN git rev-parse --verify HEAD
 
 ENV PATH="/app/.venv/bin:${PATH}"
