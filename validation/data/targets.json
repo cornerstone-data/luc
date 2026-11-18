@@ -242,6 +242,78 @@
       "reason": "6.7 Mt on 19 Mt of production, the largest PHL pair. National ratio only, for the same structural reason as PHL COCONUT: 17 World Bank regions against 81 GADM provinces, so E3 fails and the pair is off the eligible shortlist entirely. Carried as the annual counterpart to PHL COCONUT -- rice is herbaceous, so GLAD's cropland class does see it, and holding the country fixed across the two separates 'PHL is under-detected because its crops are perennial' from 'PHL is under-detected because it is PHL'. Pairs against IDN RICE on one crop across two archipelagos. Together the two PHL pairs cover 12.9 of the country's 24.8 Mt."
     },
     {
+      "basis": "ranked",
+      "commodity_id": 661,
+      "iso_3166": "CIV",
+      "reason": "44.8 Mt, the largest cocoa pair, compared through the proxy leg alone, since the statistical leg does not model cocoa. Orbae publishes Ivorian cocoa, but none of its provinces map to a World Bank admin-1, so WRI is the only anchor. proxy/WRI 0.31."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 661,
+      "iso_3166": "IDN",
+      "reason": "14.5 Mt, South-East Asian cocoa in the country of the largest palm gap, so it holds the country fixed against IDN OILPALM on a second tree crop. Proxy leg only, and WRI only. A third of the leg's 7.3 Mt is peatland occupation, which WRI does not count. proxy/WRI 0.28."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 661,
+      "iso_3166": "GHA",
+      "reason": "3.4 Mt, small, and the one cocoa pair Orbae reaches province by province, so the only cocoa row with an anchor beside WRI. proxy/WRI 0.89; against Orbae the proxy leg ranks the factor at 0.84 and the emissions at 0.88."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "BRA",
+      "reason": "7.9 Mt, the largest coffee pair in Latin America, and the one coffee pair Orbae reaches (7 states). Both legs: statistical/WRI 0.49, proxy/WRI 0.15, the proxy leg a third of the statistical leg in tonnes. Against Orbae both legs rank the emissions at 0.89-0.96 while the proxy leg ranks the factor at -0.75, the widest split between the two rankings in the set."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "PER",
+      "reason": "6.4 Mt. Andean coffee, where the two legs agree in tonnes (proxy/statistical 1.06) and both sit at about a fifth of WRI (statistical 0.18, proxy 0.20), so the gap to the anchor is shared rather than a split between legs."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "HND",
+      "reason": "6.1 Mt, Central American coffee. statistical/WRI 0.15 and proxy/WRI 0.05: the proxy leg gives coffee a third of the statistical leg's tonnes."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "COL",
+      "reason": "4.6 Mt. The legs agree in tonnes (proxy/statistical 0.89), both at about a fifth of WRI (0.18 and 0.19)."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 254,
+      "iso_3166": "BRA",
+      "reason": "9.5 Mt, Latin American palm, where the statistical leg sits at 0.55 of WRI and the proxy leg at 0.13. The anchors disagree on level too: Orbae's Brazilian palm factor is 0.23 kg/kg against WRI's 4.5. Orbae has only three states, too few for a rank."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 254,
+      "iso_3166": "COL",
+      "reason": "4.6 Mt, the second Latin American palm pair, and one Orbae ranks over 18 departments. Both legs sit at about a quarter of WRI (0.27 and 0.25). Orbae and WRI do not agree on the factor's ranking (-0.07), while both legs rank the emissions with Orbae at 0.86-0.88."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 867,
+      "iso_3166": "BRA",
+      "reason": "The release's largest commodity line: the statistical leg gives Brazilian beef 252 Mt and the proxy leg 349 Mt, and Orbae 679 Mt, its largest gap from us. WRI publishes crops only, so this is not on the shortlist WRI's figures build. Orbae's beef factor is per kg of live weight and ours per kg of carcass, so only ranks compare: over 27 states both legs rank the emissions with Orbae at 0.92-0.94."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 867,
+      "iso_3166": "PRY",
+      "reason": "Chaco beef, where dry forest goes to pasture: the statistical leg gives 13.1 Mt and the proxy leg 20.0 Mt. Over 16 departments both legs rank the emissions with Orbae at 0.94-0.96. Off the shortlist, as all beef is."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 867,
+      "iso_3166": "ARG",
+      "reason": "Pampas and Chaco beef: the statistical leg gives 19.7 Mt and the proxy leg 16.3 Mt, 5.2 Mt of each peatland occupation. The weakest of the three beef pairs against Orbae, whose emissions rank at 0.51 (statistical) and 0.17 (proxy) over 15 provinces. Off the shortlist, as all beef is."
+    },
+    {
       "basis": "gap",
       "commodity_id": 254,
       "iso_3166": "PNG",
@@ -455,6 +527,36 @@
       "reason": "Subtropical, and the only US pair that lands on peat -- the Everglades Agricultural Area that `further_research.md` measures under repeated peatland drainage pulses -- so it exercises the peatland term the grassland pairs never touch. 0.151 Mt. Orbae does publish US sugarcane, but only four provinces carry any area, too few for a rank correlation to mean anything, so this pair carries the internal head-to-head alone."
     },
     {
+      "basis": "ranked",
+      "commodity_id": 83,
+      "iso_3166": "USA",
+      "reason": "Completes the direct leg's eleven crops with the five it models that no target named. 0.24 Mt. statistical/direct 2.54 in tonnes, with the states ranked alike at only 0.54 (statistical) and 0.60 (proxy)."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 44,
+      "iso_3166": "USA",
+      "reason": "0.08 Mt. statistical/direct 2.17 in tonnes, while the states rank alike at 0.86 (statistical) and 0.96 (proxy): the legs place barley in the same states and differ on how much they give it."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 176,
+      "iso_3166": "USA",
+      "reason": "0.06 Mt on a pulse. statistical/direct 3.21 in tonnes; the states rank alike at 0.79 (statistical) and 0.90 (proxy)."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 116,
+      "iso_3166": "USA",
+      "reason": "0.18 Mt. statistical/direct 6.80 in tonnes, and the statistical leg ranks the states with the direct leg at only 0.50 where the proxy leg reaches 0.93."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 157,
+      "iso_3166": "USA",
+      "reason": "0.03 Mt, and the widest leg gap in the set: the statistical leg gives sugar beet 2.6 Mt against the direct leg's 0.04 Mt (62.9 in tonnes) and the proxy leg's 0.3 Mt. The states still rank alike at 0.82-0.85, so the gap is in how much, not where."
+    },
+    {
       "basis": "control",
       "controls": [
         {
@@ -604,6 +706,24 @@
       "commodity_id": 56,
       "iso_3166": "CAF",
       "reason": "NOT eligible at the provincial grain: E3 fails structurally, since GADM gives 17 prefectures where the World Bank gives 7 regions and the relation is many-to-one. Carried as a national ratio only."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 270,
+      "iso_3166": "CAN",
+      "reason": "0.54 Mt on WRI, but the statistical leg gives Canadian rapeseed 53.9 Mt, 36.5 Mt of it peatland occupation, which no outside source covers. Without occupation the legs give 17.4 Mt (statistical) and 18.9 Mt (proxy) against Orbae's 13.6 Mt. Both legs rank the emissions with Orbae at 0.89-0.94 and the factor at only 0.14-0.31."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 56,
+      "iso_3166": "CHN",
+      "reason": "2.1 Mt on WRI, in the country with the statistical leg's largest unattributed total (52.7 Mt). The statistical leg gives maize 35.2 Mt and the proxy leg 45.2 Mt, three quarters of each peatland occupation; Orbae gives 23.8 Mt without it. Over 28 provinces the legs rank the emissions with Orbae at only 0.37-0.47."
+    },
+    {
+      "basis": "gap",
+      "commodity_id": 236,
+      "iso_3166": "DEU",
+      "reason": "A sentinel rather than a material pair: on very small production the statistical leg gives German soy a factor near 15 kg/kg against Orbae's 0.13, and its forest emissions are 94 times WRI's. The proxy leg gives a sixth of the statistical leg's tonnes. Carried so that a change to how the statistical leg handles a small producer shows here first."
     }
   ]
 }

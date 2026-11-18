@@ -26,7 +26,7 @@ def test_a_split_wri_crop_reaches_faostat_s_one_item(
     assert prepare.WRI_CROP_CODE_TO_COMMODITY_ID[crop.value] == commodity_id
 
 
-def test_get_crop_rows_keeps_only_crop_rows() -> None:
+def test_get_compared_rows_keeps_only_anchored_rows() -> None:
     frame = pandas.DataFrame(
         {
             "commodity_id": [
@@ -39,4 +39,8 @@ def test_get_crop_rows_keeps_only_crop_rows() -> None:
             ]
         }
     ).astype({"commodity_id": int})
-    assert prepare.get_crop_rows(frame=frame)["commodity_id"].tolist() == [56, 656]
+    assert prepare.get_compared_rows(frame=frame)["commodity_id"].tolist() == [
+        56,
+        656,
+        faostat.SPECIES_TO_MEAT_ITEM_CODE[faostat.Species.CATTLE],
+    ]

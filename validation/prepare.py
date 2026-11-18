@@ -9,7 +9,6 @@ a `trace` table, which `read_trace_table` reads from the parquet the command lin
 import collections.abc
 import csv
 import dataclasses
-import enum
 import io
 import json
 import logging
@@ -127,8 +126,39 @@ assert (
     set(pull.WRI_CROP_CODES)
     == set(WRI_CROP_CODE_TO_COMMODITY_ID) | WRI_GROUP_CROP_CODES
 )
-# The crops compared: every one WRI anchors
-COMPARED_COMMODITY_IDS = frozenset(WRI_CROP_CODE_TO_COMMODITY_ID.values())
+WRI_COMMODITY_IDS = frozenset(WRI_CROP_CODE_TO_COMMODITY_ID.values())
+# Each commodity WRI publishes as one crop, to that crop's code. Coffee and millet, which WRI
+# publishes as two crops each, have no single factor file to read.
+COMMODITY_ID_TO_WRI_CROP_CODE = {
+    commodity_id: crop_code
+    for crop_code, commodity_id in WRI_CROP_CODE_TO_COMMODITY_ID.items()
+    if list(WRI_CROP_CODE_TO_COMMODITY_ID.values()).count(commodity_id) == 1
+}
+# Orbae's commodities, by its own spelling, to their commodity ids. Coffee is green coffee, as
+# FAOSTAT's item is, and beef cattle the cattle meat `trace` prices the herd in, though Orbae's beef
+# factor is per kg of live weight where ours is per kg of carcass: a level does not compare, a rank
+# within a country does.
+ORBAE_COMMODITY_TO_COMMODITY_ID = {
+    "Barley": 44,
+    "Beef cattle": faostat.SPECIES_TO_MEAT_ITEM_CODE[faostat.Species.CATTLE],
+    "Cocoa": 661,
+    "Coffee": 656,
+    "Corn": 56,
+    "Cotton": 328,
+    "Oats": 75,
+    "Palm": 254,
+    "Peanut": 242,
+    "Potato": 116,
+    "Rapeseed": 270,
+    "Soy": 236,
+    "Sugarcane": 156,
+    "Sunflower": 267,
+    "Wheat": 15,
+}
+# The commodities compared: every one WRI or Orbae anchors
+COMPARED_COMMODITY_IDS = WRI_COMMODITY_IDS | frozenset(
+    ORBAE_COMMODITY_TO_COMMODITY_ID.values()
+)
 # The conversion matrix names cropland and pasture as destinations and nothing else, so forest
 # cleared for a woody perennial resolves to no destination: the clearance is identified and dated,
 # neither destination layer recognises a young plantation, and the carbon is reported in
@@ -411,7 +441,7 @@ def iter_candidates(
     production = production_by_pair.set_index(["iso_3166", "commodity_id"])[
         "production_kg"
     ]
-    for commodity_id in sorted(COMPARED_COMMODITY_IDS):
+    for commodity_id in sorted(WRI_COMMODITY_IDS):
         wri_crop_codes = tuple(
             crop_code
             for crop_code, wri_commodity_id in WRI_CROP_CODE_TO_COMMODITY_ID.items()
@@ -597,7 +627,8 @@ def get_anchor_shape_agreement() -> pandas.DataFrame:
     national = read_orbae()
     national = national[national["admin_level"] == schema.NATIONAL]
     rows = []
-    for crop_name, group in national.groupby("crop_name"):
+    for commodity_id, crop_name in COMMODITY_ID_TO_WRI_CROP_CODE.items():
+        group = national[national["commodity_id"] == commodity_id]
         wri = read_wri_national_emissions()
         wri = wri[(wri["crop_name"] == crop_name) & (wri["year"] == REFERENCE_YEAR)]
         merged = group[["iso_3166", "ef_kg_per_kg"]].merge(
@@ -710,55 +741,57 @@ def iter_orbae_wri_comparisons(
     gadm_ids = get_orbae_gadm_ids()
     provincial = read_orbae()
     provincial = provincial[provincial["admin_level"] == schema.PROVINCIAL]
-    for (iso_3166, crop_name), group in provincial.groupby(["iso_3166", "crop_name"]):
-        # A province with no committed key is dropped here rather than joined loosely; the map's
-        # own `unmatched` block records which, so the gap is a number and not a surprise.
-        resolved = pandas.Series(
-            [
-                gadm_ids.get((str(iso_3166), name))
-                for name in group["jurisdiction_name"]
-            ],
-            dtype="object",
-            index=group.index,
-        )
-        left = group.assign(gadm_id=resolved)
-        left = left[resolved.notna() & (left["forest_kg_per_kg"] > 0)]
-        path = pull.get_pulled_path(
-            remote=pull.get_wri_factor_remote(
-                crop_code=str(crop_name),
-                gas_scope="CO2",
-                grain=pull.get_grain(grain_name="provincial"),
+    for commodity_id, crop_code in COMMODITY_ID_TO_WRI_CROP_CODE.items():
+        for iso_3166, group in provincial[
+            provincial["commodity_id"] == commodity_id
+        ].groupby("iso_3166"):
+            # A province with no committed key is dropped here rather than joined loosely; the map's
+            # own `unmatched` block records which, so the gap is a number and not a surprise.
+            resolved = pandas.Series(
+                [
+                    gadm_ids.get((str(iso_3166), name))
+                    for name in group["jurisdiction_name"]
+                ],
+                dtype="object",
+                index=group.index,
             )
-        )
-        wri = pandas.read_csv(path).rename(columns={"GID_1": "gadm_id"})
-        merged = left[["gadm_id", "forest_kg_per_kg"]].merge(
-            wri[wri[f"EF_{REFERENCE_YEAR:d}"] > 0][
-                ["gadm_id", f"EF_{REFERENCE_YEAR:d}"]
-            ],
-            on="gadm_id",
-        )
-        if len(merged) < minimum_provinces:
-            continue
-        yield {
-            "iso_3166": str(iso_3166),
-            "commodity_id": WRI_CROP_CODE_TO_COMMODITY_ID[str(crop_name)],
-            "emission_pool": schema.EmissionPool.FOREST,
-            "measure": targets.Measure.ORBAE_OVER_WRI,
-            "statistic": schema.Statistic.RANK_CORRELATION,
-            "ratio": float(
-                merged["forest_kg_per_kg"]
-                .rank()
-                .corr(merged[f"EF_{REFERENCE_YEAR:d}"].rank())
-            ),
-            "provinces": len(merged),
-            "comparability": schema.Comparability.PATTERN_ONLY,
-            "aggregation": schema.Aggregation.AS_PUBLISHED,
-            "coverage_fraction": len(merged) / len(group),
-            # Both sides external, so no term of ours is in it; MEDIUM rather than HIGH because rank
-            # is a weaker claim than level and Orbae is a supplied file rather than a pinned pull.
-            "confidence": schema.Confidence.MEDIUM,
-            "worst_tier": schema.SourceTier.SUPPLIED,
-        }
+            left = group.assign(gadm_id=resolved)
+            left = left[resolved.notna() & (left["forest_kg_per_kg"] > 0)]
+            path = pull.get_pulled_path(
+                remote=pull.get_wri_factor_remote(
+                    crop_code=crop_code,
+                    gas_scope="CO2",
+                    grain=pull.get_grain(grain_name="provincial"),
+                )
+            )
+            wri = pandas.read_csv(path).rename(columns={"GID_1": "gadm_id"})
+            merged = left[["gadm_id", "forest_kg_per_kg"]].merge(
+                wri[wri[f"EF_{REFERENCE_YEAR:d}"] > 0][
+                    ["gadm_id", f"EF_{REFERENCE_YEAR:d}"]
+                ],
+                on="gadm_id",
+            )
+            if len(merged) >= minimum_provinces:
+                yield {
+                    "iso_3166": str(iso_3166),
+                    "commodity_id": commodity_id,
+                    "emission_pool": schema.EmissionPool.FOREST,
+                    "measure": targets.Measure.ORBAE_OVER_WRI,
+                    "statistic": schema.Statistic.RANK_CORRELATION,
+                    "ratio": float(
+                        merged["forest_kg_per_kg"]
+                        .rank()
+                        .corr(merged[f"EF_{REFERENCE_YEAR:d}"].rank())
+                    ),
+                    "provinces": len(merged),
+                    "comparability": schema.Comparability.PATTERN_ONLY,
+                    "aggregation": schema.Aggregation.AS_PUBLISHED,
+                    "coverage_fraction": len(merged) / len(group),
+                    # Both sides external, so no term of ours is in it; MEDIUM rather than HIGH because rank
+                    # is a weaker claim than level and Orbae is a supplied file rather than a pinned pull.
+                    "confidence": schema.Confidence.MEDIUM,
+                    "worst_tier": schema.SourceTier.SUPPLIED,
+                }
 
 
 def get_orbae_export_version() -> str:
@@ -820,14 +853,13 @@ def read_trace_table(path: pathlib.Path) -> pandas.DataFrame:
     return table
 
 
-def get_crop_rows(frame: pandas.DataFrame) -> pandas.DataFrame:
-    """Only the rows of the crops compared, by `commodity_id`.
+def get_compared_rows(frame: pandas.DataFrame) -> pandas.DataFrame:
+    """Only the rows of the commodities compared, by `commodity_id`.
 
-    Some rows are not crops: the livestock rows, and the dropped and unattributed rows (see
-    `emit.NonCommodity`). Neither WRI nor Orbae publishes an anchor for any of them. Every
-    comparison below is therefore about crops, and this is the one place that is said -- stated as
-    what is kept rather than what is removed, so a row added later is excluded by default rather than
-    by being remembered here.
+    Some rows have no anchor: the dropped, unattributed and pasture rows (see `emit.NonCommodity`),
+    the proxy leg's fodder crops, and every crop neither WRI nor Orbae publishes. This is the one
+    place that is said -- stated as what is kept rather than what is removed, so a row added later
+    is excluded by default rather than by being remembered here.
     """
     return frame[frame["commodity_id"].isin(COMPARED_COMMODITY_IDS)]
 
@@ -847,7 +879,7 @@ def iter_sluc_jdluc_comparisons(
     denominator. Localizing it further would need the two legs' production compared directly, which
     nothing here does.
     """
-    national = get_crop_rows(
+    national = get_compared_rows(
         frame=table[
             table.index.get_level_values("admin_level") == schema.NATIONAL
         ].reset_index()
@@ -899,7 +931,7 @@ def get_emissions_by_methodology(
     """Each crop row's emissions in tonnes, one column per leg. A leg the table does not hold gets
     a column of NaN, so a pair including it compares nothing rather than failing.
     """
-    rows = get_crop_rows(
+    rows = get_compared_rows(
         frame=table[
             table.index.get_level_values("admin_level") == admin_level
         ].reset_index()
@@ -1075,7 +1107,7 @@ def iter_trace_wri_comparisons(
         .reset_index()
     )
     levels = table.index.get_level_values
-    national = get_crop_rows(
+    national = get_compared_rows(
         frame=table[levels("admin_level") == schema.NATIONAL].reset_index()
     )
     # A leg with no production of a crop in a country attributes nothing to it, and the ratio is a
@@ -1155,7 +1187,7 @@ def iter_orbae_trace_comparisons(
     orbae = orbae.dropna(subset=["admin_id"])
 
     levels = table.index.get_level_values
-    provincial = get_crop_rows(
+    provincial = get_compared_rows(
         frame=table[levels("admin_level") == schema.PROVINCIAL].reset_index()
     )
     # `admin_id` leads with the ISO, which is the only place the country appears on our rows.
@@ -1436,43 +1468,6 @@ ORBAE_MEMBER_NAME = "20260807_orbae_export.csv"
 ORBAE_ASSESSMENT_YEAR = 2023
 
 
-class OrbaeCommodity(enum.Enum):
-    """Orbae's commodity name to the MapSPAM code it corresponds to one-for-one.
-
-    Member name is the MapSPAM code; value is Orbae's spelling. Twelve of fifteen map; the three that
-    do not are in `ORBAE_UNMAPPED_COMMODITIES` with the reason.
-    """
-
-    BARL = "Barley"
-    COCO = "Cocoa"
-    MAIZ = "Corn"
-    COTT = "Cotton"
-    OILP = "Palm"
-    GROU = "Peanut"
-    POTA = "Potato"
-    RAPE = "Rapeseed"
-    SOYB = "Soy"
-    SUGC = "Sugarcane"
-    SUNF = "Sunflower"
-    WHEA = "Wheat"
-
-
-# Why the other three are absent, so a reader is not left wondering whether they were forgotten.
-ORBAE_UNMAPPED_COMMODITIES = {
-    "Beef cattle": "livestock, and this pipeline models crops",
-    "Coffee": (
-        "MapSPAM splits arabica and robusta where Orbae publishes one green-coffee figure, so "
-        "assigning it to either would invent the split"
-    ),
-    "Oats": "a member of MapSPAM's OCER group rather than a code of its own",
-}
-ORBAE_COMMODITY_TO_CROP_NAME = {member.value: member.name for member in OrbaeCommodity}
-assert not set(ORBAE_COMMODITY_TO_CROP_NAME) & set(ORBAE_UNMAPPED_COMMODITIES)
-assert all(
-    crop_name in ifpri_mapspam.CANONICAL_CROP_CLS.__members__
-    for crop_name in ORBAE_COMMODITY_TO_CROP_NAME.values()
-)
-
 ORBAE_TRACEABILITY_TO_ADMIN_LEVEL = {
     "0. Jurisdiction - Country": schema.NATIONAL,
     "1. State (ADM1)-level": schema.PROVINCIAL,
@@ -1510,7 +1505,6 @@ class OrbaeRow:
     admin_level: str
     country_name: str
     jurisdiction_name: str
-    crop_name: str
     commodity_id: int
     schema_version: str
     ef_kg_per_kg: float
@@ -1561,9 +1555,6 @@ def iter_orbae_rows(path_to_zip: pathlib.Path) -> collections.abc.Iterator[Orbae
             )
             if admin_level is None:
                 continue
-            crop_name = ORBAE_COMMODITY_TO_CROP_NAME.get(row["Commodity"])
-            if crop_name is None:
-                continue
             country = get_orbae_country(
                 admin_level=admin_level, jurisdiction_id=row["Jurisdiction ID"]
             )
@@ -1576,9 +1567,8 @@ def iter_orbae_rows(path_to_zip: pathlib.Path) -> collections.abc.Iterator[Orbae
             )
             yield OrbaeRow(
                 admin_level=admin_level,
-                commodity_id=WRI_CROP_CODE_TO_COMMODITY_ID[crop_name],
+                commodity_id=ORBAE_COMMODITY_TO_COMMODITY_ID[row["Commodity"]],
                 country_name=row["Administrative level 0"],
-                crop_name=crop_name,
                 ef_kg_per_kg=get_float(column=ORBAE_LUC_FACTOR_COLUMN, row=row)
                 / conversion,
                 forest_kg_per_kg=(
