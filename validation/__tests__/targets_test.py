@@ -16,8 +16,7 @@ import typing
 import iso3166
 import pytest
 
-from jdluc import statistical
-from validation import pull, schema, targets
+from validation import prepare, pull, schema, targets
 
 
 def get_document(**overrides: typing.Any) -> dict[str, typing.Any]:
@@ -401,8 +400,8 @@ def test_a_frozen_control_carries_the_anchors_it_was_frozen_against() -> None:
 def test_every_target_names_a_crop_and_a_country_that_resolve() -> None:
     """A name nothing downstream resolves is malformed input, and this is where it surfaces.
 
-    `prepare.get_target_anchor_consistency_findings` indexes `statistical.Crop` directly, so an
-    unknown crop raises there rather than dropping the pair's guard and reporting agreement.  The
+    `prepare.get_target_anchor_consistency_findings` indexes `prepare.CROP_NAME_TO_CROP_CODE`
+    directly, so an unknown crop raises there rather than dropping the pair's guard and reporting agreement.  The
     country half has no reader that would raise, and `check_document` catches neither: both fields
     are well-formed strings.
 
@@ -413,7 +412,7 @@ def test_every_target_names_a_crop_and_a_country_that_resolve() -> None:
     unresolvable = sorted(
         target.slug
         for target in targets.iter_targets()
-        if target.crop_name not in statistical.Crop.__members__
+        if target.crop_name not in prepare.CROP_NAME_TO_CROP_CODE
         or target.iso_3166 not in iso3166.countries_by_alpha3
     )
     assert not unresolvable, (

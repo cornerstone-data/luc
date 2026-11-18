@@ -82,7 +82,7 @@ SOURCE_VERSION_LENGTH = 12
 # deforestation emissions, FAOSTAT's
 # production, WRI's provincial unit counts -- is already pinned by sha256 in sources.lock.json, and
 # committing a second copy would break the rule the lock rests on: the lock is committed, the bytes are
-# not. Recomputing all 864 pairs from those anchors takes about a tenth of a second, and it cannot go
+# not. Recomputing all 904 pairs from those anchors takes about a tenth of a second, and it cannot go
 # stale against the pin because it is read from whatever the pin currently names.
 TILED_ISO_3166S = pull.DATA / "tiled_iso_3166s.json"
 # E4. An emissions factor that cannot move a companywide number is not worth a target.
@@ -98,8 +98,7 @@ MINIMUM_AREA_COVERAGE = 0.5
 # purpose: a pair we would rank highly and cannot compute is the finding, not a filtering mistake.
 PERENNIAL_CROP_NAMES = frozenset(
     {
-        statistical.Crop.ARABICA_COFFEE.value,
-        statistical.Crop.ROBUSTA_COFFEE.value,
+        ifpri_mapspam.Crop2000.COFF.name,
         statistical.Crop.COCONUT.value,
         statistical.Crop.OILPALM.value,
     }
@@ -294,39 +293,59 @@ class Candidate:
     area_coverage: float
 
 
-def read_wri_deforestation(mapspam_code: str) -> pandas.DataFrame:
-    """WRI's deforestation-linked emissions for one crop, all countries.
+def read_wri_deforestation(wri_crop_codes: tuple[str, ...]) -> pandas.DataFrame:
+    """WRI's deforestation-linked emissions for one compared crop, all countries, summed over the
+    WRI crops it merges.
 
     The CO2 scope rather than CO2e: the two are the same product differing by about half a percent,
     and this figure is read to compare pairs against each other, not as a level.
     """
-    path = pull.get_pulled_path(
-        remote=pull.get_wri_factor_remote(
-            crop_code=mapspam_code,
-            gas_scope="CO2",
-            grain=pull.get_grain(grain_name="national"),
+    frames = [
+        pandas.read_csv(
+            pull.get_pulled_path(
+                remote=pull.get_wri_factor_remote(
+                    crop_code=wri_crop_code,
+                    gas_scope="CO2",
+                    grain=pull.get_grain(grain_name="national"),
+                )
+            )
         )
-    )
-    frame = pandas.read_csv(path).rename(columns={"GID_0": "iso_3166"})
-    return frame[["iso_3166", f"LD_{REFERENCE_YEAR:d}"]].rename(
-        columns={f"LD_{REFERENCE_YEAR:d}": "deforestation_tonnes"}
+        for wri_crop_code in wri_crop_codes
+    ]
+    return (
+        pandas.concat(frames)
+        .rename(
+            columns={
+                "GID_0": "iso_3166",
+                f"LD_{REFERENCE_YEAR:d}": "deforestation_tonnes",
+            }
+        )
+        .groupby("iso_3166")["deforestation_tonnes"]
+        .sum()
+        .reset_index()
     )
 
 
-def get_provincial_unit_counts(mapspam_code: str) -> dict[str, int]:
-    """How many GADM provinces WRI publishes a factor for, per country. E3's first half.
+def get_provincial_unit_counts(wri_crop_codes: tuple[str, ...]) -> dict[str, int]:
+    """How many GADM provinces WRI publishes a factor for, per country, over the WRI crops one
+    compared crop merges. E3's first half.
 
     A country with no provincial row is not eligible at the provincial grain, which is the default
     grain, however large its national figure is.
     """
-    path = pull.get_pulled_path(
-        remote=pull.get_wri_factor_remote(
-            crop_code=mapspam_code,
-            gas_scope="CO2",
-            grain=pull.get_grain(grain_name="provincial"),
+    frames = [
+        pandas.read_csv(
+            pull.get_pulled_path(
+                remote=pull.get_wri_factor_remote(
+                    crop_code=wri_crop_code,
+                    gas_scope="CO2",
+                    grain=pull.get_grain(grain_name="provincial"),
+                )
+            )
         )
-    )
-    counts = pandas.read_csv(path).groupby("GID_0")["GID_1"].nunique()
+        for wri_crop_code in wri_crop_codes
+    ]
+    counts = pandas.concat(frames).groupby("GID_0")["GID_1"].nunique()
     return {str(iso_3166): int(units) for iso_3166, units in counts.items()}
 
 
@@ -338,17 +357,20 @@ def iter_candidates(
     """Every pair passing E1 through E4, with its figures attached.
 
     The filters are applied in E1-to-E4 order, so a rejection is attributable to exactly one of them.
-
-    `statistical.Crop` is a StrEnum whose name is the pipeline vocabulary and whose value is the
-    MapSPAM code, so there is no cross-walk to build: WRI and FAOSTAT both key on the code.
+    The crops are `CROP_CODE_TO_CROP_NAME`'s, so coffee and millet are each one pair per country, as
+    FAOSTAT's production is.
     """
     production = production_by_pair.set_index(["iso_3166", "crop_name"])[
         "production_kg"
     ]
-    codes = {crop.value: crop.name for crop in statistical.Crop}
-    for mapspam_code, crop_name in sorted(codes.items()):
-        national = read_wri_deforestation(mapspam_code=mapspam_code)
-        provincial_units = get_provincial_unit_counts(mapspam_code=mapspam_code)
+    for mapspam_code, crop_name in sorted(CROP_CODE_TO_CROP_NAME.items()):
+        wri_crop_codes = tuple(
+            wri_crop_code
+            for wri_crop_code, crop_code in WRI_CROP_CODE_TO_CROP_CODE.items()
+            if crop_code == mapspam_code
+        )
+        national = read_wri_deforestation(wri_crop_codes=wri_crop_codes)
+        provincial_units = get_provincial_unit_counts(wri_crop_codes=wri_crop_codes)
         for row in national.to_dict("records"):
             iso_3166 = str(row["iso_3166"])
             if iso_3166 not in tiled_iso_3166s:  # E1
@@ -484,8 +506,7 @@ def get_target_anchor_consistency_findings(
         # The deforestation frame is keyed on MapSPAM codes, where a target names the crop.  An
         # unknown name is malformed input rather than a pair to pass over: passing over it would
         # drop the guard and report agreement.
-        crop = statistical.Crop[target.crop_name]
-        share = shares.get((target.iso_3166, crop.value))
+        share = shares.get((target.iso_3166, CROP_NAME_TO_CROP_CODE[target.crop_name]))
         if share is None or share <= 1.0:
             continue
         findings.append(
@@ -753,7 +774,7 @@ def read_trace_table(path: pathlib.Path) -> pandas.DataFrame:
 
 # The MapSPAM code each `trace` crop row is compared under. `trace` keys on FAOSTAT items, and
 # FAOSTAT has one item each for coffee and millet where MapSPAM 2005 onward has two, so those two
-# take MapSPAM 2000's combined codes.
+# take MapSPAM 2000's combined codes. Cocoa is the proxy leg's alone.
 COMMODITY_ID_TO_CROP_CODE = {
     486: statistical.Crop.BANANA.value,
     44: statistical.Crop.BARLEY.value,
@@ -762,6 +783,7 @@ COMMODITY_ID_TO_CROP_CODE = {
     191: statistical.Crop.CHICKPEA.value,
     249: statistical.Crop.COCONUT.value,
     656: ifpri_mapspam.Crop2000.COFF.name,
+    661: ifpri_mapspam.CANONICAL_CROP_CLS.COCO.name,
     195: statistical.Crop.COWPEA.value,
     242: statistical.Crop.GROUNDNUT.value,
     201: statistical.Crop.LENTIL.value,
@@ -791,7 +813,7 @@ assert set(COMMODITY_ID_TO_CROP_CODE) == {
         attribute.Methodology.STATISTICAL
     ][crop.name]
     for crop in statistical.Crop
-}
+} | {661}
 # WRI publishes the two coffees and the two millets apart, as MapSPAM 2005 onward does
 SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE = {
     statistical.Crop.ARABICA_COFFEE.value: ifpri_mapspam.Crop2000.COFF.name,
@@ -799,13 +821,35 @@ SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE = {
     statistical.Crop.ROBUSTA_COFFEE.value: ifpri_mapspam.Crop2000.COFF.name,
     statistical.Crop.SMALL_MILLET.value: ifpri_mapspam.Crop2000.MILL.name,
 }
-# The MapSPAM crops FAOSTAT names one-for-one, cocoa, tea and tobacco among them. Coffee and millet
-# are left out, since WRI's yields call arabica COFF and small millet MILL.
+# Every crop compared, by its MapSPAM code, to the name a target gives it: the statistical leg's
+# crops with coffee and millet merged, as FAOSTAT and `trace` carry them, and cocoa, which only the
+# proxy leg models
+CROP_CODE_TO_CROP_NAME = {
+    crop.value: crop.name
+    for crop in statistical.Crop
+    if crop.value not in SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE
+} | {
+    ifpri_mapspam.CANONICAL_CROP_CLS.COCO.name: "COCOA",
+    ifpri_mapspam.Crop2000.COFF.name: "COFFEE",
+    ifpri_mapspam.Crop2000.MILL.name: "MILLET",
+}
+CROP_NAME_TO_CROP_CODE = {name: code for code, name in CROP_CODE_TO_CROP_NAME.items()}
+assert set(COMMODITY_ID_TO_CROP_CODE.values()) == set(CROP_CODE_TO_CROP_NAME)
+# Each WRI factor family to the crop it is compared under
+WRI_CROP_CODE_TO_CROP_CODE = {
+    wri_crop_code: wri_crop_code
+    for wri_crop_code in pull.WRI_CROP_CODES
+    if wri_crop_code in CROP_CODE_TO_CROP_NAME
+} | SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE
+assert set(WRI_CROP_CODE_TO_CROP_CODE.values()) == set(CROP_CODE_TO_CROP_NAME)
+# The MapSPAM crops FAOSTAT names one-for-one, cocoa, tea and tobacco among them, and coffee and
+# millet under MapSPAM 2000's combined codes, FAOSTAT having one item for each
 FAOSTAT_ITEM_CODE_TO_CROP_CODE = {
     15: ifpri_mapspam.CANONICAL_CROP_CLS.WHEA.name,
     27: ifpri_mapspam.CANONICAL_CROP_CLS.RICE.name,
     44: ifpri_mapspam.CANONICAL_CROP_CLS.BARL.name,
     56: ifpri_mapspam.CANONICAL_CROP_CLS.MAIZ.name,
+    79: ifpri_mapspam.Crop2000.MILL.name,
     83: ifpri_mapspam.CANONICAL_CROP_CLS.SORG.name,
     116: ifpri_mapspam.CANONICAL_CROP_CLS.POTA.name,
     122: ifpri_mapspam.CANONICAL_CROP_CLS.SWPO.name,
@@ -828,6 +872,7 @@ FAOSTAT_ITEM_CODE_TO_CROP_CODE = {
     328: ifpri_mapspam.CANONICAL_CROP_CLS.COTT.name,
     486: ifpri_mapspam.CANONICAL_CROP_CLS.BANA.name,
     489: ifpri_mapspam.CANONICAL_CROP_CLS.PLNT.name,
+    656: ifpri_mapspam.Crop2000.COFF.name,
     661: ifpri_mapspam.CANONICAL_CROP_CLS.COCO.name,
     667: ifpri_mapspam.CANONICAL_CROP_CLS.TEAS.name,
     826: ifpri_mapspam.CANONICAL_CROP_CLS.TOBA.name,
@@ -847,7 +892,9 @@ SPAM_GROUP_CROP_CODES = {
 # Every canonical crop is mapped, split or grouped
 assert set(FAOSTAT_ITEM_CODE_TO_CROP_CODE.values()) | set(
     SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE
-) | SPAM_GROUP_CROP_CODES == {crop.name for crop in ifpri_mapspam.CANONICAL_CROP_CLS}
+) | SPAM_GROUP_CROP_CODES == {
+    crop.name for crop in ifpri_mapspam.CANONICAL_CROP_CLS
+} | set(SPLIT_CROP_CODE_TO_COMBINED_CROP_CODE.values())
 assert len(set(FAOSTAT_ITEM_CODE_TO_CROP_CODE.values())) == len(
     FAOSTAT_ITEM_CODE_TO_CROP_CODE
 )
@@ -1297,16 +1344,11 @@ def get_comparisons(
         ): control
         for control in targets.iter_controls()
     }
-    # The MapSPAM code back to the `statistical.Crop` name targets use. WRI's combined coffee and
-    # millet codes have no such name, so they keep their code.
-    crop_to_name = {code: code for code in frame["crop_name"]} | {
-        statistical.Crop[name].value: name for name in statistical.Crop.__members__
-    }
     controls = [
         expectations.get(
             (
                 row["iso_3166"],
-                crop_to_name[row["crop_name"]],
+                CROP_CODE_TO_CROP_NAME[row["crop_name"]],
                 row["measure"],
                 row["statistic"],
             )
@@ -1322,7 +1364,7 @@ def get_comparisons(
         shares.get((row["iso_3166"], row["crop_name"]))
         for row in frame.to_dict("records")
     ]
-    frame["crop_name"] = [crop_to_name[code] for code in frame["crop_name"]]
+    frame["crop_name"] = [CROP_CODE_TO_CROP_NAME[code] for code in frame["crop_name"]]
     frame["is_control"] = [control is not None for control in controls]
     # A target pair is what the report is about; everything else is context the comparison happens
     # to reach. `is_control` is narrower -- a target can be compared without carrying an expectation.
