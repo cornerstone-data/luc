@@ -11,10 +11,11 @@ absent for a supplied file that was never retrieved, and `revision` appears wher
 are strings a reader cannot tell apart by inspection, so keeping them in named fields is what stops a
 consumer reading one as the other.
 
-FAOSTAT is absent from the retrieval loop: it arrives as an ingested `jdluc` dataset, and
-`record_digest` pins the ingested parquet instead of an upstream URL.
+FAOSTAT's crop table is absent from the retrieval loop: it arrives as an ingested `jdluc` dataset,
+and `record_digest` pins the ingested parquet instead of an upstream URL. Its Emissions Totals are
+retrieved like WRI's files.
 
-**The lock is committed; the bytes are not.** The anchors run to 11 MiB across 128 files, and none of
+**The lock is committed; the bytes are not.** The anchors run to 31 MiB across 129 files, and none of
 it belongs in a repository when the lock reproduces all of it: a committed record keyed on
 content makes a stale or swapped file visible in a diff, where inherited CSVs with no provenance
 could not be traced to a source at all. Every source pins a revision, so a re-run reproduces rather
@@ -102,6 +103,14 @@ WRI_CROP_CODES = (
 # external anchor it has ever had.
 WRI_CROPS_WITHOUT_FACTORS = ("CITR", "ONIO", "RUBB", "TOMA")
 CHUNK_BYTES = 1 << 22
+# FAOSTAT serves only its latest release at this URL, so the revision is the date its archive was
+# built, and the digest in the lock is what pins the bytes: a re-pull that finds a newer release
+# shows as a changed digest.
+FAOSTAT_EMISSIONS_REVISION = "2026-10-29"
+FAOSTAT_EMISSIONS_URL = (
+    "https://bulks-faostat.fao.org/production/"
+    "Emissions_Totals_E_All_Data_(Normalized).zip"
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -183,6 +192,16 @@ def get_wri_yield_remote(grain_name: str) -> Remote:
     )
 
 
+def get_faostat_emissions_remote() -> Remote:
+    return Remote(
+        relative_path=pathlib.PurePosixPath(
+            f"faostat/{FAOSTAT_EMISSIONS_REVISION:s}/Emissions_Totals.zip"
+        ),
+        revision=FAOSTAT_EMISSIONS_REVISION,
+        url=FAOSTAT_EMISSIONS_URL,
+    )
+
+
 def get_grain(grain_name: str) -> Grain:
     """The grain WRI publishes at, by the name the rest of the tool uses for it."""
     by_name = {grain.name: grain for grain in WRI_GRAINS}
@@ -220,6 +239,7 @@ def iter_remotes() -> collections.abc.Iterator[Remote]:
                 )
     for grain_name, _ in WRI_YIELD_FACTORS:
         yield get_wri_yield_remote(grain_name=grain_name)
+    yield get_faostat_emissions_remote()
 
 
 def get_sha256(path: pathlib.Path) -> str:

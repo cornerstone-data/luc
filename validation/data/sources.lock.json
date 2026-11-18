@@ -5,6 +5,13 @@
       "origin": "tabular/faostat/production-crops/v3/whole-world/world.parquet",
       "path": "faostat.parquet",
       "sha256": "0af0d17818df3c0edec21fb251f4d78dc2195947ed64b91da475660d1ca1a20e"
+    },
+    "faostat/2026-10-29/Emissions_Totals.zip": {
+      "bytes": 20636182,
+      "origin": "https://bulks-faostat.fao.org/production/Emissions_Totals_E_All_Data_(Normalized).zip",
+      "path": "raw/faostat/2026-10-29/Emissions_Totals.zip",
+      "revision": "2026-10-29",
+      "sha256": "b048ba37ed06d5f78543a458645a30882473af91c387ec5378e76d92c8f79233"
     }
   },
   "orbae": {

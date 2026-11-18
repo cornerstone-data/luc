@@ -50,11 +50,13 @@ class Section(enum.StrEnum):
     drawn from, and because it carries the one BLOCKING finding measurable from the anchors alone: the
     pairs the pipeline cannot produce a comparable number for at all outrank any disagreement about
     a number it can. `COMPARISONS` carries the findings, which outrank the anchor tables inside it.
+    `TOTALS` comes last: it carries no findings, only our totals beside published ones.
     """
 
     ELIGIBLE = enum.auto()
     ANCHORS = enum.auto()
     COMPARISONS = enum.auto()
+    TOTALS = enum.auto()
 
 
 def get_document(
@@ -110,6 +112,13 @@ def get_document(
             ),
             uncompared=uncompared,
         ),
+        Section.TOTALS: report.render_totals(
+            iso_3166s=tuple(
+                sorted({target.iso_3166 for target in targets.iter_targets()})
+            ),
+            leg_totals=prepare.get_leg_totals(table=table),
+            outside=prepare.get_outside_totals(year=year),
+        ),
     }
     assert set(rendered) == set(Section), "a Section has no rendered text"
     document = "\n\n".join(
@@ -143,7 +152,7 @@ def main() -> int:
     parser.add_argument(
         "--overwrite",
         action="append",
-        choices=("wri",),
+        choices=("faostat", "wri"),
         default=[],
         help="pull stage only: re-retrieve this source even where the digest matches",
     )

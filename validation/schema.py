@@ -38,6 +38,8 @@ CANONICAL_KEY = (
 ASSESSMENT_YEAR = 2020
 NATIONAL = "NATIONAL"
 PROVINCIAL = "PROVINCIAL"
+# The scope of a total summed over every country, beside the countries' ISO codes
+WORLD = "WORLD"
 # The legs, as `methodology` records them in a `trace` table
 STATISTICAL = "STATISTICAL"
 JURISDICTIONAL_DIRECT = "JURISDICTIONAL_DIRECT"
@@ -58,6 +60,7 @@ class Source(enum.StrEnum):
     ORBAE = enum.auto()
     EPA = enum.auto()
     FAOSTAT = enum.auto()
+    GLOBAL_CARBON_BUDGET = enum.auto()
     GNW_TCL = enum.auto()
     SPAWN = enum.auto()
 
@@ -78,8 +81,8 @@ class SourceTier(enum.StrEnum):
 class EmissionPool(enum.StrEnum):
     """Which pool an emission came from.
 
-    GRASSLAND has no column of its own: it is the remainder after the three named pools are
-    subtracted from the total.
+    DROPPED is not a pool but the conversions no commodity is charged with: a `trace` table carries
+    it as its own row, with a total and no pools.
 
     LUC_ONLY is the total excluding peatland occupation. Orbae's LUC figure excludes occupation, so
     a like-for-like comparison against Orbae uses LUC_ONLY rather than TOTAL.
@@ -90,6 +93,7 @@ class EmissionPool(enum.StrEnum):
     PEATLAND_CONVERSION = enum.auto()
     PEATLAND_OCCUPATION = enum.auto()
     TOTAL = enum.auto()
+    DROPPED = enum.auto()
     LUC_ONLY = enum.auto()
     # Hectares rather than emissions, for the extent probes
     CROPLAND_EXTENT = enum.auto()

@@ -475,6 +475,120 @@ def render_eligible(
     )
 
 
+def format_megatonnes(tonnes: float) -> str:
+    if pandas.isna(tonnes):
+        return "—"
+    return f"{tonnes / schema.TONNES_PER_MEGATONNE:,.1f}"
+
+
+def render_totals(
+    iso_3166s: tuple[str, ...],
+    leg_totals: pandas.DataFrame,
+    outside: pandas.DataFrame,
+) -> str:
+    """Each leg's totals by pool beside published totals: the world and the USA in full, and every
+    target country against FAOSTAT.
+
+    Scope beside every figure rather than a ratio, and no findings: no ratio here is expected to hold
+    still, so none is a control.
+    """
+    legs = (
+        schema.STATISTICAL,
+        schema.JURISDICTIONAL_DIRECT_PROXY,
+        schema.JURISDICTIONAL_DIRECT,
+    )
+    pools = (
+        schema.EmissionPool.FOREST,
+        schema.EmissionPool.GRASSLAND,
+        schema.EmissionPool.PEATLAND_CONVERSION,
+        schema.EmissionPool.PEATLAND_OCCUPATION,
+        schema.EmissionPool.TOTAL,
+        schema.EmissionPool.DROPPED,
+    )
+    ours = leg_totals.reindex(
+        columns=list(legs),
+        index=pandas.MultiIndex.from_product(
+            # The USA is in the first table whether or not a target names it
+            [list(dict.fromkeys([schema.WORLD, "USA", *iso_3166s])), list(pools)]
+        ),
+    )
+    whole = [
+        [
+            str(scope),
+            str(pool),
+            *[format_megatonnes(tonnes=ours[leg][(scope, pool)]) for leg in legs],
+            "; ".join(
+                f"{format_megatonnes(tonnes=float(row['tonnes']))} {row['source']!s}, "
+                f"{row['label']!s}"
+                for row in outside[
+                    (outside["scope"] == scope) & (outside["pool"] == pool)
+                ].to_dict("records")
+            )
+            or "—",
+        ]
+        for scope in (schema.WORLD, "USA")
+        for pool in pools
+    ]
+    faostat = (
+        outside[outside["source"] == schema.Source.FAOSTAT]
+        .set_index(["scope", "pool"])["tonnes"]
+        .reindex(ours.index)
+    )
+    countries = [
+        [
+            iso_3166,
+            *[
+                format_megatonnes(tonnes=ours[leg][(iso_3166, pool)])
+                for pool in (
+                    schema.EmissionPool.FOREST,
+                    schema.EmissionPool.DROPPED,
+                    schema.EmissionPool.PEATLAND_OCCUPATION,
+                )
+                for leg in legs[:2]
+            ],
+            format_megatonnes(
+                tonnes=float(faostat[(iso_3166, schema.EmissionPool.FOREST)])
+            ),
+            format_megatonnes(
+                tonnes=float(
+                    faostat[(iso_3166, schema.EmissionPool.PEATLAND_OCCUPATION)]
+                )
+            ),
+        ]
+        for iso_3166 in iso_3166s
+    ]
+    return "\n\n".join(
+        [
+            "### Totals against outside figures (Mt CO2e)",
+            format_markdown_table(
+                headers=("Scope", "Pool", "statistical", "proxy", "direct", "outside"),
+                rows=whole,
+            ),
+            format_markdown_table(
+                headers=(
+                    "Country",
+                    "forest, statistical",
+                    "forest, proxy",
+                    "dropped, statistical",
+                    "dropped, proxy",
+                    "occupation, statistical",
+                    "occupation, proxy",
+                    "FAOSTAT net forest conversion",
+                    "FAOSTAT drained organic soils",
+                ),
+                rows=countries,
+            ),
+            "_Ours are 20 years of conversions linearly discounted, with weights summing to one, so at "
+            "a steady clearing rate they compare to an annual flux weighted toward recent years; every "
+            "outside figure is annual. FAOSTAT's net forest conversion and the Global Carbon Budget "
+            "cover every cause of forest loss, so they sit beside our forest pool and what we drop "
+            "together, not our forest pool alone. FAOSTAT's drained organic soils use IPCC defaults by "
+            "climate zone, where our peatland occupation is one flat rate per hectare. Grassland has "
+            "no outside figure but EPA's US one, and peatland conversion has none._",
+        ]
+    )
+
+
 def render(
     comparisons: pandas.DataFrame,
     uncompared: targets.UncomparedTargets,

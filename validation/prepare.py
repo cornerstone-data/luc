@@ -9,6 +9,7 @@ a `trace` table, which `read_trace_table` reads from the parquet the command lin
 import collections.abc
 import csv
 import dataclasses
+import enum
 import io
 import json
 import logging
@@ -1726,3 +1727,228 @@ def read_faostat_areas(year: int) -> pandas.DataFrame:
     """FAOSTAT's harvested area per country and crop for one year."""
     frame = read_faostat_production()
     return frame[frame["year"] == year][["iso_3166", "commodity_id", "area_hectares"]]
+
+
+# --- Totals against outside figures --------------------------------------------------------------
+# Each leg's totals by pool, nationally and for the world, beside published totals: FAOSTAT's
+# Emissions Totals for every country and the world, the Global Carbon Budget for the world, and EPA's
+# inventory for the USA. A report section rather than controls, because no ratio between them is
+# expected to hold still. Ours are 20 years of conversions linearly discounted, with weights summing
+# to one, so at a steady clearing rate they compare to an annual flux weighted toward recent years;
+# the outside figures are annual, and FAOSTAT's and the Global Carbon Budget's cover every cause of
+# forest loss, not only agriculture.
+
+
+class FaostatEmissionsItem(enum.IntEnum):
+    """The FAOSTAT Emissions Totals items set beside our pools."""
+
+    NET_FOREST_CONVERSION = 6750
+    DRAINED_ORGANIC_SOILS = 6729
+
+
+FAOSTAT_EMISSIONS_ITEM_TO_POOL = {
+    FaostatEmissionsItem.NET_FOREST_CONVERSION: schema.EmissionPool.FOREST,
+    FaostatEmissionsItem.DRAINED_ORGANIC_SOILS: schema.EmissionPool.PEATLAND_OCCUPATION,
+}
+FAOSTAT_EMISSIONS_MEMBER_NAME = "Emissions_Totals_E_All_Data_(Normalized).csv"
+# CO2e at AR5's warming potentials, as our CO2e is
+FAOSTAT_CO2E_AR5_ELEMENT_CODE = 723113
+# FAO's own estimate rather than countries' submissions to the UNFCCC, so every country is on one
+# method
+FAOSTAT_TIER_1_SOURCE = "FAO TIER 1"
+FAOSTAT_WORLD_M49_CODE = "'001"
+# The pools a `trace` table carries as columns. Their sum is a row's total, on every row but
+# DROPPED's, which has a total and no pools.
+POOL_TO_COLUMN = {
+    schema.EmissionPool.FOREST: "forest_emissions_mt",
+    schema.EmissionPool.GRASSLAND: "grassland_emissions_mt",
+    schema.EmissionPool.PEATLAND_CONVERSION: "peatland_conversion_emissions_mt",
+    schema.EmissionPool.PEATLAND_OCCUPATION: "peatland_occupation_emissions_mt",
+}
+TONNES_CO2_PER_TONNE_C = 44 / 12
+
+
+@dataclasses.dataclass(frozen=True)
+class OutsideTotal:
+    """A published total transcribed by hand, beside the pool of ours it is read against."""
+
+    label: str
+    pool: schema.EmissionPool
+    scope: str
+    source: schema.Source
+    tonnes: float
+
+
+# The Global Carbon Budget 2025 (Friedlingstein et al., Earth System Science Data 18, 3211, 2026):
+# 2015-2024 means in GtC a year. EPA: 2020, in MMT CO2 Eq., from chapter 6 of the Inventory of U.S.
+# Greenhouse Gas Emissions and Sinks: 1990-2022, read in its February 2024 public-review draft.
+TRANSCRIBED_TOTALS = (
+    OutsideTotal(
+        label="gross deforestation, 1.9 GtC a year",
+        pool=schema.EmissionPool.FOREST,
+        scope=schema.WORLD,
+        source=schema.Source.GLOBAL_CARBON_BUDGET,
+        tonnes=1.9e9 * TONNES_CO2_PER_TONNE_C,
+    ),
+    OutsideTotal(
+        label="net land-use change, 1.4 GtC a year",
+        pool=schema.EmissionPool.TOTAL,
+        scope=schema.WORLD,
+        source=schema.Source.GLOBAL_CARBON_BUDGET,
+        tonnes=1.4e9 * TONNES_CO2_PER_TONNE_C,
+    ),
+    OutsideTotal(
+        label="forest land converted to cropland (Table 6-40)",
+        pool=schema.EmissionPool.FOREST,
+        scope="USA",
+        source=schema.Source.EPA,
+        tonnes=19.7e6,
+    ),
+    OutsideTotal(
+        label="forest land converted to grassland (Table 6-51)",
+        pool=schema.EmissionPool.FOREST,
+        scope="USA",
+        source=schema.Source.EPA,
+        tonnes=46.8e6,
+    ),
+    OutsideTotal(
+        label="grassland converted to cropland (Table 6-40)",
+        pool=schema.EmissionPool.GRASSLAND,
+        scope="USA",
+        source=schema.Source.EPA,
+        tonnes=10.6e6,
+    ),
+    OutsideTotal(
+        label="organic soils, cropland remaining cropland (Table 6-36)",
+        pool=schema.EmissionPool.PEATLAND_OCCUPATION,
+        scope="USA",
+        source=schema.Source.EPA,
+        tonnes=29.4e6,
+    ),
+    OutsideTotal(
+        label="organic soils, grassland remaining grassland (Table 6-43)",
+        pool=schema.EmissionPool.PEATLAND_OCCUPATION,
+        scope="USA",
+        source=schema.Source.EPA,
+        tonnes=5.5e6,
+    ),
+    OutsideTotal(
+        label="land converted to cropland (Table 6-1)",
+        pool=schema.EmissionPool.TOTAL,
+        scope="USA",
+        source=schema.Source.EPA,
+        tonnes=29.3e6,
+    ),
+    OutsideTotal(
+        label="land converted to grassland (Table 6-1)",
+        pool=schema.EmissionPool.TOTAL,
+        scope="USA",
+        source=schema.Source.EPA,
+        tonnes=28.7e6,
+    ),
+)
+
+
+def read_faostat_emissions_totals(year: int) -> pandas.DataFrame:
+    """FAOSTAT's net forest conversion and drained organic soils for every country and the world,
+    one row per (scope, pool), in the shape of `TRANSCRIBED_TOTALS`."""
+    path = pull.get_pulled_path(remote=pull.get_faostat_emissions_remote())
+    with (
+        zipfile.ZipFile(file=path) as archive,
+        archive.open(FAOSTAT_EMISSIONS_MEMBER_NAME) as member,
+    ):
+        frame = pandas.read_csv(
+            member,
+            encoding="latin-1",
+            engine="pyarrow",
+            usecols=[
+                "Area Code (M49)",
+                "Item Code",
+                "Element Code",
+                "Year",
+                "Source",
+                "Value",
+            ],
+        )
+    frame = frame[
+        frame["Item Code"].isin(list(FaostatEmissionsItem))
+        & (frame["Element Code"] == FAOSTAT_CO2E_AR5_ELEMENT_CODE)
+        & (frame["Source"] == FAOSTAT_TIER_1_SOURCE)
+        & (frame["Year"] == year)
+    ]
+    frame["scope"] = [
+        schema.WORLD
+        if m49_code == FAOSTAT_WORLD_M49_CODE
+        else faostat.get_iso_3166(m49_code=m49_code)
+        for m49_code in frame["Area Code (M49)"]
+    ]
+    # Regions other than the world have no ISO code, and are not read
+    frame = frame.dropna(subset=["scope"])
+    items = [FaostatEmissionsItem(code) for code in frame["Item Code"]]
+    return pandas.DataFrame(
+        {
+            "label": [item.name.lower().replace("_", " ") for item in items],
+            "pool": [FAOSTAT_EMISSIONS_ITEM_TO_POOL[item] for item in items],
+            "scope": frame["scope"].to_numpy(),
+            "source": schema.Source.FAOSTAT,
+            # Published in kilotonnes
+            "tonnes": frame["Value"].to_numpy() * schema.KG_PER_TONNE,
+        }
+    )
+
+
+def get_outside_totals(year: int) -> pandas.DataFrame:
+    """Every outside total, FAOSTAT's read from its file and the rest transcribed."""
+    return pandas.concat(
+        [
+            read_faostat_emissions_totals(year=year),
+            pandas.DataFrame.from_records(
+                [dataclasses.asdict(total) for total in TRANSCRIBED_TOTALS]
+            ),
+        ],
+        ignore_index=True,
+    )
+
+
+def get_leg_totals(table: pandas.DataFrame) -> pandas.DataFrame:
+    """Each leg's totals by pool, in tonnes, per country and for the world.
+
+    Indexed by (scope, pool), one column per leg. TOTAL sums the four pools over every row but
+    DROPPED, which is its own pool. The world sums the statistical and proxy legs' countries; the
+    direct leg is US-only, so it has no world total.
+    """
+    national = table[
+        table.index.get_level_values("admin_level") == schema.NATIONAL
+    ].reset_index()
+    dropped = national["commodity_id"] == taxonomy.InventedCommodityId.DROPPED
+    by_country = (
+        national[~dropped]
+        .groupby(["admin_id", "methodology"])[list(POOL_TO_COLUMN.values())]
+        .sum()
+        .rename(columns={column: pool for pool, column in POOL_TO_COLUMN.items()})
+    )
+    by_country[schema.EmissionPool.TOTAL] = by_country[list(POOL_TO_COLUMN)].sum(axis=1)
+    by_country[schema.EmissionPool.DROPPED] = (
+        national[dropped]
+        .groupby(["admin_id", "methodology"])["emissions_mt"]
+        .sum()
+        .reindex(by_country.index, fill_value=0.0)
+    )
+    world = (
+        by_country[
+            by_country.index.get_level_values("methodology")
+            != schema.JURISDICTIONAL_DIRECT
+        ]
+        .groupby(level="methodology")
+        .sum()
+        .assign(admin_id=schema.WORLD)
+        .set_index("admin_id", append=True)
+        .reorder_levels(["admin_id", "methodology"])
+    )
+    return (
+        pandas.concat([world, by_country])
+        .rename_axis(index=["scope", "methodology"])
+        .reset_index()
+        .melt(id_vars=["scope", "methodology"], value_name="tonnes", var_name="pool")
+        .pivot_table(columns="methodology", index=["scope", "pool"], values="tonnes")
+    )
