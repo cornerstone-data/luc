@@ -323,6 +323,7 @@ def downscale_dset(
                     row_weights=rows.weights,
                     valid=valid,
                 )
+        logger.info(f"Downscaled rows {row_stop:d} of {fine_height:d}")
 
     coords = affine_to_coords(affine=affine, height=height, width=width)
     name_to_darray: dict[collections.abc.Hashable, xarray.DataArray] = {}
