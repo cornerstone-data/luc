@@ -72,7 +72,7 @@ EMIT_VARIABLE_NAMES = [
 ]
 
 
-@storage.cache_to_zarr(version=0)
+@storage.cache_to_zarr(version=1)
 def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.Dataset:
     logger.info("Computing emissions on the GLAD grid")
     luc_and_emissions = geo.exact_merge(
@@ -515,7 +515,7 @@ SCHEMA = {
 } | dict.fromkeys(HERD_HEADS_COLUMNS, float)
 
 
-@storage.cache_to_parquet(version=0)
+@storage.cache_to_parquet(version=1)
 def workflow(
     assessment_year: int,
     commodity_names: tuple[str, ...],

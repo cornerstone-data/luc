@@ -335,7 +335,7 @@ def iter_national_from_provincials(
         }  # type: ignore
 
 
-@storage.cache_to_parquet(ignored_args=["concurrency"], version=1)
+@storage.cache_to_parquet(ignored_args=["concurrency"], version=2)
 def workflow(
     assessment_year: int,
     commodity_names: tuple[str, ...],
