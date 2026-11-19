@@ -10,20 +10,25 @@ from jdluc.datasets.worldbank_jurisdictions import AdminLevel
 def get_faostat_frame(
     column_name: str, key_to_value: dict[tuple[str, str, int], float]
 ) -> pandas.DataFrame:
-    """A table shaped like `faostat.load`'s, one column over (country, species, year)."""
+    """A table shaped like `faostat.load`'s livestock tables, one column over each species' live
+    animals by (country, species, year).
+    """
     return pandas.DataFrame.from_records(
         data=[
             {
                 "admin_level": AdminLevel.NATIONAL.name,
                 "admin_id": iso_3166,
                 "jurisdiction_name": iso_3166,
-                "commodity_name": commodity_name,
+                "species": species_name,
+                "commodity_id": faostat.SPECIES_TO_STOCKS_ITEM_CODE[
+                    faostat.Species[species_name]
+                ],
                 "year": year,
                 column_name: value,
             }
-            for (iso_3166, commodity_name, year), value in key_to_value.items()
+            for (iso_3166, species_name, year), value in key_to_value.items()
         ]
-    ).set_index(faostat.IDX_COLUMN_NAMES)
+    ).set_index(faostat.LIVESTOCK_IDX_COLUMN_NAMES)
 
 
 NO_LIVESTOCK_UNITS = dict.fromkeys(faostat.Species, 0.0)
@@ -81,9 +86,9 @@ def test_get_species_to_livestock_units_per_head(
     assert faostat.get_species_to_livestock_units_per_head(
         iso_3166="BRA",
         livestock_units=get_faostat_frame(
-            column_name="stocks_livestock_units", key_to_value=livestock_units
+            column_name="livestock_units", key_to_value=livestock_units
         ),
-        stocks=get_faostat_frame(column_name="stocks_head", key_to_value=stocks),
+        stocks=get_faostat_frame(column_name="heads", key_to_value=stocks),
     ) == pytest.approx(expected)
 
 
@@ -143,4 +148,56 @@ def test_get_crop_records() -> None:
             columns=column_names, data=[(56, 10.0, 3000.0), (216, math.nan, 3000.0)]
         ),
         check_dtype=False,
+    )
+
+
+def test_get_livestock_records() -> None:
+    # Each item is its own record, named as FAOSTAT names it; items of no grazer are dropped
+    rows = [
+        {
+            "Area Code (M49)": m49_code,
+            "Area": area,
+            "Item Code": str(item_code),
+            "Item": item_name,
+            "Element Code": str(element_code),
+            "Year": "2020",
+            "Value": value,
+            "Flag": "A",
+        }
+        for m49_code, area, item_code, item_name, element_code, value in (
+            ("'076", "Brazil", 866, "Cattle", faostat.STOCKS_ELEMENT_CODE, "1000"),
+            ("'076", "Brazil", 867, "Meat of cattle", PRODUCTION, "50"),
+            ("'076", "Brazil", 882, "Raw milk of cattle", PRODUCTION, "200"),
+            (
+                "'076",
+                "Brazil",
+                882,
+                "Raw milk of cattle",
+                faostat.MILK_ANIMALS_ELEMENT_CODE,
+                "100",
+            ),
+            ("'076", "Brazil", 1057, "Chickens", faostat.STOCKS_ELEMENT_CODE, "9"),
+        )
+    ]
+    column_names = [
+        "commodity_id",
+        "commodity_name",
+        "heads",
+        "production_kg",
+        "species",
+    ]
+    records = faostat.get_livestock_records(
+        element_columns=faostat.LIVESTOCK_ELEMENT_COLUMNS, rows=rows
+    )
+    assert all(list(record) == sorted(record) for record in records)
+    pandas.testing.assert_frame_equal(
+        pandas.DataFrame.from_records(data=records)[column_names],
+        pandas.DataFrame.from_records(
+            columns=column_names,
+            data=[
+                (866, "Cattle", 1000.0, math.nan, "CATTLE"),
+                (867, "Meat of cattle", math.nan, 50_000.0, "CATTLE"),
+                (882, "Raw milk of cattle", 100.0, 200_000.0, "CATTLE"),
+            ],
+        ),
     )

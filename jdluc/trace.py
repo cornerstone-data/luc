@@ -105,21 +105,24 @@ def get_herd_production_kg(
     """Heads times FAOSTAT's national carcass weight per head: mean meat over mean stocks across
     `years`. No meat, or no herd in FAOSTAT, prices at 0.
     """
-    livestock = stocks.reset_index()
-    means = (
-        livestock[livestock["year"].isin(years)]
-        .groupby(["admin_id", "commodity_name"])[["production_kg", "stocks_head"]]
-        .mean()
-    )
-    kg_per_head = (means["production_kg"] / means["stocks_head"]).fillna(0)
-    iso_3166s = heads.index.get_level_values("admin_id").str[:3]
+    table = stocks.reset_index()
+    table = table[table["year"].isin(years)]
+    herd = table[
+        table["commodity_id"]
+        == faostat.SPECIES_TO_STOCKS_ITEM_CODE[faostat.Species[species.name]]
+    ]
+    meat = table[
+        table["commodity_id"]
+        == faostat.SPECIES_TO_MEAT_ITEM_CODE[faostat.Species[species.name]]
+    ]
+    kg_per_head = (
+        meat.groupby("admin_id")["production_kg"].mean()
+        / herd.groupby("admin_id")["heads"].mean()
+    ).fillna(0)
     return (
         heads.to_numpy()
         * kg_per_head.reindex(
-            fill_value=0,
-            index=pandas.MultiIndex.from_arrays(
-                [iso_3166s, [species.name] * len(iso_3166s)]
-            ),
+            fill_value=0, index=heads.index.get_level_values("admin_id").str[:3]
         ).to_numpy()
     )
 
@@ -265,21 +268,28 @@ def with_commodity_ids(
     )
 
 
-def get_commodity_id_to_name(crops: pandas.DataFrame) -> dict[int, str]:
-    """Every code's name: FAOSTAT's for its crop items, from its crop table, and `taxonomy`'s for
-    the rest.
+def get_commodity_id_to_name(
+    crops: pandas.DataFrame, livestock: pandas.DataFrame
+) -> dict[int, str]:
+    """Every code's name: FAOSTAT's for its crop and livestock items, from its tables, and
+    `taxonomy`'s for the rest.
     """
-    pairs = crops.reset_index()[["commodity_id", "commodity_name"]].drop_duplicates()
+    pairs = pandas.concat(
+        [
+            table.reset_index()[["commodity_id", "commodity_name"]]
+            for table in (crops, livestock)
+        ]
+    ).drop_duplicates()
     assert pairs["commodity_id"].is_unique
-    crop_id_to_name = dict(
+    item_id_to_name = dict(
         zip(
             map(int, pairs["commodity_id"]),
             map(str, pairs["commodity_name"]),
             strict=True,
         )
     )
-    assert not set(crop_id_to_name) & set(taxonomy.COMMODITY_ID_TO_NAME)
-    return crop_id_to_name | taxonomy.COMMODITY_ID_TO_NAME
+    assert not set(item_id_to_name) & set(taxonomy.COMMODITY_ID_TO_NAME)
+    return item_id_to_name | taxonomy.COMMODITY_ID_TO_NAME
 
 
 def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
@@ -412,7 +422,8 @@ def workflow(
         ]
     )
     commodity_id_to_name = get_commodity_id_to_name(
-        crops=faostat.load(dataset=faostat.CROP_DATASET)
+        crops=faostat.load(dataset=faostat.CROP_DATASET),
+        livestock=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
     )
     ret["commodity_name"] = [
         commodity_id_to_name[int(commodity_id)]

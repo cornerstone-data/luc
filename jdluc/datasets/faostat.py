@@ -24,8 +24,9 @@ Two bulk archives, read into three tables:
 
 - `CROP_DATASET`: area harvested and production of every crop item, keyed by item code in
   `commodity_id`. Yield is not carried: area and production add across items, and yield does not
-- `LIVESTOCK_DATASET`: stocks (live animals) and meat production (carcass weight, with the bone) of
-  five grazers
+- `LIVESTOCK_DATASET`: the items of five grazers, keyed by item code in `commodity_id` with its
+  `species`: stocks of live animals, production of meat (carcass weight, with the bone), and
+  cattle's milking cows and production of raw milk, as `heads` and `production_kg`
 - `LIVESTOCK_PATTERNS_DATASET`: stocks in livestock units of the same five grazers, from Livestock
   Patterns; `get_species_to_livestock_units_per_head` recovers a country's coefficients from it
 """
@@ -68,6 +69,8 @@ KG_PER_TONNE = 1000
 AREA_HARVESTED_ELEMENT_CODE = 5312
 PRODUCTION_ELEMENT_CODE = 5510
 STOCKS_ELEMENT_CODE = 5111
+# Milking animals, in heads
+MILK_ANIMALS_ELEMENT_CODE = 5318
 # Livestock Patterns' stocks, in livestock units rather than heads
 LIVESTOCK_UNITS_ELEMENT_CODE = 5118
 # "Missing value; data cannot exist". Estimated and imputed figures are kept.
@@ -111,53 +114,49 @@ SPECIES_TO_MEAT_ITEM_CODE = {
 assert (
     set(SPECIES_TO_STOCKS_ITEM_CODE) == set(SPECIES_TO_MEAT_ITEM_CODE) == set(Species)
 )
+# Raw milk, read for cattle only
+SPECIES_TO_MILK_ITEM_CODE = {
+    Species.CATTLE: 882,
+}
+LIVESTOCK_ITEM_CODE_TO_SPECIES = {
+    item_code: species
+    for species_to_item_code in (
+        SPECIES_TO_STOCKS_ITEM_CODE,
+        SPECIES_TO_MEAT_ITEM_CODE,
+        SPECIES_TO_MILK_ITEM_CODE,
+    )
+    for species, item_code in species_to_item_code.items()
+}
 
 
 @dataclasses.dataclass(frozen=True)
 class ElementColumn:
-    """A FAOSTAT element carried as one column of a table, for the items that table names."""
+    """A FAOSTAT element carried as one column of a table."""
 
     column_name: str
-    commodity_name_to_item_code: dict[str, int]
-    required: bool
+    element_code: int
     # Multiplies a reported value into the column's unit
     scale: float
 
 
-LIVESTOCK_ELEMENT_COLUMNS = {
-    STOCKS_ELEMENT_CODE: ElementColumn(
-        column_name="stocks_head",
-        commodity_name_to_item_code={
-            species.name: item_code
-            for species, item_code in SPECIES_TO_STOCKS_ITEM_CODE.items()
-        },
-        required=True,
-        scale=1,
-    ),
-    PRODUCTION_ELEMENT_CODE: ElementColumn(
+# An item's heads are its standing herd for live animals and the animals milked for milk; FAOSTAT
+# reports one or the other, never both
+LIVESTOCK_ELEMENT_COLUMNS = (
+    ElementColumn(column_name="heads", element_code=MILK_ANIMALS_ELEMENT_CODE, scale=1),
+    ElementColumn(column_name="heads", element_code=STOCKS_ELEMENT_CODE, scale=1),
+    ElementColumn(
         column_name="production_kg",
-        commodity_name_to_item_code={
-            species.name: item_code
-            for species, item_code in SPECIES_TO_MEAT_ITEM_CODE.items()
-        },
-        # NB: FAOSTAT reports stocks without meat for many country-species-years -- horses above
-        # all, and India's cattle -- and those stocks are kept
-        required=False,
+        element_code=PRODUCTION_ELEMENT_CODE,
         scale=KG_PER_TONNE,
     ),
-}
-# Livestock Patterns names the grazers by their stocks items
-LIVESTOCK_UNITS_ELEMENT_COLUMNS = {
-    LIVESTOCK_UNITS_ELEMENT_CODE: ElementColumn(
-        column_name="stocks_livestock_units",
-        commodity_name_to_item_code={
-            species.name: item_code
-            for species, item_code in SPECIES_TO_STOCKS_ITEM_CODE.items()
-        },
-        required=True,
+)
+LIVESTOCK_UNITS_ELEMENT_COLUMNS = (
+    ElementColumn(
+        column_name="livestock_units",
+        element_code=LIVESTOCK_UNITS_ELEMENT_CODE,
         scale=1,
     ),
-}
+)
 
 
 def get_iso_3166(m49_code: str) -> str | None:
@@ -186,76 +185,64 @@ def iter_rows(
         )
 
 
-def get_records_for_path(
-    element_columns: dict[int, ElementColumn], member_name: str, path_to_zip: str
+def get_livestock_records(
+    element_columns: tuple[ElementColumn, ...],
+    rows: collections.abc.Iterable[dict[str, str]],
 ) -> list[dict[str, str | float]]:
-    """One record per (country, commodity, year) carrying every element, from a local archive.
-
-    Split from the retrieval so a caller already holding the archive parses it without fetching
-    it again. The file is long format, so a key's elements are rows arbitrarily far apart and
-    accumulate across the pass. A key missing a required element is dropped, and an optional one it
-    lacks reads NaN.
+    """One record per (country, livestock item, year) carrying every element, from an archive's
+    rows. An element the item does not report reads NaN.
     """
-    element_code_to_item_code_to_commodity_name = {
-        element_code: {
-            item_code: commodity_name
-            for commodity_name, item_code in element_column.commodity_name_to_item_code.items()
-        }
-        for element_code, element_column in element_columns.items()
+    element_code_to_column = {
+        element_column.element_code: element_column
+        for element_column in element_columns
     }
-    accumulated: dict[tuple[str, str, int], dict[str, float]] = {}
-    names: dict[str, str] = {}
+    accumulated: dict[tuple[str, int, int], dict[str, float]] = {}
+    iso_3166_to_jurisdiction_name: dict[str, str] = {}
+    commodity_id_to_commodity_name: dict[int, str] = {}
     seen = 0
 
-    for row in iter_rows(member_name=member_name, path_to_zip=path_to_zip):
+    for row in rows:
         seen += 1
         element_code = int(row["Element Code"])
-        item_code = int(row["Item Code"])
+        commodity_id = int(row["Item Code"])
         if (
             row["Flag"] != MISSING_FLAG
             and row["Value"]
-            and element_code in element_columns
-            and item_code in element_code_to_item_code_to_commodity_name[element_code]
+            and element_code in element_code_to_column
+            and commodity_id in LIVESTOCK_ITEM_CODE_TO_SPECIES
             and (iso_3166 := get_iso_3166(m49_code=row["Area Code (M49)"])) is not None
         ):
-            element_column = element_columns[element_code]
-            key = (
-                iso_3166,
-                element_code_to_item_code_to_commodity_name[element_code][item_code],
-                int(row["Year"]),
-            )
+            element_column = element_code_to_column[element_code]
+            key = (iso_3166, commodity_id, int(row["Year"]))
             if key not in accumulated:
                 accumulated[key] = {}
+            assert element_column.column_name not in accumulated[key], key
             accumulated[key][element_column.column_name] = (
                 float(row["Value"]) * element_column.scale
             )
-            names[iso_3166] = row["Area"]
+            iso_3166_to_jurisdiction_name[iso_3166] = row["Area"]
+            commodity_id_to_commodity_name[commodity_id] = row["Item"]
     logger.info(f"Read {seen:d} rows; kept {len(accumulated):d} keys")
 
-    column_names = [
-        element_column.column_name for element_column in element_columns.values()
-    ]
-    required_column_names = [
-        element_column.column_name
-        for element_column in element_columns.values()
-        if element_column.required
-    ]
     records: list[dict[str, str | float]] = [
         {
             "admin_id": worldbank_jurisdictions.iso_3166_str(s=iso_3166),
             "admin_level": worldbank_jurisdictions.AdminLevel.NATIONAL.name,
-            "commodity_name": commodity_name,
-            "jurisdiction_name": names[iso_3166],
+            "commodity_id": commodity_id,
+            "commodity_name": commodity_id_to_commodity_name[commodity_id],
+            "jurisdiction_name": iso_3166_to_jurisdiction_name[iso_3166],
+            "species": LIVESTOCK_ITEM_CODE_TO_SPECIES[commodity_id].name,
             "year": year,
-            # NB: keys follow column_names, since every key in values is one of them
-            **dict.fromkeys(column_names, math.nan),
+            **dict.fromkeys(
+                [element_column.column_name for element_column in element_columns],
+                math.nan,
+            ),
             **values,
         }
-        for (iso_3166, commodity_name, year), values in sorted(accumulated.items())
-        if all(column_name in values for column_name in required_column_names)
+        for (iso_3166, commodity_id, year), values in sorted(accumulated.items())
     ]
-    logger.info(f"After requiring the required elements: {len(records):d} records")
-    return records
+    # NB: columns sorted by name, so the element columns sit among the others
+    return [dict(sorted(record.items())) for record in records]
 
 
 def get_crop_records(
@@ -324,7 +311,7 @@ def get_crop_records_for_tile(tile_id: str) -> list[dict[str, str | float]]:
 def _get_records_for_tile(
     tile_id: str,
     bulk_url: str,
-    element_columns: dict[int, ElementColumn],
+    element_columns: tuple[ElementColumn, ...],
     member_name: str,
 ) -> list[dict[str, str | float]]:
     with tempfile.TemporaryDirectory() as local_dir:
@@ -332,18 +319,16 @@ def _get_records_for_tile(
         utils.save_remote_url_to_local_path(
             local_path=path_to_zip, params={}, remote_url=bulk_url
         )
-        return get_records_for_path(
+        return get_livestock_records(
             element_columns=element_columns,
-            member_name=member_name,
-            path_to_zip=path_to_zip,
+            rows=iter_rows(member_name=member_name, path_to_zip=path_to_zip),
         )
 
 
-IDX_COLUMN_NAMES = [
-    "admin_level",
+LIVESTOCK_IDX_COLUMN_NAMES = [
     "admin_id",
-    "jurisdiction_name",
-    "commodity_name",
+    "admin_level",
+    "commodity_id",
     "year",
 ]
 CROP_IDX_COLUMN_NAMES = [
@@ -371,10 +356,11 @@ LIVESTOCK_DATASET = base.TabularDataset(
         element_columns=LIVESTOCK_ELEMENT_COLUMNS,
         member_name=BULK_MEMBER_NAME,
     ),
-    idx_column_names=IDX_COLUMN_NAMES,
+    idx_column_names=LIVESTOCK_IDX_COLUMN_NAMES,
     product_name="production-livestock",
     source_name="faostat",
-    version="v0",
+    # v1: every item, keyed by commodity_id, with cattle's milk
+    version="v1",
 )
 LIVESTOCK_PATTERNS_DATASET = base.TabularDataset(
     get_records_for_tile_id=functools.partial(
@@ -383,10 +369,11 @@ LIVESTOCK_PATTERNS_DATASET = base.TabularDataset(
         element_columns=LIVESTOCK_UNITS_ELEMENT_COLUMNS,
         member_name=LIVESTOCK_PATTERNS_BULK_MEMBER_NAME,
     ),
-    idx_column_names=IDX_COLUMN_NAMES,
+    idx_column_names=LIVESTOCK_IDX_COLUMN_NAMES,
     product_name="livestock-patterns",
     source_name="faostat",
-    version="v0",
+    # v1: keyed by commodity_id, as livestock_units
+    version="v1",
 )
 
 
@@ -412,20 +399,20 @@ def get_species_to_livestock_units_per_head(
     wherever it holds most of the years. A grazer FAOSTAT gives no livestock units, such as South
     America's buffalo, counts none.
     """
-    key = ["admin_id", "commodity_name", "year"]
-    merged = livestock_units.reset_index()[[*key, "stocks_livestock_units"]].merge(
-        stocks.reset_index()[[*key, "stocks_head"]], how="inner", on=key
+    key = ["admin_id", "commodity_id", "year"]
+    merged = livestock_units.reset_index()[[*key, "livestock_units"]].merge(
+        stocks.reset_index()[[*key, "heads", "species"]], how="inner", on=key
     )
-    merged = merged[(merged["admin_id"] == iso_3166) & (merged["stocks_head"] > 0)]
-    commodity_name_to_units_per_head = (
-        (merged["stocks_livestock_units"] / merged["stocks_head"])
-        .groupby(merged["commodity_name"])
+    merged = merged[(merged["admin_id"] == iso_3166) & (merged["heads"] > 0)]
+    species_name_to_units_per_head = (
+        (merged["livestock_units"] / merged["heads"])
+        .groupby(merged["species"])
         .median()
     )
     return {
         species: (
-            float(commodity_name_to_units_per_head[species.name])
-            if species.name in commodity_name_to_units_per_head.index
+            float(species_name_to_units_per_head[species.name])
+            if species.name in species_name_to_units_per_head.index
             else 0.0
         )
         for species in Species

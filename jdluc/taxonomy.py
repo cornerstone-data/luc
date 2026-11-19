@@ -46,8 +46,8 @@ class InventedCommodityId(enum.IntEnum):
     OTHER_PULSES = -202
 
 
-# The names the FAOSTAT crop table does not carry: those of our own codes, from the CROPGRIDS
-# publisher's crop table for the fodder crops, and cattle meat's, which is livestock
+# The names FAOSTAT's tables do not carry: those of our own codes, from the CROPGRIDS publisher's
+# crop table for the fodder crops
 COMMODITY_ID_TO_NAME: dict[int, str] = {
     InventedCommodityId.DROPPED: "DROPPED",
     InventedCommodityId.UNATTRIBUTED: "UNATTRIBUTED",
@@ -70,14 +70,8 @@ COMMODITY_ID_TO_NAME: dict[int, str] = {
     InventedCommodityId.VEGETABLES_AND_ROOTS_FOR_FODDER: "Vegetables and roots for fodder",
     InventedCommodityId.OTHER_OILCROPS: "OTHER_OILCROPS",
     InventedCommodityId.OTHER_PULSES: "OTHER_PULSES",
-    faostat.SPECIES_TO_MEAT_ITEM_CODE[faostat.Species.CATTLE]: (
-        "Meat of cattle with the bone, fresh or chilled"
-    ),
 }
-assert set(COMMODITY_ID_TO_NAME) == {
-    *InventedCommodityId,
-    faostat.SPECIES_TO_MEAT_ITEM_CODE[faostat.Species.CATTLE],
-}
+assert set(COMMODITY_ID_TO_NAME) == set(InventedCommodityId)
 assert len(set(COMMODITY_ID_TO_NAME.values())) == len(COMMODITY_ID_TO_NAME)
 
 

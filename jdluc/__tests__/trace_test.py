@@ -3,7 +3,7 @@ import pandas
 import pytest
 
 from jdluc.attribute import Methodology
-from jdluc.datasets import tang_cropgrids
+from jdluc.datasets import faostat, tang_cropgrids
 from jdluc.datasets.worldbank_jurisdictions import AdminLevel
 from jdluc.jurisdictional_direct_proxy import HERD_HEADS_COLUMN
 from jdluc.statistical import HERD_HEADS_COLUMNS
@@ -430,35 +430,37 @@ SNAPSHOT_YEAR_TO_WEIGHT = {2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.37
 STOCKS = pandas.DataFrame.from_records(
     [
         *(
-            ("NATIONAL", "BRA", "Brazil", "CATTLE", year, 1000.0, kg)
+            row
             for year, kg in (
                 (2000, 10_000.0),
                 (2005, 20_000.0),
                 (2010, 40_000.0),
                 (2020, 80_000.0),
             )
-        ),
-        ("NATIONAL", "BRA", "Brazil", "SHEEP", 2020, 1.0, 1_000_000.0),
-        *(
-            ("NATIONAL", "PRY", "Paraguay", "CATTLE", year, 1000.0, kg)
-            for year, kg in (
-                (2000, numpy.nan),
-                (2005, numpy.nan),
-                (2010, numpy.nan),
-                (2020, 80_000.0),
+            for row in (
+                ("NATIONAL", "BRA", "Brazil", "CATTLE", 866, year, 1000.0, numpy.nan),
+                ("NATIONAL", "BRA", "Brazil", "CATTLE", 867, year, numpy.nan, kg),
             )
         ),
+        ("NATIONAL", "BRA", "Brazil", "SHEEP", 976, 2020, 1.0, numpy.nan),
+        ("NATIONAL", "BRA", "Brazil", "SHEEP", 977, 2020, numpy.nan, 1_000_000.0),
+        *(
+            ("NATIONAL", "PRY", "Paraguay", "CATTLE", 866, year, 1000.0, numpy.nan)
+            for year in (2000, 2005, 2010, 2020)
+        ),
+        ("NATIONAL", "PRY", "Paraguay", "CATTLE", 867, 2020, numpy.nan, 80_000.0),
     ],
     columns=[
         "admin_level",
         "admin_id",
         "jurisdiction_name",
-        "commodity_name",
+        "species",
+        "commodity_id",
         "year",
-        "stocks_head",
+        "heads",
         "production_kg",
     ],
-).set_index(["admin_level", "admin_id", "jurisdiction_name", "commodity_name", "year"])
+).set_index(faostat.LIVESTOCK_IDX_COLUMN_NAMES)
 
 
 def test_derive_statistical_production_kg_stays_indexed() -> None:
@@ -660,13 +662,23 @@ def test_derive_proxy_production_kg() -> None:
     ).set_index(["admin_id", "commodity_id", "year"])
     stocks = pandas.DataFrame.from_records(
         [
-            ("BRA", "CATTLE", 2018, 99999.0, 100.0),
-            ("BRA", "CATTLE", 2019, 900.0, 100.0),
-            ("BRA", "CATTLE", 2020, 1200.0, 100.0),
-            ("BRA", "CATTLE", 2021, numpy.nan, 100.0),
+            *(
+                ("BRA", "CATTLE", 866, year, 100.0, numpy.nan)
+                for year in (2018, 2019, 2020, 2021)
+            ),
+            ("BRA", "CATTLE", 867, 2018, numpy.nan, 99999.0),
+            ("BRA", "CATTLE", 867, 2019, numpy.nan, 900.0),
+            ("BRA", "CATTLE", 867, 2020, numpy.nan, 1200.0),
         ],
-        columns=["admin_id", "commodity_name", "year", "production_kg", "stocks_head"],
-    ).set_index(["admin_id", "commodity_name", "year"])
+        columns=[
+            "admin_id",
+            "species",
+            "commodity_id",
+            "year",
+            "heads",
+            "production_kg",
+        ],
+    ).set_index(["admin_id", "commodity_id", "year"])
     emissions = pandas.DataFrame.from_records(
         [
             ("BRA001", "MAIZE", 30.0, numpy.nan),
