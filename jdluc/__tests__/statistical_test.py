@@ -46,13 +46,6 @@ OTHER_2020 = sorted(
 UNATTRIBUTED_0, UNATTRIBUTED_1 = sorted(
     ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[2005]
 )[:2]
-# A crop no `Crop` claims that MapSPAM only starts reporting in 2020.  Compared in 2020's own
-# naming, since two attributed crops are renamed there (ACOF -> COFF, SMIL -> MILL) and would
-# otherwise look 2020-only themselves.
-UNATTRIBUTED_2020_ONLY = sorted(
-    ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[2020]
-    - ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[2010]
-)[0]
 
 
 # `get_hectares_per_pixel` reads its spacing off these coords, and uniform values keep
@@ -215,17 +208,21 @@ HECTARES_PER_CELL = get_value(darray=get_dset(values={})["hectares-per-cell:ha"]
             id="crops-it-cannot-attribute-stay-lumped-and-net-against-each-other-leaving-maize-the-whole-cell",
         ),
         pytest.param(
-            # Counting UNATTRIBUTED_2020_ONLY's whole area as expansion from zero would halve
-            # MAIZE's share, although nothing was necessarily planted.
-            {2010: {}, 2020: {"MAIZ": 100.0, UNATTRIBUTED_2020_ONLY: 100.0}},
+            # MapSPAM 2010 counted rubber in rest of crops
+            {2010: {"REST": 100.0}, 2020: {"MAIZ": 100.0, "RUBB": 100.0}},
             2010,
             2020,
             {Crop.MAIZE: 1.0},
-            id="a-crop-the-earlier-snapshot-never-reported-is-newly-named-not-newly-grown-so-it-is-dropped",
+            id="a-crop-2020-first-names-is-not-expansion-where-it-only-left-its-earlier-group",
         ),
         pytest.param(
-            # The converse of the case above -- same shape, one crop different -- and the reason
-            # it cannot simply drop every unattributed crop.
+            {2010: {"REST": 100.0}, 2020: {"MAIZ": 100.0, "RUBB": 200.0}},
+            2010,
+            2020,
+            {Crop.MAIZE: 0.5},
+            id="a-crop-2020-first-names-that-outgrew-its-earlier-group-dilutes",
+        ),
+        pytest.param(
             {2010: {}, 2020: {"MAIZ": 100.0, UNATTRIBUTED_0: 100.0}},
             2010,
             2020,
@@ -234,9 +231,7 @@ HECTARES_PER_CELL = get_value(darray=get_dset(values={})["hectares-per-cell:ha"]
         ),
         pytest.param(
             # 2000 is a different MapSPAM release and shares almost no unattributed names with
-            # 2005, so the "reported in both" test above would reject nearly the whole lump here
-            # rather than stabilise it -- hence the span's absence from
-            # `SPANS_WITH_COMPARABLE_CROP_NAMES`.
+            # 2005, so the lump is compared as a whole rather than name by name
             {2000: {}, 2005: {"MAIZ": 100.0, UNATTRIBUTED_0: 100.0}},
             2000,
             2005,

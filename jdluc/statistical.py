@@ -216,15 +216,11 @@ def get_cropland_expansion(
         for crop in sorted(Crop)
     )
 
-    # Drop any crops which are being newly tracked so they aren't interpreted as an expansion from zero
-    before_names = ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[before]
-    after_names = ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[after]
-    if (before, after) in ifpri_mapspam.SPANS_WITH_COMPARABLE_CROP_NAMES:
-        before_names = after_names = before_names & after_names
-
-    def get_unattributed(names: set[str], year: int) -> xarray.DataArray:
+    def get_unattributed(year: int) -> xarray.DataArray:
         # NB: no canonical lookup is required -- these names are already `year`'s own, and
-        # nothing divides by them, so the raw band is the whole answer
+        # nothing divides by them, so the raw band is the whole answer. They include the crops
+        # 2020 names first, whose area 2005 and 2010 held in a group
+        # (`ifpri_mapspam.NEWLY_NAMED_CROP_TO_EARLIER_GROUP_NAME`)
         return sum(
             (
                 ifpri_mapspam.get_reported_quantity(
@@ -233,14 +229,13 @@ def get_cropland_expansion(
                     reported_crop_name=name,
                     year=year,
                 )
-                for name in sorted(names)
+                for name in sorted(ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[year])
             ),
             start=xarray.DataArray(numpy.float32(0)),
         )
 
     unattributed_expansion = (
-        get_unattributed(names=after_names, year=after)
-        - get_unattributed(names=before_names, year=before)
+        get_unattributed(year=after) - get_unattributed(year=before)
     ).clip(min=0)
     return attributed_expansion + unattributed_expansion
 
