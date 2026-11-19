@@ -154,7 +154,7 @@ Three Paraná windows on the neighbouring tiles read 99–100% wetland class, an
 
 **Issue**: The 2000 snapshot is a different MapSPAM release (v3.0.7) from the ones that follow (v3.2), and its unmodeled crop vocabulary is disjoint from 2005's: a catch-all `OTHE` holds 560 Mha where the nine crops that replace it hold 161 Mha, correlating at r = 0.17 per pixel. The 2000 release simply accounts for ~400 Mha that 2005 does not, and no mapping between the two would be honest.
 
-The consequence is that the nine 2005 crops read as expansion from zero across the 2000→2005 span, whose clipped unmodeled term is +77 Mha. Restricting that span to crops both snapshots report — the treatment applied to the 2005-onward boundaries, where the vocabularies do correspond — destroys 96% of the term rather than stabilizing it, so it is deliberately not applied there.
+The consequence is that the nine 2005 crops read as expansion from zero across the 2000→2005 span, whose clipped unmodeled term is +77 Mha. Restricting that span to crops both snapshots report destroys 96% of the term rather than stabilizing it, so the unmodeled crops are compared as one total across it, as they are across every span.
 
 **Potential impact:** Small and bounded. The affected span carries 6.3% of the linear discount weight, the least of the three, and the error is one-directional: a denominator inflated by area the earlier release did not name depresses modeled crops' shares and cannot over-attribute.
 
