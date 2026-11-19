@@ -20,7 +20,7 @@ def get_faostat_frame(
                 "admin_id": iso_3166,
                 "jurisdiction_name": iso_3166,
                 "species": species_name,
-                "commodity_id": faostat.SPECIES_TO_STOCKS_ITEM_CODE[
+                "commodity_id": faostat.SPECIES_TO_LIVE_ANIMALS_ITEM_CODE[
                     faostat.Species[species_name]
                 ],
                 "year": year,
@@ -85,10 +85,10 @@ def test_get_species_to_livestock_units_per_head(
 ) -> None:
     assert faostat.get_species_to_livestock_units_per_head(
         iso_3166="BRA",
+        livestock=get_faostat_frame(column_name="heads", key_to_value=stocks),
         livestock_units=get_faostat_frame(
             column_name="livestock_units", key_to_value=livestock_units
         ),
-        stocks=get_faostat_frame(column_name="heads", key_to_value=stocks),
     ) == pytest.approx(expected)
 
 
@@ -201,3 +201,41 @@ def test_get_livestock_records() -> None:
             ],
         ),
     )
+
+
+# Cattle (866) and the cows milked (882), in heads
+CATTLE_HEADS = (
+    pandas.DataFrame.from_records(
+        columns=["admin_id", "commodity_id", "year", "heads"],
+        data=[
+            ("BRA", 866, 2018, 100.0),
+            ("BRA", 882, 2018, 100.0),
+            ("BRA", 866, 2019, 100.0),
+            ("BRA", 882, 2019, 10.0),
+            ("BRA", 866, 2020, 300.0),
+            ("BRA", 882, 2020, 50.0),
+            ("PRY", 866, 2020, 100.0),
+        ],
+    )
+    .assign(
+        admin_level=AdminLevel.NATIONAL.name,
+        jurisdiction_name="",
+        species=CATTLE.name,
+    )
+    .set_index(faostat.LIVESTOCK_IDX_COLUMN_NAMES)
+)
+
+
+@pytest.mark.parametrize(
+    ("iso_3166", "expected"),
+    (
+        pytest.param(
+            "BRA", 30.0 / 200.0, id="a-ratio-of-means-over-the-years-asked-for"
+        ),
+        pytest.param("PRY", 0.0, id="no-milking-cows-reported-is-no-dairy-herd"),
+    ),
+)
+def test_get_dairy_share(iso_3166: str, expected: float) -> None:
+    assert faostat.get_dairy_share(
+        iso_3166=iso_3166, livestock=CATTLE_HEADS, years=(2019, 2020)
+    ) == pytest.approx(expected)

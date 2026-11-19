@@ -26,7 +26,8 @@ Two bulk archives, read into three tables:
   `commodity_id`. Yield is not carried: area and production add across items, and yield does not
 - `LIVESTOCK_DATASET`: the items of five grazers, keyed by item code in `commodity_id` with its
   `species`: stocks of live animals, production of meat (carcass weight, with the bone), and
-  cattle's milking cows and production of raw milk, as `heads` and `production_kg`
+  cattle's milking cows and production of raw milk, as `heads` and `production_kg`;
+  `get_dairy_share` reads a country's from it
 - `LIVESTOCK_PATTERNS_DATASET`: stocks in livestock units of the same five grazers, from Livestock
   Patterns; `get_species_to_livestock_units_per_head` recovers a country's coefficients from it
 """
@@ -90,11 +91,11 @@ class Species(enum.StrEnum):
 
 # Live animals in heads (e.g., "Cattle"): the standing herd at a reference date in the year, every
 # age and purpose -- calves and dairy cows included. Not the animals slaughtered in the year, which
-# FAOSTAT counts under the meat items. Meat over stocks is therefore carcass weight per standing
+# FAOSTAT counts under the meat items. Meat over heads is therefore carcass weight per standing
 # head a year -- the share of the herd slaughtered times the carcass weight -- which assumes every
 # head in a country yields alike in a given year, though breeding regions slaughter a smaller share
 # than finishing ones.
-SPECIES_TO_STOCKS_ITEM_CODE = {
+SPECIES_TO_LIVE_ANIMALS_ITEM_CODE = {
     Species.BUFFALO: 946,
     Species.CATTLE: 866,
     Species.GOAT: 1016,
@@ -112,7 +113,9 @@ SPECIES_TO_MEAT_ITEM_CODE = {
     Species.SHEEP: 977,
 }
 assert (
-    set(SPECIES_TO_STOCKS_ITEM_CODE) == set(SPECIES_TO_MEAT_ITEM_CODE) == set(Species)
+    set(SPECIES_TO_LIVE_ANIMALS_ITEM_CODE)
+    == set(SPECIES_TO_MEAT_ITEM_CODE)
+    == set(Species)
 )
 # Raw milk, read for cattle only
 SPECIES_TO_MILK_ITEM_CODE = {
@@ -121,7 +124,7 @@ SPECIES_TO_MILK_ITEM_CODE = {
 LIVESTOCK_ITEM_CODE_TO_SPECIES = {
     item_code: species
     for species_to_item_code in (
-        SPECIES_TO_STOCKS_ITEM_CODE,
+        SPECIES_TO_LIVE_ANIMALS_ITEM_CODE,
         SPECIES_TO_MEAT_ITEM_CODE,
         SPECIES_TO_MILK_ITEM_CODE,
     )
@@ -388,7 +391,7 @@ def load(dataset: base.TabularDataset) -> pandas.DataFrame:
 
 
 def get_species_to_livestock_units_per_head(
-    iso_3166: str, livestock_units: pandas.DataFrame, stocks: pandas.DataFrame
+    iso_3166: str, livestock: pandas.DataFrame, livestock_units: pandas.DataFrame
 ) -> dict[Species, float]:
     """A country's livestock units per head of each grazer, as FAOSTAT counts them.
 
@@ -401,7 +404,7 @@ def get_species_to_livestock_units_per_head(
     """
     key = ["admin_id", "commodity_id", "year"]
     merged = livestock_units.reset_index()[[*key, "livestock_units"]].merge(
-        stocks.reset_index()[[*key, "heads", "species"]], how="inner", on=key
+        livestock.reset_index()[[*key, "heads", "species"]], how="inner", on=key
     )
     merged = merged[(merged["admin_id"] == iso_3166) & (merged["heads"] > 0)]
     species_name_to_units_per_head = (
@@ -417,3 +420,23 @@ def get_species_to_livestock_units_per_head(
         )
         for species in Species
     }
+
+
+def get_dairy_share(
+    iso_3166: str, livestock: pandas.DataFrame, years: tuple[int, ...]
+) -> float:
+    """A country's mean milking cows over its mean cattle across `years`, in heads.
+
+    A country with no milking cows reported has none.
+    """
+    table = livestock.reset_index()
+    table = table[(table["admin_id"] == iso_3166) & table["year"].isin(years)]
+    milking_heads = table[
+        table["commodity_id"] == SPECIES_TO_MILK_ITEM_CODE[Species.CATTLE]
+    ]["heads"].mean()
+    cattle_heads = table[
+        table["commodity_id"] == SPECIES_TO_LIVE_ANIMALS_ITEM_CODE[Species.CATTLE]
+    ]["heads"].mean()
+    dairy_share = float(milking_heads / cattle_heads) if milking_heads > 0 else 0.0
+    assert 0 <= dairy_share <= 1, f"{iso_3166=:s} {dairy_share=:f}"
+    return dairy_share

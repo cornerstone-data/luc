@@ -134,12 +134,18 @@ METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID: dict[
         gpw_livestock.Livestock.BEEF_CATTLE.name: faostat.SPECIES_TO_MEAT_ITEM_CODE[
             faostat.Species.CATTLE
         ],
+        gpw_livestock.Livestock.MILK_CATTLE.name: faostat.SPECIES_TO_MILK_ITEM_CODE[
+            faostat.Species.CATTLE
+        ],
         gpw_livestock.Livestock.PASTURE.name: InventedCommodityId.PASTURE,
     },
     attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY: {
         emit.NonCommodity.DROPPED.name: InventedCommodityId.DROPPED,
         emit.NonCommodity.UNATTRIBUTED.name: InventedCommodityId.UNATTRIBUTED,
         gpw_livestock.Livestock.BEEF_CATTLE.name: faostat.SPECIES_TO_MEAT_ITEM_CODE[
+            faostat.Species.CATTLE
+        ],
+        gpw_livestock.Livestock.MILK_CATTLE.name: faostat.SPECIES_TO_MILK_ITEM_CODE[
             faostat.Species.CATTLE
         ],
         gpw_livestock.Livestock.PASTURE.name: InventedCommodityId.PASTURE,

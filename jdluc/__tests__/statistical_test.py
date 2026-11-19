@@ -249,7 +249,7 @@ def test_get_commodity_to_share(
     # Every case asks for all of `Crop`, so each one also checks the invariant that the shares
     # never over-attribute what was converted to cropland
     shares = get_commodity_to_share(
-        after=after, before=before, crops=tuple(Crop), dset=dset
+        after=after, before=before, crops=tuple(Crop), dairy_share=0.0, dset=dset
     )
     assert sum(get_value(darray=shares[crop]) for crop in Crop) <= 1.0
     assert {crop: get_value(shares[crop]) for crop in expected} == pytest.approx(
@@ -263,6 +263,7 @@ def test_get_commodity_to_share_does_not_renormalise_onto_the_crops_asked_for() 
         after=2010,
         before=2005,
         crops=(Crop.MAIZE,),
+        dairy_share=0.0,
         dset=get_dset_for_areas(
             areas={2005: {}, 2010: {"MAIZ": 100.0, "SOYB": 50.0, OTHER_0: 50.0}}
         ),
@@ -317,7 +318,7 @@ def test_get_crop_to_area_share_survives_zero_expansion() -> None:
     areas = {"MAIZ": 100.0, "SOYB": 100.0}
     dset = get_dset_for_areas(areas={2000: areas, 2020: areas})
     expansion_shares = get_commodity_to_share(
-        after=2020, before=2000, crops=(Crop.MAIZE,), dset=dset
+        after=2020, before=2000, crops=(Crop.MAIZE,), dairy_share=0.0, dset=dset
     )
     assert get_value(expansion_shares[Crop.MAIZE]) == 0.0
     area_shares = get_crop_to_area_share(crops=(Crop.MAIZE,), dset=dset, year=2020)
@@ -333,10 +334,10 @@ def test_get_commodity_to_share_is_reclassification_invariant() -> None:
         areas={2005: {}, 2010: {"MAIZ": 100.0, OTHER_0: 20.0, OTHER_1: 30.0}}
     )
     shares_lumped = get_commodity_to_share(
-        after=2010, before=2005, crops=(Crop.MAIZE,), dset=lumped
+        after=2010, before=2005, crops=(Crop.MAIZE,), dairy_share=0.0, dset=lumped
     )
     shares_split = get_commodity_to_share(
-        after=2010, before=2005, crops=(Crop.MAIZE,), dset=split
+        after=2010, before=2005, crops=(Crop.MAIZE,), dairy_share=0.0, dset=split
     )
     assert get_value(shares_lumped[Crop.MAIZE]) == get_value(shares_split[Crop.MAIZE])
 
@@ -351,7 +352,7 @@ def test_get_commodity_to_share_tolerates_nodata_absent_crops() -> None:
         )
     ] = xarray.zeros_like(other=dset["pasture:fraction:2020"]) * float("nan")
     shares = get_commodity_to_share(
-        after=2010, before=2005, crops=(Crop.MAIZE,), dset=dset
+        after=2010, before=2005, crops=(Crop.MAIZE,), dairy_share=0.0, dset=dset
     )
     # 100 / 100; NaN absent crop counts as 0 ha
     assert get_value(shares[Crop.MAIZE]) == 1.0
@@ -366,7 +367,11 @@ def test_get_commodity_to_share_decomposition_does_not_warn_on_zero_reference() 
         # Any 0/0 divide becomes a failure
         warnings.simplefilter("error", RuntimeWarning)
         get_commodity_to_share(
-            after=2020, before=2000, crops=(Crop.BANANA, Crop.PLANTAIN), dset=dset
+            after=2020,
+            before=2000,
+            crops=(Crop.BANANA, Crop.PLANTAIN),
+            dairy_share=0.0,
+            dset=dset,
         )
 
 
@@ -584,6 +589,7 @@ def get_name_to_totals(
         emit.EmissionComponent, float
     ] = NO_EMISSIONS,
     cropland_occupation: float = 0.0,
+    dairy_share: float = 0.0,
     occupation_shares: collections.abc.Mapping[Commodity, float] = NO_SHARES,
     pasture_emissions: collections.abc.Mapping[
         emit.EmissionComponent, float
@@ -611,6 +617,7 @@ def get_name_to_totals(
     grid = xarray.zeros_like(other=dset["pasture:fraction:2020"])
     return get_commodity_name_to_totals(
         commodities=commodities,
+        dairy_share=dairy_share,
         dset=dset.assign(
             {
                 f"{emit.CROPLAND:s}-peatland-occupation:tco2e-per-ha": grid
@@ -753,7 +760,7 @@ def test_get_commodity_to_share_divides_each_land_class_among_its_own_commoditie
         areas=areas, density=density, pasture_fraction=pasture_fraction
     )
     shares = get_commodity_to_share(
-        after=2020, before=2010, crops=(Crop.MAIZE,), dset=dset
+        after=2020, before=2010, crops=(Crop.MAIZE,), dairy_share=0.0, dset=dset
     )
     assert {
         commodity: get_value(shares[commodity]) for commodity in expected
@@ -938,36 +945,47 @@ def test_a_clip_one_cell_wide_keeps_the_hectares_of_its_cells() -> None:
 
 
 @pytest.mark.parametrize(
-    ("heads_per_ha", "expected"),
+    ("dairy_share", "heads_per_ha", "expected"),
     (
         pytest.param(
+            0.0,
             {CATTLE: 0.1, SHEEP: 0.7},
             {Livestock.BEEF_CATTLE: 0.5, Livestock.PASTURE: 0.5},
             id="a-head-weighs-its-livestock-units-so-seven-sheep-graze-what-one-head-of-cattle-does",
         ),
         pytest.param(
+            0.0,
             {CATTLE: 0.1},
             {Livestock.BEEF_CATTLE: 1.0, Livestock.PASTURE: 0.0},
             id="cattle-alone-take-the-whole-pasture",
         ),
         pytest.param(
+            0.0,
             {},
             {Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 1.0},
             id="pasture-no-grazer-is-mapped-on-stays-with-the-residual-row",
         ),
+        pytest.param(
+            0.4,
+            {CATTLE: 0.1, SHEEP: 0.7},
+            {Livestock.BEEF_CATTLE: 0.33, Livestock.MILK_CATTLE: 0.17},
+            id="milk-takes-its-allocation-of-the-dairy-herds-part-of-cattles-share",
+        ),
     ),
 )
 def test_get_livestock_to_grazing_share(
+    dairy_share: float,
     heads_per_ha: dict[gpw_livestock.Species, float],
     expected: dict[Livestock, float],
 ) -> None:
     shares = get_livestock_to_grazing_share(
+        dairy_share=dairy_share,
         dset=get_dset(density=get_density(heads_per_ha=heads_per_ha), values={}),
         year=2020,
     )
-    assert {livestock: get_value(shares[livestock]) for livestock in Livestock} == (
-        pytest.approx(expected)
-    )
+    assert {
+        livestock: get_value(darray=shares[livestock]) for livestock in expected
+    } == (pytest.approx(expected))
 
 
 @pytest.mark.parametrize(
@@ -992,29 +1010,39 @@ def test_get_livestock_to_grazing_share(
         ),
     ),
 )
-def test_the_beef_row_reports_its_herd(
+@pytest.mark.parametrize(
+    ("livestock", "pasture_share"),
+    (
+        pytest.param(Livestock.BEEF_CATTLE, 0.66, id="beef"),
+        pytest.param(Livestock.MILK_CATTLE, 0.34, id="milk"),
+    ),
+)
+def test_each_cattle_row_reports_the_whole_herd(
+    livestock: Livestock,
     pasture_fraction: float,
+    pasture_share: float,
     expected_heads_per_ha: float,
     units_per_head: dict[gpw_livestock.Species, float],
 ) -> None:
     # Livestock units weigh grazing, not the herd
     totals = get_name_to_totals(
+        dairy_share=0.4,
         dset=get_dset(
             density=get_density(heads_per_ha={CATTLE: 0.1}),
             pasture_fraction=dict.fromkeys(ifpri_mapspam.YEARS, pasture_fraction),
             units_per_head=units_per_head,
             values={},
         ),
-    )[Livestock.BEEF_CATTLE.name]
+    )[livestock.name]
     assert {column: totals[column] for column in HERD_HEADS_COLUMNS} == pytest.approx(
         dict.fromkeys(
             HERD_HEADS_COLUMNS, PIXELS * HECTARES_PER_CELL * expected_heads_per_ha
         )
     )
     assert math.isnan(totals["production_mt"])
-    # Cattle alone graze the cell, so the beef row holds all its pasture
+    # Cattle alone graze the cell, so beef and milk divide all its pasture
     assert totals["commodity_hectares"] == pytest.approx(
-        PIXELS * HECTARES_PER_CELL * pasture_fraction
+        PIXELS * HECTARES_PER_CELL * pasture_fraction * pasture_share
     )
 
 

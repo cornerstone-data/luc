@@ -157,19 +157,21 @@ class Livestock(enum.StrEnum):
     """The commodities dividing pasture's share of a cell; PASTURE keeps what the others don't."""
 
     BEEF_CATTLE = enum.auto()
+    MILK_CATTLE = enum.auto()
     PASTURE = enum.auto()
 
 
+# Beef and milk both come from the whole cattle herd
 LIVESTOCK_TO_SPECIES = {
-    Livestock.BEEF_CATTLE: (Species.CATTLE,),
+    Livestock.BEEF_CATTLE: Species.CATTLE,
+    Livestock.MILK_CATTLE: Species.CATTLE,
 }
 assert set(LIVESTOCK_TO_SPECIES) == set(Livestock) - {Livestock.PASTURE}
-# No grazer may be named by two commodities, or its livestock units would count toward both shares
-assert sum(len(species) for species in LIVESTOCK_TO_SPECIES.values()) == len(
-    set(LIVESTOCK_TO_SPECIES.values())
-)
-# `trace` prices a commodity's herd at one species' carcass weight per head
-assert all(len(species) == 1 for species in LIVESTOCK_TO_SPECIES.values())
+# Milk's part of the dairy herd's emissions, by biophysical allocation (section 5.4.2) at the worked
+# example's 0.851 (appendix 10.5); FAOSTAT does not report the dairy herd's live-weight sales the
+# formula needs. IDF. 2022. The IDF global Carbon Footprint standard for the dairy sector. In:
+# Bulletin of the IDF No. 520/2022. International Dairy Federation (ed.), Brussels.
+MILK_ALLOCATION = 0.85
 
 
 def get_band_name_to_livestock_units(
@@ -190,28 +192,54 @@ def get_band_name_to_livestock_units(
 
 
 def get_livestock_to_grazing_share(
-    dset: xarray.Dataset, year: int
+    dairy_share: float, dset: xarray.Dataset, year: int
 ) -> dict[Livestock, xarray.DataArray]:
-    """Each commodity's share of a cell's pasture: its grazers' livestock units over all of them.
+    """Each commodity's share of a cell's pasture.
 
-    Each livestock unit in a cell is taken to graze an equal slice of that cell's pasture. Only the
-    ratios between species' units per head matter, since a share divides each by the cell's total.
+    Cattle take their livestock units over all grazers'. Of that, milk takes `MILK_ALLOCATION` of
+    the dairy herd's part, `dairy_share`, and beef the rest.
     """
-    species_to_units = {
-        species: dset[f"{species:s}:livestock-units-per-ha:{year:d}"]
-        for species in Species
+    total = sum(
+        (dset[f"{species:s}:livestock-units-per-ha:{year:d}"] for species in Species),
+        start=xarray.DataArray(numpy.float32(0)),
+    )
+    # Share is zero where no grazer is mapped at all
+    cattle = (
+        dset[f"{Species.CATTLE:s}:livestock-units-per-ha:{year:d}"]
+        / total.where(total > 0)
+    ).fillna(0)
+    milk = MILK_ALLOCATION * dairy_share
+    return {
+        Livestock.BEEF_CATTLE: (1 - milk) * cattle,
+        Livestock.MILK_CATTLE: milk * cattle,
+        Livestock.PASTURE: 1 - cattle,
     }
-    zero = xarray.DataArray(numpy.float32(0))
-    total = sum(species_to_units.values(), start=zero)
-    total = total.where(total > 0)
-    shares = {
-        # Share is zero where no grazer is mapped at all
-        livestock: (
-            sum((species_to_units[one] for one in species), start=zero) / total
-        ).fillna(0)
-        for livestock, species in LIVESTOCK_TO_SPECIES.items()
-    }
-    return shares | {Livestock.PASTURE: 1 - sum(shares.values(), start=zero)}
+
+
+def get_livestock_hectares(
+    dset: xarray.Dataset, grazing_share: xarray.DataArray, year: int
+) -> xarray.DataArray:
+    """The hectares of a cell's pasture a livestock commodity's grazing share takes."""
+    return (
+        dset[f"pasture:fraction:{year:d}"]
+        * dset["hectares-per-cell:ha"]
+        * grazing_share
+    )
+
+
+def get_herd_heads(
+    dset: xarray.Dataset, species: Species, year: int
+) -> xarray.DataArray:
+    """A cell's whole herd of `species` where it holds any pasture, and none where it holds none.
+
+    GPW's density is per hectare of the whole cell, so it is not scaled by the pasture fraction.
+    """
+    return (
+        dset[get_band_name(species=species, year=year)].where(
+            dset[f"pasture:fraction:{year:d}"] > 0, other=0
+        )
+        * dset["hectares-per-cell:ha"]
+    )
 
 
 def get_herd_heads_column(year: int) -> str:

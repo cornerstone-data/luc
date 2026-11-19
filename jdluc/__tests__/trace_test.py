@@ -427,7 +427,7 @@ SNAPSHOT_YEAR_TO_WEIGHT = {2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.37
 
 # Brazil's cattle rate doubles each snapshot, and its sheep rate catches a herd priced as another
 # species. Paraguay reports meat for its herd only in 2020.
-STOCKS = pandas.DataFrame.from_records(
+LIVESTOCK = pandas.DataFrame.from_records(
     [
         *(
             row
@@ -466,8 +466,8 @@ STOCKS = pandas.DataFrame.from_records(
 def test_derive_statistical_production_kg_stays_indexed() -> None:
     result = derive_statistical_production_kg(
         emissions=STATISTICAL_EMISSIONS,
+        livestock=LIVESTOCK,
         snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
-        stocks=STOCKS,
     )
     # regression guard: must return an indexed frame like its jurisdictional twin
     assert result.index.names == [
@@ -494,8 +494,8 @@ def test_derive_statistical_production_kg_prices_a_herd_at_each_snapshots_rate()
 ):
     result = derive_statistical_production_kg(
         emissions=STATISTICAL_EMISSIONS,
+        livestock=LIVESTOCK,
         snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
-        stocks=STOCKS,
     )
     # 100 heads at 10, 20, 40 and 80 kg, weighted 3.125%, 12.5%, 46.875% and 37.5%
     assert result.loc[
@@ -525,8 +525,8 @@ def test_methodologies_share_a_schema() -> None:
     statistical = attach_ratios(
         df=derive_statistical_production_kg(
             emissions=STATISTICAL_EMISSIONS,
+            livestock=LIVESTOCK,
             snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
-            stocks=STOCKS,
         )
     )
     assert set(jurisdictional.reset_index().columns) == set(
@@ -660,7 +660,7 @@ def test_derive_proxy_production_kg() -> None:
             },
         ]
     ).set_index(["admin_id", "commodity_id", "year"])
-    stocks = pandas.DataFrame.from_records(
+    livestock = pandas.DataFrame.from_records(
         [
             *(
                 ("BRA", "CATTLE", 866, year, 100.0, numpy.nan)
@@ -669,6 +669,9 @@ def test_derive_proxy_production_kg() -> None:
             ("BRA", "CATTLE", 867, 2018, numpy.nan, 99999.0),
             ("BRA", "CATTLE", 867, 2019, numpy.nan, 900.0),
             ("BRA", "CATTLE", 867, 2020, numpy.nan, 1200.0),
+            ("BRA", "CATTLE", 882, 2019, 20.0, 3000.0),
+            ("BRA", "CATTLE", 882, 2020, 20.0, 3000.0),
+            ("BRA", "CATTLE", 882, 2021, 20.0, 6000.0),
         ],
         columns=[
             "admin_id",
@@ -686,6 +689,7 @@ def test_derive_proxy_production_kg() -> None:
             ("BRA001", "POPCORN", 10.0, numpy.nan),
             ("BRA001", "ALFALFA", 5.0, numpy.nan),
             ("BRA001", "BEEF_CATTLE", 1.0, 100.0),
+            ("BRA001", "MILK_CATTLE", 1.0, 100.0),
             ("BRA001", "PASTURE", 1.0, numpy.nan),
             ("BRA001", "DROPPED", 0.0, numpy.nan),
         ],
@@ -699,7 +703,7 @@ def test_derive_proxy_production_kg() -> None:
         ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
     )
     result = derive_proxy_production_kg(
-        crops=crops, emissions=emissions, stocks=stocks, years=(2019, 2020, 2021)
+        crops=crops, emissions=emissions, livestock=livestock, years=(2019, 2020, 2021)
     )
     production_kg = result["production_kg"].droplevel(
         ["admin_level", "methodology", "assessment_year"]
@@ -708,6 +712,8 @@ def test_derive_proxy_production_kg() -> None:
     assert production_kg[("BRA002", "MAIZE")] == pytest.approx(40.0)
     assert production_kg[("BRA001", "POPCORN")] == pytest.approx(40.0)
     assert production_kg[("BRA001", "BEEF_CATTLE")] == pytest.approx(1050.0)
+    # The same 100 heads at 40 kg of milk each: mean milk over mean stocks, 2019-2021
+    assert production_kg[("BRA001", "MILK_CATTLE")] == pytest.approx(4000.0)
     assert (
         production_kg[[("BRA001", name) for name in ("ALFALFA", "PASTURE", "DROPPED")]]
         .isna()

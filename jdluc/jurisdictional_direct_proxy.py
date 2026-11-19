@@ -184,8 +184,8 @@ def get_commodity_name_to_totals(
         share = commodity_to_share[commodity]
         if isinstance(commodity, gpw_livestock.Livestock):
             land_class = emit.PASTURELAND
-            totals["commodity_hectares"] = (
-                dset[f"pasture:fraction:{tang_cropgrids.YEAR:d}"] * hectares * share
+            totals["commodity_hectares"] = gpw_livestock.get_livestock_hectares(
+                dset=dset, grazing_share=share, year=tang_cropgrids.YEAR
             )
         else:
             land_class = emit.CROPLAND
@@ -209,17 +209,13 @@ def get_commodity_name_to_totals(
         totals["peatland_occupation_emissions_mt"] = occupation
         totals["emissions_mt"] = sum(component_to_emissions.values(), start=occupation)
 
-    # As in `statistical`, the whole herd of every cell with any pasture
-    livestock_to_heads = {
-        livestock: dset[
-            gpw_livestock.get_band_name(species=species, year=tang_cropgrids.YEAR)
-        ].where(dset[f"pasture:fraction:{tang_cropgrids.YEAR:d}"] > 0, other=0)
-        * hectares
-        for livestock, (species,) in gpw_livestock.LIVESTOCK_TO_SPECIES.items()
-        if livestock in commodities
-    }
-    for livestock, heads in livestock_to_heads.items():
-        commodity_to_totals[livestock][HERD_HEADS_COLUMN] = heads
+    for livestock, species in gpw_livestock.LIVESTOCK_TO_SPECIES.items():
+        if livestock in commodities:
+            commodity_to_totals[livestock][HERD_HEADS_COLUMN] = (
+                gpw_livestock.get_herd_heads(
+                    dset=dset, species=species, year=tang_cropgrids.YEAR
+                )
+            )
 
     commodity_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
         dset["dropped-emissions:tco2e-per-ha"] * hectares
@@ -298,6 +294,12 @@ def workflow(
     logger.info(
         f"Computing emissions for {commodities=:}, {assessment_year=:d} and {tile_id=:s}"
     )
+    dairy_share = faostat.get_dairy_share(
+        iso_3166=iso_3166,
+        livestock=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
+        years=emit.get_production_years_range(assessment_year=assessment_year),
+    )
+    logger.info(f"Milking cows are {dairy_share:.1%} of {iso_3166:s}'s cattle")
     merged = geo.exact_merge(
         get_downscaled_luc_emissions(assessment_year=assessment_year, tile_id=tile_id),
         harmonize.workflow(
@@ -316,10 +318,10 @@ def workflow(
                 gpw_livestock.Species[species.name]: units_per_head
                 for species, units_per_head in faostat.get_species_to_livestock_units_per_head(
                     iso_3166=iso_3166,
+                    livestock=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
                     livestock_units=faostat.load(
                         dataset=faostat.LIVESTOCK_PATTERNS_DATASET
                     ),
-                    stocks=faostat.load(dataset=faostat.LIVESTOCK_DATASET),
                 ).items()
             },
         )
@@ -353,7 +355,9 @@ def workflow(
                     commodities=commodities,
                     commodity_to_share=get_crop_to_area_share(crops=crops, dset=clipped)
                     | gpw_livestock.get_livestock_to_grazing_share(
-                        dset=clipped, year=tang_cropgrids.YEAR
+                        dairy_share=dairy_share,
+                        dset=clipped,
+                        year=tang_cropgrids.YEAR,
                     ),
                     dset=clipped,
                 )
