@@ -25,8 +25,6 @@ import logging
 import pathlib
 import typing
 
-import pandas
-
 from validation import prepare, pull, report, targets
 
 logger = logging.getLogger(__name__)
@@ -60,14 +58,18 @@ class Section(enum.StrEnum):
 
 
 def get_document(
-    show: int, table: pandas.DataFrame, wanted: tuple[Section, ...], year: int
+    show: int, table_path: pathlib.Path, wanted: tuple[Section, ...], year: int
 ) -> str:
     """Render the requested sections, in `Section` order, joined into one document.
+
+    The document opens by naming the `trace` table it compares, by file name and digest: every
+    figure of ours comes from that one table, so the line is what identifies them.
 
     Everything is computed once whether or not the section that uses it was asked for. None of these
     reads is expensive -- the largest is the `trace` table -- so a compute-only-what-you-need branch per
     section bought a little speed at the cost of four conditionals around the code that does the work.
     """
+    table = prepare.read_trace_table(path=table_path)
     commodity_id_to_name = prepare.get_commodity_id_to_name()
     emissions = prepare.read_wri_national_emissions()
     stability = prepare.get_anchor_stability(emissions=emissions)
@@ -122,7 +124,11 @@ def get_document(
     }
     assert set(rendered) == set(Section), "a Section has no rendered text"
     document = "\n\n".join(
-        rendered[section] for section in Section if section in wanted
+        [
+            f"_Compared against `{table_path.name:s}`, "
+            f"sha256 `{pull.get_sha256(path=table_path)[:12]:s}`._",
+            *[rendered[section] for section in Section if section in wanted],
+        ]
     )
     # Appended here rather than inside a section: only this function sees the assembled length, and
     # a section measuring itself would stay silent exactly when the whole set went over.
@@ -195,7 +201,7 @@ def main() -> int:
             assert args.table, "the report stage compares a `trace` table; pass --table"
             document = get_document(
                 show=args.show,
-                table=prepare.read_trace_table(path=args.table),
+                table_path=args.table,
                 wanted=tuple(args.section) or tuple(Section),
                 year=args.year,
             )
