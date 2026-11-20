@@ -20,7 +20,6 @@ from jdluc.statistical import (
     Commodity,
     Crop,
     get_commodity_name_to_totals,
-    get_commodity_to_peatland_conversion_share,
     get_commodity_to_share,
     get_crop_to_area_share,
     get_mapspam_span,
@@ -248,16 +247,14 @@ def test_get_commodity_to_share(
 ) -> None:
     dset = get_dset_for_areas(areas=areas)
     # Every case asks for all of `Crop`, so each one also checks the invariant that the shares
-    # never over-attribute the cell
+    # never over-attribute what was converted to cropland
     shares = get_commodity_to_share(
         after=after, before=before, crops=tuple(Crop), dset=dset
     )
-    assert sum(get_value(share) for share in shares.values()) <= 1.0
+    assert sum(get_value(darray=shares[crop]) for crop in Crop) <= 1.0
     assert {crop: get_value(shares[crop]) for crop in expected} == pytest.approx(
         expected
     )
-    # No pasture moves in any of these cases, so it takes nothing off the crops
-    assert all(get_value(shares[livestock]) == 0.0 for livestock in Livestock)
 
 
 def test_get_commodity_to_share_does_not_renormalise_onto_the_crops_asked_for() -> None:
@@ -575,19 +572,23 @@ def test_get_mapspam_span(year: int, span: tuple[int, int]) -> None:
 
 # The default for `get_name_to_totals`'s shares, read-only so every call can share it
 NO_SHARES: collections.abc.Mapping[Commodity, float] = types.MappingProxyType({})
+NO_EMISSIONS: collections.abc.Mapping[emit.EmissionComponent, float] = (
+    types.MappingProxyType({})
+)
 
 
 def get_name_to_totals(
     dset: xarray.Dataset,
     commodity_to_share: collections.abc.Mapping[Commodity, float] = NO_SHARES,
+    cropland_emissions: collections.abc.Mapping[
+        emit.EmissionComponent, float
+    ] = NO_EMISSIONS,
     cropland_occupation: float = 0.0,
-    cropland_pulse: float = 0.0,
-    forest_emissions: float = 0.0,
-    grassland_emissions: float = 0.0,
     occupation_shares: collections.abc.Mapping[Commodity, float] = NO_SHARES,
+    pasture_emissions: collections.abc.Mapping[
+        emit.EmissionComponent, float
+    ] = NO_EMISSIONS,
     pasture_occupation: float = 0.0,
-    pasture_pulse: float = 0.0,
-    peatland_conversion_shares: collections.abc.Mapping[Commodity, float] = NO_SHARES,
 ) -> dict[str, dict[str, float]]:
     """`get_commodity_name_to_totals` over WHEAT and the livestock rows on `get_dset`'s 2x2 grid.
 
@@ -619,23 +620,25 @@ def get_name_to_totals(
                 + pasture_occupation,
             }
             | {
-                f"{name:s}-emissions:tco2e-per-ha:{before:d}-{after:d}": grid
-                + (emissions if (before, after) == (2010, 2020) else 0.0)
-                for name, emissions in {
-                    "forest": forest_emissions,
-                    "grassland": grassland_emissions,
-                    f"{emit.CROPLAND:s}-peatland-conversion": cropland_pulse,
-                    f"{emit.PASTURELAND:s}-peatland-conversion": pasture_pulse,
-                }.items()
+                f"{land_class:s}-{component!s}-emissions:tco2e-per-ha:{before:d}-{after:d}": grid
+                + (
+                    (dict.fromkeys(emit.EmissionComponent, 0.0) | dict(emissions))[
+                        component
+                    ]
+                    if (before, after) == (2010, 2020)
+                    else 0.0
+                )
+                for land_class, emissions in (
+                    (emit.CROPLAND, cropland_emissions),
+                    (emit.PASTURELAND, pasture_emissions),
+                )
+                for component in emit.EmissionComponent
                 for before, after in MAPSPAM_SPANS
             }
         ),
         occupation_shares=get_shares(shares=occupation_shares),
         snapshot_year_to_weight=get_snapshot_year_to_weight(
             assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
-        ),
-        span_to_commodity_to_peatland_conversion_share=dict.fromkeys(
-            MAPSPAM_SPANS, get_shares(shares=peatland_conversion_shares)
         ),
         span_to_commodity_to_share=dict.fromkeys(
             MAPSPAM_SPANS, get_shares(shares=commodity_to_share)
@@ -704,57 +707,43 @@ SHEEP = gpw_livestock.Species.SHEEP
     ("areas", "pasture_fraction", "density", "expected"),
     (
         pytest.param(
-            {2005: {}, 2010: {"MAIZ": 100.0}},
-            {2010: 100.0 / HECTARES_PER_CELL},
+            {2010: {}, 2020: {"MAIZ": 100.0}},
+            {2020: 100.0 / HECTARES_PER_CELL},
             {},
-            {Crop.MAIZE: 0.5, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 0.5},
-            id="pasture-expanding-by-the-crops-own-hectares-takes-half-the-cell-from-it",
+            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 1.0},
+            id="pasture-expanding-beside-the-crop-takes-none-of-what-was-converted-to-cropland",
         ),
         pytest.param(
-            {2005: {}, 2010: {}},
-            {2010: 0.25},
+            {2010: {}, 2020: {}},
+            {2020: 0.25},
             {},
             {Crop.MAIZE: 0.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 1.0},
-            id="the-frontier-cell-where-only-pasture-expands-charges-pasture-not-nobody",
+            id="where-no-crop-expanded-what-was-converted-to-cropland-goes-to-nobody",
         ),
         pytest.param(
-            {2005: {}, 2010: {"MAIZ": 100.0}},
-            {2005: 0.5, 2010: 0.0},
+            {2010: {}, 2020: {"MAIZ": 100.0, UNATTRIBUTED_0: 100.0}},
             {},
-            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 0.0},
-            id="contracting-pasture-clips-to-zero-rather-than-shrinking-the-denominator",
+            {},
+            {Crop.MAIZE: 0.5},
+            id="crops-it-cannot-attribute-keep-their-share-of-what-was-converted-to-cropland",
         ),
         pytest.param(
-            {2005: {}, 2010: {"MAIZ": 100.0}},
-            {2010: 100.0 / HECTARES_PER_CELL},
-            get_density(heads_per_ha={CATTLE: 0.01}),
-            {Crop.MAIZE: 0.5, Livestock.BEEF_CATTLE: 0.5, Livestock.PASTURE: 0.0},
-            id="cattle-alone-take-the-pasture-share-and-the-crop-keeps-its-own",
+            {2010: {}, 2020: {"MAIZ": 100.0}},
+            {2010: 0.5, 2020: 0.5},
+            {(CATTLE, 2020): 0.1, (SHEEP, 2020): 0.7},
+            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.5, Livestock.PASTURE: 0.5},
+            id="what-was-converted-to-pasture-goes-to-the-grazers-where-only-crops-expanded",
         ),
         pytest.param(
-            {2005: {}, 2010: {"MAIZ": 100.0}},
-            {2010: 100.0 / HECTARES_PER_CELL},
-            get_density(heads_per_ha={CATTLE: 0.1, SHEEP: 0.7}),
-            {Crop.MAIZE: 0.5, Livestock.BEEF_CATTLE: 0.25, Livestock.PASTURE: 0.25},
-            id="grazers-divide-the-pasture-share-by-livestock-units-and-the-crop-keeps-its-own",
-        ),
-        pytest.param(
-            {2005: {}, 2010: {"MAIZ": 100.0}},
-            {2005: 0.5, 2010: 0.5},
-            {(SHEEP, 2005): 0.7, (CATTLE, 2010): 0.1},
-            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 0.0},
-            id="cattle-replacing-sheep-on-unchanged-pasture-is-not-expansion",
-        ),
-        pytest.param(
-            {2005: {}, 2010: {}},
-            {2010: 0.25},
-            {(SHEEP, 2005): 0.7, (CATTLE, 2010): 0.1},
+            {2010: {}, 2020: {}},
+            {2010: 0.5, 2020: 0.5},
+            {(SHEEP, 2010): 0.7, (CATTLE, 2020): 0.1},
             {Crop.MAIZE: 0.0, Livestock.BEEF_CATTLE: 1.0, Livestock.PASTURE: 0.0},
-            id="new-pasture-goes-to-whoever-grazes-it-at-the-end-of-the-span",
+            id="what-was-converted-to-pasture-goes-to-whoever-grazes-at-the-end-of-the-span",
         ),
     ),
 )
-def test_get_commodity_to_share_charges_pasture_and_its_grazers(
+def test_get_commodity_to_share_divides_each_land_class_among_its_own_commodities(
     areas: dict[int, dict[str, float]],
     pasture_fraction: dict[int, float],
     density: dict[tuple[gpw_livestock.Species, int], float],
@@ -764,63 +753,6 @@ def test_get_commodity_to_share_charges_pasture_and_its_grazers(
         areas=areas, density=density, pasture_fraction=pasture_fraction
     )
     shares = get_commodity_to_share(
-        after=2010, before=2005, crops=(Crop.MAIZE,), dset=dset
-    )
-    assert {
-        commodity: get_value(shares[commodity]) for commodity in expected
-    } == pytest.approx(expected)
-
-
-@pytest.mark.parametrize(
-    ("areas", "pasture_fraction", "density", "expected"),
-    (
-        pytest.param(
-            {2010: {}, 2020: {"MAIZ": 100.0}},
-            {2020: 100.0 / HECTARES_PER_CELL},
-            {},
-            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 1.0},
-            id="pasture-expanding-beside-the-crop-takes-none-of-the-cropland-pulse",
-        ),
-        pytest.param(
-            {2010: {}, 2020: {}},
-            {2020: 0.25},
-            {},
-            {Crop.MAIZE: 0.0, Livestock.BEEF_CATTLE: 0.0, Livestock.PASTURE: 1.0},
-            id="where-no-crop-expanded-the-cropland-pulse-goes-to-nobody",
-        ),
-        pytest.param(
-            {2010: {}, 2020: {"MAIZ": 100.0, UNATTRIBUTED_0: 100.0}},
-            {},
-            {},
-            {Crop.MAIZE: 0.5},
-            id="crops-it-cannot-attribute-keep-their-share-of-the-cropland-pulse",
-        ),
-        pytest.param(
-            {2010: {}, 2020: {"MAIZ": 100.0}},
-            {2010: 0.5, 2020: 0.5},
-            {(CATTLE, 2020): 0.1, (SHEEP, 2020): 0.7},
-            {Crop.MAIZE: 1.0, Livestock.BEEF_CATTLE: 0.5, Livestock.PASTURE: 0.5},
-            id="the-pasture-pulse-goes-to-the-grazers-where-only-crops-expanded",
-        ),
-        pytest.param(
-            {2010: {}, 2020: {}},
-            {2010: 0.5, 2020: 0.5},
-            {(SHEEP, 2010): 0.7, (CATTLE, 2020): 0.1},
-            {Crop.MAIZE: 0.0, Livestock.BEEF_CATTLE: 1.0, Livestock.PASTURE: 0.0},
-            id="the-pasture-pulse-goes-to-whoever-grazes-at-the-end-of-the-span",
-        ),
-    ),
-)
-def test_get_commodity_to_peatland_conversion_share(
-    areas: dict[int, dict[str, float]],
-    pasture_fraction: dict[int, float],
-    density: dict[tuple[gpw_livestock.Species, int], float],
-    expected: dict[Commodity, float],
-) -> None:
-    dset = get_dset_for_areas(
-        areas=areas, density=density, pasture_fraction=pasture_fraction
-    )
-    shares = get_commodity_to_peatland_conversion_share(
         after=2020, before=2010, crops=(Crop.MAIZE,), dset=dset
     )
     assert {
@@ -836,6 +768,9 @@ WHEAT = Crop.WHEAT.name
 BEEF = Livestock.BEEF_CATTLE.name
 PASTURE = Livestock.PASTURE.name
 UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
+FOREST = emit.EmissionComponent.FOREST
+GRASSLAND = emit.EmissionComponent.GRASSLAND
+PEAT = emit.EmissionComponent.PEATLAND_CONVERSION
 
 
 # Expected values are per hectare of the cell. Each emissions band is already discounted and the
@@ -865,78 +800,63 @@ UNATTRIBUTED = emit.NonCommodity.UNATTRIBUTED.name
             0.0,
             {
                 "commodity_to_share": {
-                    Crop.WHEAT: 0.5,
-                    Livestock.BEEF_CATTLE: 0.3,
-                    Livestock.PASTURE: 0.2,
-                },
-                "cropland_pulse": 2.0,
-                "pasture_pulse": 5.0,
-                "peatland_conversion_shares": {
                     Crop.WHEAT: 0.25,
                     Livestock.BEEF_CATTLE: 0.6,
                     Livestock.PASTURE: 0.4,
                 },
+                "cropland_emissions": {FOREST: 2.0, PEAT: 4.0},
+                "pasture_emissions": {GRASSLAND: 5.0},
             },
             {
-                (WHEAT, "peatland_conversion_emissions_mt"): 0.5,
-                (BEEF, "peatland_conversion_emissions_mt"): 3.0,
-                (PASTURE, "peatland_conversion_emissions_mt"): 2.0,
+                (WHEAT, "forest_emissions_mt"): 0.5,
+                (WHEAT, "grassland_emissions_mt"): 0.0,
+                (WHEAT, "peatland_conversion_emissions_mt"): 1.0,
+                (BEEF, "forest_emissions_mt"): 0.0,
+                (BEEF, "grassland_emissions_mt"): 3.0,
+                (PASTURE, "grassland_emissions_mt"): 2.0,
             },
-            id="crops-divide-the-cropland-pulse-and-livestock-the-pasture-pulse-by-their-own-shares",
-        ),
-        pytest.param(
-            0.0,
-            {
-                "commodity_to_share": {Livestock.PASTURE: 0.25},
-                "forest_emissions": 10.0,
-            },
-            {(PASTURE, "emissions_mt"): 2.5},
-            id="the-pasture-row-takes-its-pooled-share-of-every-conversion-not-only-pasture-ones",
+            id="crops-divide-what-was-converted-to-cropland-and-livestock-what-was-converted-to-pasture",
         ),
         pytest.param(
             0.0,
             {
                 "commodity_to_share": {Crop.WHEAT: 0.5},
+                "cropland_emissions": {FOREST: 1.0, GRASSLAND: 10.0, PEAT: 100.0},
                 "cropland_occupation": 1000.0,
-                "cropland_pulse": 100.0,
-                "forest_emissions": 1.0,
-                "grassland_emissions": 10.0,
                 "occupation_shares": {Crop.WHEAT: 0.1},
-                "peatland_conversion_shares": {Crop.WHEAT: 0.25},
             },
             {
                 (WHEAT, "forest_emissions_mt"): 0.5,
                 (WHEAT, "grassland_emissions_mt"): 5.0,
-                (WHEAT, "peatland_conversion_emissions_mt"): 25.0,
+                (WHEAT, "peatland_conversion_emissions_mt"): 50.0,
                 (WHEAT, "peatland_occupation_emissions_mt"): 100.0,
-                (WHEAT, "emissions_mt"): 130.5,
+                (WHEAT, "emissions_mt"): 155.5,
             },
-            id="emissions-mt-is-the-components-plus-occupation-each-by-its-own-share",
+            id="emissions-mt-is-the-conversion-components-plus-occupation-each-by-its-own-share",
         ),
         pytest.param(
             0.0,
             {
-                "commodity_to_share": {Crop.WHEAT: 0.5},
+                "commodity_to_share": {Crop.WHEAT: 0.5, Livestock.PASTURE: 1.0},
+                "cropland_emissions": {FOREST: 1.0, GRASSLAND: 10.0, PEAT: 100.0},
                 "cropland_occupation": 1000.0,
-                "cropland_pulse": 100.0,
-                "forest_emissions": 1.0,
-                "grassland_emissions": 10.0,
                 "occupation_shares": {Crop.WHEAT: 0.1},
-                "peatland_conversion_shares": {Crop.WHEAT: 0.25},
             },
             # Charged: forest 1, grassland 10, peat conversion 100 and occupation 1000, so 1111 in
-            # all; wheat's row and the unattributed row split each between them
+            # all, every unit of it on cropland; wheat's row and the unattributed row split each
+            # between them, and the pasture row takes none of it
             {
                 (WHEAT, "forest_emissions_mt"): 0.5,
                 (WHEAT, "grassland_emissions_mt"): 5.0,
-                (WHEAT, "peatland_conversion_emissions_mt"): 25.0,
+                (WHEAT, "peatland_conversion_emissions_mt"): 50.0,
                 (WHEAT, "peatland_occupation_emissions_mt"): 100.0,
-                (WHEAT, "emissions_mt"): 130.5,
+                (WHEAT, "emissions_mt"): 155.5,
+                (PASTURE, "emissions_mt"): 0.0,
                 (UNATTRIBUTED, "forest_emissions_mt"): 0.5,
                 (UNATTRIBUTED, "grassland_emissions_mt"): 5.0,
-                (UNATTRIBUTED, "peatland_conversion_emissions_mt"): 75.0,
+                (UNATTRIBUTED, "peatland_conversion_emissions_mt"): 50.0,
                 (UNATTRIBUTED, "peatland_occupation_emissions_mt"): 900.0,
-                (UNATTRIBUTED, "emissions_mt"): 980.5,
+                (UNATTRIBUTED, "emissions_mt"): 955.5,
                 (UNATTRIBUTED, "production_mt"): math.nan,
             },
             id="the-unattributed-row-is-what-the-shares-leave-of-the-charge-so-the-rows-sum-to-it",
@@ -995,10 +915,11 @@ def test_a_clip_one_cell_wide_keeps_the_hectares_of_its_cells() -> None:
     whole, column = (
         get_name_to_totals(
             commodity_to_share={Crop.WHEAT: 0.5, Livestock.PASTURE: 0.25},
+            cropland_emissions={FOREST: 10.0},
             cropland_occupation=2.0,
             dset=clipped,
-            forest_emissions=10.0,
             occupation_shares={Crop.WHEAT: 0.5},
+            pasture_emissions={GRASSLAND: 10.0},
         )
         for clipped in (dset, dset.isel(x=[0]))
     )
