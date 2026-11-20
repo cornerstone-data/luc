@@ -15,15 +15,13 @@ from jdluc.datasets.gpw_livestock import (
     get_livestock_to_grazing_share,
 )
 from jdluc.statistical import (
-    HERD_HEADS_COLUMNS,
+    HERD_HEADS_COLUMN,
     MAPSPAM_SPANS,
     Commodity,
     Crop,
     get_commodity_name_to_totals,
     get_commodity_to_share,
     get_crop_to_area_share,
-    get_mapspam_span,
-    get_snapshot_year_to_weight,
 )
 
 AREA = ifpri_mapspam.Quantity.PHYSICAL_AREA
@@ -538,43 +536,6 @@ def test_get_canonical_quantity_conserves_the_group_total(group_name: str) -> No
 # those: a test that redoes the weighting can agree with a wrong implementation.
 
 
-@pytest.mark.parametrize(
-    ("assessment_year", "expected"),
-    (
-        pytest.param(
-            2020,
-            {2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.375},
-            id="each year split between its span's snapshots",
-        ),
-        # 2005 alone splits between 2000 and 2005, and 2021-2024 give their 36% to 2020 whole
-        pytest.param(
-            2024,
-            {2000: 0.00125, 2005: 0.045, 2010: 0.31875, 2020: 0.635},
-            id="years after the last snapshot weigh on it alone",
-        ),
-    ),
-)
-def test_get_snapshot_year_to_weight(
-    assessment_year: int, expected: dict[int, float]
-) -> None:
-    assert pytest.approx(expected) == get_snapshot_year_to_weight(
-        assessment_year=assessment_year
-    )
-
-
-@pytest.mark.parametrize(
-    ("year", "span"),
-    (
-        pytest.param(2001, (2000, 2005), id="spans are open below"),
-        pytest.param(2005, (2000, 2005), id="and closed above"),
-        pytest.param(2015, (2010, 2020), id="the decade without a 2015 snapshot"),
-        pytest.param(2024, (2010, 2020), id="years after the last snapshot"),
-    ),
-)
-def test_get_mapspam_span(year: int, span: tuple[int, int]) -> None:
-    assert get_mapspam_span(year=year) == span
-
-
 # The default for `get_name_to_totals`'s shares, read-only so every call can share it
 NO_SHARES: collections.abc.Mapping[Commodity, float] = types.MappingProxyType({})
 NO_EMISSIONS: collections.abc.Mapping[emit.EmissionComponent, float] = (
@@ -644,66 +605,28 @@ def get_name_to_totals(
             }
         ),
         occupation_shares=get_shares(shares=occupation_shares),
-        snapshot_year_to_weight=get_snapshot_year_to_weight(
-            assessment_year=emit.DEFAULT_ASSESSMENT_YEAR
-        ),
         span_to_commodity_to_share=dict.fromkeys(
             MAPSPAM_SPANS, get_shares(shares=commodity_to_share)
         ),
     )
 
 
-def get_totals(
-    area_by_year: dict[int, float], production_by_year: dict[int, float]
-) -> dict[str, float]:
+def test_commodity_hectares_is_the_last_snapshots_area() -> None:
     crop = Crop.WHEAT
-    return get_name_to_totals(
+    totals = get_name_to_totals(
         dset=get_dset(
             values={
-                (AREA, year): {crop.value: area} for year, area in area_by_year.items()
-            }
-            | {
-                (PRODUCTION, year): {crop.value: production}
-                for year, production in production_by_year.items()
+                (AREA, year): {crop.value: area}
+                for year, area in {
+                    2000: 1.0,
+                    2005: 10.0,
+                    2010: 100.0,
+                    2020: 1000.0,
+                }.items()
             }
         ),
     )[crop.name]
-
-
-@pytest.mark.parametrize(
-    ("area_by_year", "expected_per_pixel"),
-    (
-        pytest.param(
-            {2000: 1.0, 2005: 10.0, 2010: 100.0, 2020: 1000.0},
-            423.15625,
-            id="every-snapshot-enters-at-the-weight-its-own-span-carries",
-        ),
-        pytest.param(
-            # The defect this replaced: zero area against twenty years of production made every
-            # per-hectare figure for the crop meaningless.
-            {2000: 100.0, 2005: 100.0},
-            15.625,
-            id="a-crop-abandoned-before-2020-still-reports-the-area-it-held-rather-than-zero",
-        ),
-    ),
-)
-def test_commodity_hectares_is_the_discounted_mean_of_the_snapshots(
-    area_by_year: dict[int, float], expected_per_pixel: float
-) -> None:
-    totals = get_totals(area_by_year=area_by_year, production_by_year={})
-    assert totals["commodity_hectares"] == pytest.approx(PIXELS * expected_per_pixel)
-
-
-def test_a_constant_yield_survives_the_window() -> None:
-    # What the shared window buys: area and production reduce over the same spans with the same
-    # weights, so a crop whose yield never changes reports exactly that yield -- whatever its
-    # area did in between, and whatever weights the spans carry.
-    areas = {2000: 1.0, 2005: 50.0, 2010: 7.0, 2020: 0.0}
-    totals = get_totals(
-        area_by_year=areas,
-        production_by_year={year: area * 3.0 for year, area in areas.items()},
-    )
-    assert totals["production_mt"] / totals["commodity_hectares"] == pytest.approx(3.0)
+    assert totals["commodity_hectares"] == pytest.approx(PIXELS * 1000.0)
 
 
 CATTLE = gpw_livestock.Species.CATTLE
@@ -864,7 +787,6 @@ PEAT = emit.EmissionComponent.PEATLAND_CONVERSION
                 (UNATTRIBUTED, "peatland_conversion_emissions_mt"): 50.0,
                 (UNATTRIBUTED, "peatland_occupation_emissions_mt"): 900.0,
                 (UNATTRIBUTED, "emissions_mt"): 955.5,
-                (UNATTRIBUTED, "production_mt"): math.nan,
             },
             id="the-unattributed-row-is-what-the-shares-leave-of-the-charge-so-the-rows-sum-to-it",
         ),
@@ -878,15 +800,15 @@ PEAT = emit.EmissionComponent.PEATLAND_CONVERSION
             id="peatland-hectares-are-the-occupation-divided-back-by-its-annual-rate",
         ),
         pytest.param(
-            # Without area every per-hectare figure for the row is undefined; with production it
-            # would publish an emission factor for grazers it does not name
+            # Without area every per-hectare figure for the row is undefined; with heads it would
+            # publish an emission factor for grazers it does not name
             0.5,
             {},
             {
                 (PASTURE, "commodity_hectares"): 0.5,
-                (PASTURE, "production_mt"): math.nan,
+                (PASTURE, HERD_HEADS_COLUMN): math.nan,
             },
-            id="the-pasture-row-carries-hectares-but-no-production",
+            id="the-pasture-row-carries-hectares-but-no-heads",
         ),
     ),
 )
@@ -914,10 +836,7 @@ def test_a_clip_one_cell_wide_keeps_the_hectares_of_its_cells() -> None:
     # One column of the 2x2 grid holds half of every total the whole grid holds
     dset = get_dset(
         pasture_fraction=dict.fromkeys(ifpri_mapspam.YEARS, 0.5),
-        values={
-            (AREA, 2020): {Crop.WHEAT.value: 100.0},
-            (PRODUCTION, 2020): {Crop.WHEAT.value: 300.0},
-        },
+        values={(AREA, 2020): {Crop.WHEAT.value: 100.0}},
     )
     whole, column = (
         get_name_to_totals(
@@ -1034,12 +953,9 @@ def test_each_cattle_row_reports_the_whole_herd(
             values={},
         ),
     )[livestock.name]
-    assert {column: totals[column] for column in HERD_HEADS_COLUMNS} == pytest.approx(
-        dict.fromkeys(
-            HERD_HEADS_COLUMNS, PIXELS * HECTARES_PER_CELL * expected_heads_per_ha
-        )
+    assert totals[HERD_HEADS_COLUMN] == pytest.approx(
+        PIXELS * HECTARES_PER_CELL * expected_heads_per_ha
     )
-    assert math.isnan(totals["production_mt"])
     # Cattle alone graze the cell, so beef and milk divide all its pasture
     assert totals["commodity_hectares"] == pytest.approx(
         PIXELS * HECTARES_PER_CELL * pasture_fraction * pasture_share

@@ -2,22 +2,15 @@ import numpy
 import pandas
 import pytest
 
+from jdluc import statistical
 from jdluc.attribute import Methodology
-from jdluc.datasets import faostat, tang_cropgrids
 from jdluc.datasets.worldbank_jurisdictions import AdminLevel
 from jdluc.jurisdictional_direct_proxy import HERD_HEADS_COLUMN
-from jdluc.statistical import HERD_HEADS_COLUMNS
-from jdluc.taxonomy import (
-    CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE,
-    METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID,
-    UNMAPPED_CROP_ITEM_CODES,
-)
 from jdluc.trace import (
     ADDITIVE_COLUMNS,
     attach_ratios,
     derive_jurisdictional_production_kg,
-    derive_proxy_production_kg,
-    derive_statistical_production_kg,
+    derive_production_kg,
     iter_national_from_provincials,
     with_commodity_ids,
 )
@@ -317,201 +310,89 @@ def test_iter_national_from_provincials_land_occupation_comes_from_the_summed_to
     assert result["land_occupation_m2_year_per_kg"] == 4.0
 
 
-STATISTICAL_EMISSIONS = pandas.DataFrame.from_records(
-    [
-        (
-            "USA008",
-            "PROVINCIAL",
-            2020,
-            100.0,
-            "CORN",
-            200.0,
-            120.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            "Delaware",
-            "STATISTICAL",
-            10.0,
-            30.0,
-            50.0,
-            5.0,
-        ),
-        (
-            "BRA001",
-            "PROVINCIAL",
-            2020,
-            100.0,
-            "BEEF_CATTLE",
-            200.0,
-            200.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            "Acre",
-            "STATISTICAL",
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        # A country FAOSTAT reports no herd for
-        (
-            "NIU001",
-            "PROVINCIAL",
-            2020,
-            100.0,
-            "BEEF_CATTLE",
-            200.0,
-            200.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            "Niue",
-            "STATISTICAL",
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        (
-            "PRY001",
-            "PROVINCIAL",
-            2020,
-            100.0,
-            "BEEF_CATTLE",
-            200.0,
-            200.0,
-            100.0,
-            100.0,
-            100.0,
-            100.0,
-            "Concepción",
-            "STATISTICAL",
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ),
-    ],
-    columns=[
-        "admin_id",
-        "admin_level",
-        "assessment_year",
-        "commodity_hectares",
-        "commodity_name",
-        "emissions_mt",
-        "forest_emissions_mt",
-        "herd_heads_2000",
-        "herd_heads_2005",
-        "herd_heads_2010",
-        "herd_heads_2020",
-        "jurisdiction_name",
-        "methodology",
-        "peatland_commodity_hectares",
-        "peatland_conversion_emissions_mt",
-        "peatland_occupation_emissions_mt",
-        "production_mt",
-    ],
-).set_index(
-    ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
+PRODUCTION_YEARS = (2017, 2018, 2019, 2020)
+STATISTICAL_EMISSIONS = (
+    pandas.DataFrame.from_records(
+        [
+            ("BRA001", "RAPESEED", 10.0, numpy.nan),
+            ("BRA001", "OTHER_OILCROPS", 3.0, numpy.nan),
+            ("BRA002", "OTHER_OILCROPS", 1.0, numpy.nan),
+            ("BRA001", "ARABICA_COFFEE", 1.0, numpy.nan),
+            ("BRA001", "ROBUSTA_COFFEE", 2.0, numpy.nan),
+            ("BRA001", "BEEF_CATTLE", 1.0, 100.0),
+            ("BRA001", "PASTURE", 1.0, numpy.nan),
+            ("BRA001", "DROPPED", 0.0, numpy.nan),
+        ],
+        columns=[
+            "admin_id",
+            "commodity_name",
+            "commodity_hectares",
+            statistical.HERD_HEADS_COLUMN,
+        ],
+    )
+    .assign(
+        admin_level="PROVINCIAL",
+        assessment_year=2020,
+        emissions_mt=1.0,
+        forest_emissions_mt=1.0,
+        jurisdiction_name="Acre",
+        methodology="STATISTICAL",
+        peatland_commodity_hectares=0.0,
+        peatland_conversion_emissions_mt=0.0,
+        peatland_occupation_emissions_mt=0.0,
+    )
+    .set_index(
+        ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
+    )
 )
-
-
-# The 2020 assessment's snapshot weights
-SNAPSHOT_YEAR_TO_WEIGHT = {2000: 0.03125, 2005: 0.125, 2010: 0.46875, 2020: 0.375}
-
-
-# Brazil's cattle rate doubles each snapshot, and its sheep rate catches a herd priced as another
-# species. Paraguay reports meat for its herd only in 2020.
-LIVESTOCK = pandas.DataFrame.from_records(
+STATISTICAL_CROPS = pandas.DataFrame.from_records(
     [
-        *(
-            row
-            for year, kg in (
-                (2000, 10_000.0),
-                (2005, 20_000.0),
-                (2010, 40_000.0),
-                (2020, 80_000.0),
-            )
-            for row in (
-                ("NATIONAL", "BRA", "Brazil", "CATTLE", 866, year, 1000.0, numpy.nan),
-                ("NATIONAL", "BRA", "Brazil", "CATTLE", 867, year, numpy.nan, kg),
-            )
-        ),
-        ("NATIONAL", "BRA", "Brazil", "SHEEP", 976, 2020, 1.0, numpy.nan),
-        ("NATIONAL", "BRA", "Brazil", "SHEEP", 977, 2020, numpy.nan, 1_000_000.0),
-        *(
-            ("NATIONAL", "PRY", "Paraguay", "CATTLE", 866, year, 1000.0, numpy.nan)
-            for year in (2000, 2005, 2010, 2020)
-        ),
-        ("NATIONAL", "PRY", "Paraguay", "CATTLE", 867, 2020, numpy.nan, 80_000.0),
+        *(("BRA", 270, year, 100.0) for year in PRODUCTION_YEARS),
+        ("BRA", 292, 2020, 20.0),
+        *(("BRA", 260, year, 50.0) for year in PRODUCTION_YEARS),
+        ("BRA", 333, 2019, 10.0),
+        *(("BRA", 656, year, 300.0) for year in PRODUCTION_YEARS),
     ],
-    columns=[
-        "admin_level",
-        "admin_id",
-        "jurisdiction_name",
-        "species",
-        "commodity_id",
-        "year",
-        "heads",
-        "production_kg",
+    columns=["admin_id", "commodity_id", "year", "production_kg"],
+).set_index(["admin_id", "commodity_id", "year"])
+STATISTICAL_LIVESTOCK = pandas.DataFrame.from_records(
+    [
+        *(("BRA", "CATTLE", 866, year, 100.0, numpy.nan) for year in PRODUCTION_YEARS),
+        *(("BRA", "CATTLE", 867, year, numpy.nan, 1000.0) for year in PRODUCTION_YEARS),
     ],
-).set_index(faostat.LIVESTOCK_IDX_COLUMN_NAMES)
+    columns=["admin_id", "species", "commodity_id", "year", "heads", "production_kg"],
+).set_index(["admin_id", "commodity_id", "year"])
 
 
-def test_derive_statistical_production_kg_stays_indexed() -> None:
-    result = derive_statistical_production_kg(
+def test_derive_production_kg_for_the_statistical_leg() -> None:
+    """Brazil's rapeseed takes mustard's 20 kg beside its own 100, and its other oil crops olives'
+    50 and linseed's 10, split 3:1 between two provinces. Arabica and robusta divide coffee's 300 by
+    their area, and its cattle weigh 10 kg of meat a head over 100 head.
+    """
+    result = derive_production_kg(
+        crops=STATISTICAL_CROPS,
         emissions=STATISTICAL_EMISSIONS,
-        livestock=LIVESTOCK,
-        snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
+        heads_column=statistical.HERD_HEADS_COLUMN,
+        livestock=STATISTICAL_LIVESTOCK,
+        methodology=Methodology.STATISTICAL,
+        years=PRODUCTION_YEARS,
     )
-    # regression guard: must return an indexed frame like its jurisdictional twin
-    assert result.index.names == [
-        "admin_id",
-        "admin_level",
-        "assessment_year",
-        "commodity_name",
-        "methodology",
-    ]
-    assert "production_mt" not in result.columns
-    assert not set(HERD_HEADS_COLUMNS) & set(result.columns)
-    assert (
-        result.loc[
-            ("USA008", "PROVINCIAL", 2020, "CORN", "STATISTICAL"), "production_kg"
-        ]
-        == 5000.0  # 5 mt x 1000
+    production_kg = result["production_kg"].droplevel(
+        ["admin_level", "assessment_year", "methodology"]
     )
-    # .copy() guard: attach_ratios mutates in place, so the source frame must be untouched
-    assert "production_kg" not in STATISTICAL_EMISSIONS.columns
-
-
-def test_derive_statistical_production_kg_prices_a_herd_at_each_snapshots_rate() -> (
-    None
-):
-    result = derive_statistical_production_kg(
-        emissions=STATISTICAL_EMISSIONS,
-        livestock=LIVESTOCK,
-        snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
+    assert production_kg.to_dict() == pytest.approx(
+        {
+            ("BRA001", "RAPESEED"): 120.0,
+            ("BRA001", "OTHER_OILCROPS"): 45.0,
+            ("BRA002", "OTHER_OILCROPS"): 15.0,
+            ("BRA001", "ARABICA_COFFEE"): 100.0,
+            ("BRA001", "ROBUSTA_COFFEE"): 200.0,
+            ("BRA001", "BEEF_CATTLE"): 1000.0,
+            ("BRA001", "PASTURE"): numpy.nan,
+            ("BRA001", "DROPPED"): numpy.nan,
+        },
+        nan_ok=True,
     )
-    # 100 heads at 10, 20, 40 and 80 kg, weighted 3.125%, 12.5%, 46.875% and 37.5%
-    assert result.loc[
-        ("BRA001", "PROVINCIAL", 2020, "BEEF_CATTLE", "STATISTICAL"), "production_kg"
-    ] == pytest.approx(5156.25)
-    assert (
-        result.loc[
-            ("NIU001", "PROVINCIAL", 2020, "BEEF_CATTLE", "STATISTICAL"),
-            "production_kg",
-        ]
-        == 0.0
-    )
-    # 100 heads at 80 kg, weighted 37.5%, in 2020 alone
-    assert result.loc[
-        ("PRY001", "PROVINCIAL", 2020, "BEEF_CATTLE", "STATISTICAL"), "production_kg"
-    ] == pytest.approx(3000.0)
 
 
 def test_methodologies_share_a_schema() -> None:
@@ -519,18 +400,21 @@ def test_methodologies_share_a_schema() -> None:
         df=derive_jurisdictional_production_kg(
             emissions=JURISDICTIONAL_EMISSIONS,
             raw_yields=RAW_YIELDS,
-            years=(2017, 2018, 2019, 2020),
+            years=PRODUCTION_YEARS,
         )
     )
-    statistical = attach_ratios(
-        df=derive_statistical_production_kg(
+    statistical_production = attach_ratios(
+        df=derive_production_kg(
+            crops=STATISTICAL_CROPS,
             emissions=STATISTICAL_EMISSIONS,
-            livestock=LIVESTOCK,
-            snapshot_year_to_weight=SNAPSHOT_YEAR_TO_WEIGHT,
+            heads_column=statistical.HERD_HEADS_COLUMN,
+            livestock=STATISTICAL_LIVESTOCK,
+            methodology=Methodology.STATISTICAL,
+            years=PRODUCTION_YEARS,
         )
     )
     assert set(jurisdictional.reset_index().columns) == set(
-        statistical.reset_index().columns
+        statistical_production.reset_index().columns
     )
 
 
@@ -604,36 +488,14 @@ def test_with_commodity_ids_keeps_a_missing_yield_missing() -> None:
     )
 
 
-def test_derive_proxy_production_kg() -> None:
+def test_derive_production_kg_for_the_proxy_leg() -> None:
     """Brazil's maize is FAOSTAT's 2019-2021 mean of 200 kg, split over 50 ha of maize and popcorn,
     which share its item. Its cattle weigh FAOSTAT's 1050 kg of meat a year over 100 head, with
     2021's meat unreported and 2018 outside the years. Its soya beans have no CROPGRIDS area, so no
     row takes them.
     """
-    proxy_name_to_commodity_id = METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
-        Methodology.JURISDICTIONAL_DIRECT_PROXY
-    ]
-    # Every crop item, so the coverage assertion holds
-    every_item_code = (
-        {
-            proxy_name_to_commodity_id[crop.name]
-            for crop in tang_cropgrids.Crop
-            if proxy_name_to_commodity_id[crop.name] > 0
-        }
-        | set(CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE)
-        | UNMAPPED_CROP_ITEM_CODES
-    )
     crops = pandas.DataFrame.from_records(
         [
-            {
-                "admin_id": "ZZZ",
-                "commodity_id": code,
-                "production_kg": 0.0,
-                "year": 2020,
-            }
-            for code in sorted(every_item_code)
-        ]
-        + [
             {
                 "admin_id": "BRA",
                 "commodity_id": 56,
@@ -702,8 +564,13 @@ def test_derive_proxy_production_kg() -> None:
     emissions = emissions.set_index(
         ["admin_id", "admin_level", "assessment_year", "commodity_name", "methodology"]
     )
-    result = derive_proxy_production_kg(
-        crops=crops, emissions=emissions, livestock=livestock, years=(2019, 2020, 2021)
+    result = derive_production_kg(
+        crops=crops,
+        emissions=emissions,
+        heads_column=HERD_HEADS_COLUMN,
+        livestock=livestock,
+        methodology=Methodology.JURISDICTIONAL_DIRECT_PROXY,
+        years=(2019, 2020, 2021),
     )
     production_kg = result["production_kg"].droplevel(
         ["admin_level", "methodology", "assessment_year"]
