@@ -21,14 +21,14 @@ This document is aimed at readers assessing how the methodology maps to the LSRS
 
 The published deliverable is a single per-(jurisdiction, commodity) table — the **emissions-factors parquet** — indexed by `(admin_id, admin_level, assessment_year, commodity_id, methodology)`, where `admin_id` is the ISO 3166 alpha-3 code nationally and the World Bank admin-1 code provincially, `admin_level` is `NATIONAL` or `PROVINCIAL`, `assessment_year` is the year the factors describe (2020, 2022 or 2024), `commodity_id` is the FAOSTAT item code (or a negative code of our own where FAOSTAT has none) with its name in `commodity_name`, and `methodology` is `JURISDICTIONAL_DIRECT`, `STATISTICAL` or `JURISDICTIONAL_DIRECT_PROXY`. Each row carries the headline emissions factor and the quantities behind it; all three legs emit the same columns. The full schema is in [`data.md`](data.md#3-emissions-factors-parquet).
 
-| Column                           | Units        | What it is                                                                                                                                          |
-| -------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `emissions_factor_kgco2e_per_kg` | kg CO₂e / kg | The headline factor — `1000 × emissions_mt / production_kg`                                                                                         |
-| `emissions_mt`                   | t CO₂e       | Total allocated LUC emissions                                                                                                                       |
-| `production_kg`                  | kg           | Production: crops from NASS × area (jdLUC), MapSPAM (sLUC) or FAOSTAT split by CROPGRIDS area (proxy); livestock as FAOSTAT carcass weight, bone in |
-| `commodity_hectares`             | ha           | Commodity area in the jurisdiction, over 2000–2020                                                                                                  |
-| `yield_kg_per_ha`                | kg/ha        | `production_kg / commodity_hectares`                                                                                                                |
-| `land_occupation_m2_year_per_kg` | m²·year / kg | Area occupied for one year per kg, `10,000 / yield_kg_per_ha`                                                                                       |
+| Column                           | Units        | What it is                                                                                                                                                                          |
+| -------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `emissions_factor_kgco2e_per_kg` | kg CO₂e / kg | The headline factor — `1000 × emissions_mt / production_kg`                                                                                                                         |
+| `emissions_mt`                   | t CO₂e       | Total allocated LUC emissions                                                                                                                                                       |
+| `production_kg`                  | kg           | Production: crops from NASS × area (jdLUC), MapSPAM (sLUC) or FAOSTAT split by CROPGRIDS area (proxy); livestock as FAOSTAT carcass weight, bone in, for beef and raw milk for milk |
+| `commodity_hectares`             | ha           | Commodity area in the jurisdiction, over 2000–2020                                                                                                                                  |
+| `yield_kg_per_ha`                | kg/ha        | `production_kg / commodity_hectares`                                                                                                                                                |
+| `land_occupation_m2_year_per_kg` | m²·year / kg | Area occupied for one year per kg, `10,000 / yield_kg_per_ha`                                                                                                                       |
 
 ## Known deviations and open items
 

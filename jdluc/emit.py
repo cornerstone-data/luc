@@ -238,6 +238,15 @@ def get_lookback_years_range(assessment_year: int) -> tuple[int, ...]:
     return tuple(range(assessment_year - LOOKBACK_YEARS, assessment_year + 1))
 
 
+PRODUCTION_YEARS = 4
+
+
+def get_production_years_range(assessment_year: int) -> tuple[int, ...]:
+    """The years production statistics are averaged over, ending at the assessment year."""
+    assert assessment_year in ASSESSMENT_YEARS, f"{assessment_year=:d} is unsupported"
+    return tuple(range(assessment_year - PRODUCTION_YEARS + 1, assessment_year + 1))
+
+
 def get_year_to_linear_discount_weight(assessment_year: int) -> dict[int, float]:
     """The LSR Guidance's linear amortization factor for a conversion in each year (Table 7.11):
     9.75% in the assessment year, falling 0.5 points a year to 0.25% nineteen years before it.

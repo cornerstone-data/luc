@@ -72,6 +72,7 @@ WRI_REPORTING_YEARS = (2020, 2021, 2022, 2023, 2024)
 # Where the ingested FAOSTAT parquet is kept once fetched. 1.3 MiB against the 33 MiB archive it
 # replaces, and cached so the report keeps running offline after the first read.
 FAOSTAT_CACHE = pull.CACHE / "faostat.parquet"
+FAOSTAT_LIVESTOCK_CACHE = pull.CACHE / "faostat-livestock.parquet"
 # How much of a revision or digest identifies an anchor in a `source_version`. Long enough not to
 # collide, short enough that a stale-baseline message is readable.
 SOURCE_VERSION_LENGTH = 12
@@ -1710,6 +1711,25 @@ def read_faostat_crops() -> pandas.DataFrame:
     return pandas.read_parquet(FAOSTAT_CACHE)
 
 
+def read_faostat_livestock() -> pandas.DataFrame:
+    """FAOSTAT's ingested livestock table, cached locally and pinned by digest as the crop table is."""
+    if not FAOSTAT_LIVESTOCK_CACHE.exists():
+        logger.info(
+            f"Fetching the ingested FAOSTAT livestock parquet to {FAOSTAT_LIVESTOCK_CACHE}"
+        )
+        FAOSTAT_LIVESTOCK_CACHE.parent.mkdir(exist_ok=True, parents=True)
+        faostat.load(dataset=faostat.LIVESTOCK_DATASET).to_parquet(
+            FAOSTAT_LIVESTOCK_CACHE
+        )
+        pull.record_digest(
+            key="faostat-livestock.parquet",
+            origin=faostat.LIVESTOCK_DATASET.get_prefix(tile_id="world"),
+            path=FAOSTAT_LIVESTOCK_CACHE,
+            source="faostat",
+        )
+    return pandas.read_parquet(FAOSTAT_LIVESTOCK_CACHE)
+
+
 def read_faostat_production() -> pandas.DataFrame:
     """FAOSTAT's production and area of the crops compared, per country, item and year."""
     frame = read_faostat_crops().reset_index()
@@ -1720,7 +1740,9 @@ def read_faostat_production() -> pandas.DataFrame:
 def get_commodity_id_to_name() -> dict[int, str]:
     """The name of every commodity id, as `trace` names it: FAOSTAT's, and `taxonomy`'s for our own
     codes."""
-    return trace.get_commodity_id_to_name(crops=read_faostat_crops())
+    return trace.get_commodity_id_to_name(
+        crops=read_faostat_crops(), livestock=read_faostat_livestock()
+    )
 
 
 def read_faostat_areas(year: int) -> pandas.DataFrame:
