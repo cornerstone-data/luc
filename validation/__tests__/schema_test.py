@@ -30,21 +30,24 @@ def test_admin_level_names_match_the_enum() -> None:
 
 
 def test_methodology_names_match_the_enum() -> None:
-    """Both legs share one capture, so these strings are what separates them."""
+    """Every leg shares one `trace` table, so these strings are what separates them."""
     assert attribute.Methodology.STATISTICAL.name == schema.STATISTICAL
     assert (
         attribute.Methodology.JURISDICTIONAL_DIRECT.name == schema.JURISDICTIONAL_DIRECT
+    )
+    assert (
+        attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY.name
+        == schema.JURISDICTIONAL_DIRECT_PROXY
     )
 
 
 def test_every_methodology_is_named_here() -> None:
     """A new leg would otherwise be silently absent from every comparison."""
-    assert {schema.STATISTICAL, schema.JURISDICTIONAL_DIRECT} == {
-        methodology.name
-        for methodology in attribute.Methodology
-        # Not captured yet, so it is in no comparison
-        if methodology != attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
-    }
+    assert {
+        schema.STATISTICAL,
+        schema.JURISDICTIONAL_DIRECT,
+        schema.JURISDICTIONAL_DIRECT_PROXY,
+    } == {methodology.name for methodology in attribute.Methodology}
 
 
 def test_kg_per_tonne_matches_trace() -> None:

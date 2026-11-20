@@ -3,19 +3,24 @@
     "Chosen by hand from the shortlist `--section eligible` prints,",
     "not by a score; docs/validation.md section 3 says why. Each pair carries the reason it is here.",
     "Controls live here too, one `controls` list per pair, so the pair identity has a single source.",
-    "`inherited` is a prior figure used once as a sanity check when the first capture sets `baseline`;",
+    "`inherited` is a prior figure used once as a sanity check when `baseline` is first set;",
     "a control fires against `baseline` alone, and a null baseline means not yet frozen.",
     "Orbae measures are rank controls, not level ones: its export is assessment year 2023 with no 2020",
     "export coming, so `statistic` is RANK_CORRELATION and their tolerance is in correlation units.",
     "ORBAE_OVER_WRI holds no term of ours, so movement in it means an anchor was revised rather than",
-    "the pipeline moving, and it is the one measure freezable before any capture. Its cross-country",
+    "the pipeline moving, and it is the one measure freezable from the anchors alone. Its cross-country",
     "rank agreement is weakest for soy (+0.135) and oil palm (+0.018), which the per-country baselines",
     "below measure every run rather than noting once.",
     "Deforestation figures in the reasons are WRI's for 2020, in Mt of CO2, at the pinned commit.",
     "They are linearly discounted over 20 years -- the same GHGP basis as ours, which is what makes",
     "them comparable -- and they are why a pair is here, not a result.",
-    "All thirty controls are frozen. The Orbae/WRI ranks were baselined from the anchors alone,",
-    "needing no capture since both sides are external; the rest come from the first capture. Six of",
+    "All fifty-five controls are frozen. The Orbae/WRI ranks were baselined from the anchors alone,",
+    "since both sides are external; the rest from the first comparison of our own figures, the",
+    "twenty-five on the proxy leg on the v202611 table. Those guard what the other thirty do not: the",
+    "proxy leg's forest against WRI and its placement against Orbae (emissions ranks, which carry no",
+    "production term), CROPGRIDS placement against the direct leg's US states, and how the two",
+    "global legs split a country's total among crops, the only guard outside the USA that reaches",
+    "grassland and peat. Six of",
     "the seven sLUC/WRI controls carrying an inherited figure reproduce it within its quoted",
     "precision, CAF MAIZE sitting 11% under. The three sLUC/jdLUC controls carrying one do not:",
     "peatland occupation is weighted by each crop's hectares rather than by its share of the",
@@ -27,7 +32,7 @@
     "typical value, which is why holding the internal head-to-head to those three understated it."
   ],
   "provenance": {
-    "eligible_pairs": 864,
+    "eligible_pairs": 925,
     "faostat_release": "2025",
     "reference_year": 2020,
     "wri_revision": "559fe23eb752e9df270a1bf93e7f290044026bab"
@@ -35,36 +40,37 @@
   "targets": [
     {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "IDN",
       "reason": "The largest deforestation figure anywhere at 218 Mt, and the pipeline's only test of a per-crop destination layer: Descals is what lets standing palm resolve to cropland at all. sLUC/WRI is 0.429, the highest of Indonesia's crops against WRI where coconut, maize and rice sit at 0.32-0.33, so the perennial detection gap this pair was carried for no longer binds on palm. Still a gap rather than a control: a two-fold shortfall against the anchor is not a relationship to freeze."
     },
     {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "MYS",
       "reason": "68 Mt, second largest. Confirms whether the Indonesian woody-perennial result is a country artifact or the mechanism. 96% provincial area coverage, so the provincial grain is available."
     },
     {
       "basis": "gap",
-      "crop_name": "COCONUT",
+      "commodity_id": 249,
       "iso_3166": "IDN",
       "reason": "31 Mt on a woody perennial that is not oil palm, so it separates 'any woody perennial' from 'oil palm specifically' in the GLAD cropland-class finding."
     },
     {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "COD",
       "reason": "14 Mt, and African rather than South-East Asian: tests the woody-perennial gap away from peat, where the peatland term cannot be the explanation."
     },
     {
       "basis": "gap",
-      "crop_name": "COCONUT",
+      "commodity_id": 249,
       "iso_3166": "PHL",
       "reason": "6.2 Mt, and NOT eligible at the provincial grain: the World Bank layer gives PHL 17 regions where GADM gives 81 provinces, so the relation is many-to-one and no key map can express it -- 0 of the 81 names match even fuzzily, because the two sources are at different administrative levels. Carried as a national ratio only, like CAF MAIZE. PHL is the largest single country E3 excludes, holding 24.8 Mt across all crops against 45 Mt for every excluded country combined, and it is a tropical archipelago where coconut dominates -- the woody-perennial regime the detection gap is largest in, so excluding it under-samples the gap most worth measuring. Pairs against IDN COCONUT, holding the crop fixed across two archipelagos."
     },
     {
       "basis": "control",
+      "commodity_id": 236,
       "controls": [
         {
           "baseline": 0.441,
@@ -101,44 +107,75 @@
           "note": "Over 16 shared provinces.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.239,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_WRI",
+          "note": "The proxy leg's forest against the one anchor whose allocation it does not share; beside the statistical leg's control, a move in one leg is separable from a WRI revision.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.968,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_ORBAE_EMISSIONS",
+          "note": "Over 15 provinces. The proxy leg's placement within the country. Emissions rather than factor, because the emissions carry no production term, so the leg's FAOSTAT split cannot move it.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.826,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_SLUC_EMISSIONS",
+          "note": "How the two global legs split the country's total among crops, over every pool; outside the USA the only guard that reaches grassland and peat, which no anchor covers.",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
       "iso_3166": "BRA",
       "reason": "111 Mt, the largest annual-crop pair in the world, and the largest figure in the eligible set."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "BRA",
       "reason": "49 Mt. Same jurisdictions as BRA SOYBEAN, so it shares tiles and costs little beyond province clips, and it separates crop allocation from country-level forest attribution."
     },
     {
       "basis": "ranked",
-      "crop_name": "CASSAVA",
+      "commodity_id": 125,
       "iso_3166": "COD",
       "reason": "48 Mt on a root crop, which is neither of the two commodities the US leg covers. 26 provinces at 100% area coverage."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "IDN",
       "reason": "39 Mt. An annual in the same country as the largest woody-perennial gap, so it isolates whether Indonesia's disagreement is the crop or the country."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "IDN",
       "reason": "25 Mt, and the largest flooded-crop pair. Rice carries a methane term the LUC model does not touch, so it checks that the LUC comparison is unaffected by it."
     },
     {
       "basis": "ranked",
-      "crop_name": "CASSAVA",
+      "commodity_id": 125,
       "iso_3166": "BRA",
       "reason": "15 Mt. Pairs against COD CASSAVA on one crop across two continents, holding the crop fixed while the forest regime changes."
     },
     {
       "basis": "control",
+      "commodity_id": 236,
       "controls": [
         {
           "baseline": 0.341,
@@ -175,80 +212,183 @@
           "note": "Over 16 shared provinces at 100% area coverage. The value is low because soy is the crop the two anchors agree least on, and freezing it is how a change in that disagreement surfaces.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.175,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_WRI",
+          "note": "The proxy leg's forest against the one anchor whose allocation it does not share; beside the statistical leg's control, a move in one leg is separable from a WRI revision.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.957,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_ORBAE_EMISSIONS",
+          "note": "Over 15 provinces. The proxy leg's placement within the country. Emissions rather than factor, because the emissions carry no production term, so the leg's FAOSTAT split cannot move it.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.663,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_SLUC_EMISSIONS",
+          "note": "How the two global legs split the country's total among crops, over every pool; outside the USA the only guard that reaches grassland and peat, which no anchor covers.",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
       "iso_3166": "PRY",
       "reason": "15 Mt on 18 provinces at 100% coverage. Chaco dry forest rather than humid tropical, and soy holds constant against BRA, ARG and BOL. Holds the dry-forest/soy control slot, on two qualifications the other Chaco soy pairs lack: WRI's row here is self-consistent, at a deforestation-linked share of 0.669 of harvested area, and Orbae shares 16 of its provinces, enough to freeze the Orbae/WRI rank from the anchors alone."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "MEX",
       "reason": "14 Mt. Dry and temperate-mixed rather than tropical, and the only North American entry besides the USA."
     },
     {
       "basis": "ranked",
-      "crop_name": "SUGARCANE",
+      "commodity_id": 156,
       "iso_3166": "BRA",
       "reason": "11 Mt on 756 Mt of production, the largest denominator in the set by far. A ratooned perennial that is herbaceous, so GLAD's cropland class admits it: the control case for the woody-perennial finding."
     },
     {
       "basis": "ranked",
-      "crop_name": "SUGARCANE",
+      "commodity_id": 156,
       "iso_3166": "THA",
       "reason": "9 Mt across 75 provinces, the finest provincial grain available at this materiality. Pairs against BRA SUGARCANE."
     },
     {
       "basis": "ranked",
-      "crop_name": "COTTON",
+      "commodity_id": 328,
       "iso_3166": "BRA",
       "reason": "10 Mt on a fibre crop, so the product form is seed cotton rather than a food weight. The yield cross-check put WRI and FAOSTAT at 1.017 here, so the denominator is known good."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "KHM",
       "reason": "9 Mt, and the country whose 13 hand-written province overrides the key map depends on: a wrong override would surface here first."
     },
     {
       "basis": "ranked",
-      "crop_name": "MAIZE",
+      "commodity_id": 56,
       "iso_3166": "ZMB",
       "reason": "9 Mt on miombo woodland, a dry-forest regime absent from every other entry. Only 10 provinces, so provincial coverage is thin."
     },
     {
       "basis": "ranked",
-      "crop_name": "BEAN",
+      "commodity_id": 176,
       "iso_3166": "MOZ",
       "reason": "8 Mt on a pulse, a crop family otherwise unrepresented, in a second miombo country."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "LAO",
       "reason": "8 Mt. Shares ten-degree tiles with THA and KHM, so it is nearly free once those are computed."
     },
     {
       "basis": "ranked",
-      "crop_name": "YAM",
+      "commodity_id": 137,
       "iso_3166": "NGA",
       "reason": "7 Mt, 56 Mt of production, and a MapSPAM group crop decomposed rather than observed (SWPY). Tests the decomposition path at materiality."
     },
     {
       "basis": "ranked",
-      "crop_name": "RICE",
+      "commodity_id": 27,
       "iso_3166": "PHL",
       "reason": "6.7 Mt on 19 Mt of production, the largest PHL pair. National ratio only, for the same structural reason as PHL COCONUT: 17 World Bank regions against 81 GADM provinces, so E3 fails and the pair is off the eligible shortlist entirely. Carried as the annual counterpart to PHL COCONUT -- rice is herbaceous, so GLAD's cropland class does see it, and holding the country fixed across the two separates 'PHL is under-detected because its crops are perennial' from 'PHL is under-detected because it is PHL'. Pairs against IDN RICE on one crop across two archipelagos. Together the two PHL pairs cover 12.9 of the country's 24.8 Mt."
     },
     {
+      "basis": "ranked",
+      "commodity_id": 661,
+      "iso_3166": "CIV",
+      "reason": "44.8 Mt, the largest cocoa pair, compared through the proxy leg alone, since the statistical leg does not model cocoa. Orbae publishes Ivorian cocoa, but none of its provinces map to a World Bank admin-1, so WRI is the only anchor. proxy/WRI 0.31."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 661,
+      "iso_3166": "IDN",
+      "reason": "14.5 Mt, South-East Asian cocoa in the country of the largest palm gap, so it holds the country fixed against IDN OILPALM on a second tree crop. Proxy leg only, and WRI only. A third of the leg's 7.3 Mt is peatland occupation, which WRI does not count. proxy/WRI 0.28."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 661,
+      "iso_3166": "GHA",
+      "reason": "3.4 Mt, small, and the one cocoa pair Orbae reaches province by province, so the only cocoa row with an anchor beside WRI. proxy/WRI 0.89; against Orbae the proxy leg ranks the factor at 0.84 and the emissions at 0.88."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "BRA",
+      "reason": "7.9 Mt, the largest coffee pair in Latin America, and the one coffee pair Orbae reaches (7 states). Both legs: statistical/WRI 0.49, proxy/WRI 0.15, the proxy leg a third of the statistical leg in tonnes. Against Orbae both legs rank the emissions at 0.89-0.96 while the proxy leg ranks the factor at -0.75, the widest split between the two rankings in the set."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "PER",
+      "reason": "6.4 Mt. Andean coffee, where the two legs agree in tonnes (proxy/statistical 1.06) and both sit at about a fifth of WRI (statistical 0.18, proxy 0.20), so the gap to the anchor is shared rather than a split between legs."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "HND",
+      "reason": "6.1 Mt, Central American coffee. statistical/WRI 0.15 and proxy/WRI 0.05: the proxy leg gives coffee a third of the statistical leg's tonnes."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 656,
+      "iso_3166": "COL",
+      "reason": "4.6 Mt. The legs agree in tonnes (proxy/statistical 0.89), both at about a fifth of WRI (0.18 and 0.19)."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 254,
+      "iso_3166": "BRA",
+      "reason": "9.5 Mt, Latin American palm, where the statistical leg sits at 0.55 of WRI and the proxy leg at 0.13. The anchors disagree on level too: Orbae's Brazilian palm factor is 0.23 kg/kg against WRI's 4.5. Orbae has only three states, too few for a rank."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 254,
+      "iso_3166": "COL",
+      "reason": "4.6 Mt, the second Latin American palm pair, and one Orbae ranks over 18 departments. Both legs sit at about a quarter of WRI (0.27 and 0.25). Orbae and WRI do not agree on the factor's ranking (-0.07), while both legs rank the emissions with Orbae at 0.86-0.88."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 867,
+      "iso_3166": "BRA",
+      "reason": "The release's largest commodity line: the statistical leg gives Brazilian beef 252 Mt and the proxy leg 349 Mt, and Orbae 679 Mt, its largest gap from us. WRI publishes crops only, so this is not on the shortlist WRI's figures build. Orbae's beef factor is per kg of live weight and ours per kg of carcass, so only ranks compare: over 27 states both legs rank the emissions with Orbae at 0.92-0.94."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 867,
+      "iso_3166": "PRY",
+      "reason": "Chaco beef, where dry forest goes to pasture: the statistical leg gives 13.1 Mt and the proxy leg 20.0 Mt. Over 16 departments both legs rank the emissions with Orbae at 0.94-0.96. Off the shortlist, as all beef is."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 867,
+      "iso_3166": "ARG",
+      "reason": "Pampas and Chaco beef: the statistical leg gives 19.7 Mt and the proxy leg 16.3 Mt, 5.2 Mt of each peatland occupation. The weakest of the three beef pairs against Orbae, whose emissions rank at 0.51 (statistical) and 0.17 (proxy) over 15 provinces. Off the shortlist, as all beef is."
+    },
+    {
       "basis": "gap",
-      "crop_name": "OILPALM",
+      "commodity_id": 254,
       "iso_3166": "PNG",
       "reason": "5 Mt, carried as a sentinel rather than for its materiality: PNG's forest allocation is the most sensitive in the set to the expansion-share denominator, so it is where a regression there surfaces first. Its sLUC/WRI sits far below the other palm pairs for a reason that is not palm, measured on tile 00N_140E: 11.98% of tree-cover losses carry any destination at 2020, of which Descals palm supplies 9.03% and GACED30 cropland 0.02% -- 4.0 kha against MapSPAM's 693 kha nationally. Where palm exists it resolves, 71.2% of its pixels sitting on a loss inside the lookback. PNG's loss is dominated by selective logging, and its agriculture is shifting cultivation the FAO cropland definition excludes, so a low ratio here is the anchor's attribution before it is a detection failure. The shifting-cultivation entry in further_research.md carries the measurement."
     },
     {
       "basis": "reserved",
+      "commodity_id": 56,
       "controls": [
         {
           "baseline": 1.634,
@@ -294,14 +434,35 @@
           "note": "Over 44 shared provinces, the widest join in the set.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.919,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_ORBAE_EMISSIONS",
+          "note": "Over 48 provinces. The proxy leg's placement within the country. Emissions rather than factor, because the emissions carry no production term, so the leg's FAOSTAT split cannot move it.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.978,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_OVER_JDLUC_PROXY_EMISSIONS",
+          "note": "Over 48 states. CROPGRIDS placement against the direct leg's CDL pixels, the one leg whose crop locations are observed; a move means one leg placed the crop's emissions differently.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
       "iso_3166": "USA",
       "reason": "The only jdLUC leg, so the only internal head-to-head between the two methodologies. 44 of 51 provinces in WRI's file."
     },
     {
       "basis": "reserved",
+      "commodity_id": 236,
       "controls": [
         {
           "baseline": 1.748,
@@ -347,14 +508,35 @@
           "note": "Over 32 shared provinces, and the weakest anchor-against-anchor rank frozen here. The disagreement is a handful of states rather than a broad method difference: dropping the five worst-ranked puts it above the USA MAIZE pair.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.939,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_ORBAE_EMISSIONS",
+          "note": "Over 33 provinces. The proxy leg's placement within the country. Emissions rather than factor, because the emissions carry no production term, so the leg's FAOSTAT split cannot move it.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.988,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_OVER_JDLUC_PROXY_EMISSIONS",
+          "note": "Over 41 states. CROPGRIDS placement against the direct leg's CDL pixels, the one leg whose crop locations are observed; a move means one leg placed the crop's emissions differently.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
       "iso_3166": "USA",
       "reason": "Largest US pair at 3.45 Mt, and the US soy comparison against BRA and ARG soy on one crop across three regimes."
     },
     {
       "basis": "reserved",
+      "commodity_id": 15,
       "controls": [
         {
           "baseline": 0.829,
@@ -363,14 +545,23 @@
           "measure": "SLUC_OVER_JDLUC",
           "note": "The only internal head-to-head, independent of every external anchor. One of the two pairs where sLUC sits below jdLUC: production agrees to 1.01x and hectares to 0.91x, so the 0.83x on total emissions is the whole of it.",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.972,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_OVER_JDLUC_PROXY_EMISSIONS",
+          "note": "Over 48 states. CROPGRIDS placement against the direct leg's CDL pixels, the one leg whose crop locations are observed; a move means one leg placed the crop's emissions differently.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "WHEAT",
       "iso_3166": "USA",
       "reason": "The only wheat pair, at 1.35 Mt. Orbae publishes no US wheat, so this pair carries the internal head-to-head alone."
     },
     {
       "basis": "reserved",
+      "commodity_id": 328,
       "controls": [
         {
           "baseline": 2.687,
@@ -413,17 +604,38 @@
           "emission_pool": "FOREST",
           "inherited": null,
           "measure": "ORBAE_OVER_WRI",
-          "note": "Baselined at +0.718 over 17 shared provinces at full coverage, from the anchors alone with no capture, the same way the maize and soy rows are. It contains no term of ours, so movement means an anchor was revised rather than the pipeline moving. Cotton is the second-strongest US rank agreement the two anchors reach, behind maize at +0.738 and ahead of soy at +0.443, which is what makes it worth freezing: a weak baseline would report noise. Tolerance is absolute, in correlation units.",
+          "note": "Baselined at +0.718 over 17 shared provinces at full coverage, from the anchors alone, the same way the maize and soy rows are. It contains no term of ours, so movement means an anchor was revised rather than the pipeline moving. Cotton is the second-strongest US rank agreement the two anchors reach, behind maize at +0.738 and ahead of soy at +0.443, which is what makes it worth freezing: a weak baseline would report noise. Tolerance is absolute, in correlation units.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.904,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_ORBAE_EMISSIONS",
+          "note": "Over 17 provinces. The proxy leg's placement within the country. Emissions rather than factor, because the emissions carry no production term, so the leg's FAOSTAT split cannot move it.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.932,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_OVER_JDLUC_PROXY_EMISSIONS",
+          "note": "Over 18 states. CROPGRIDS placement against the direct leg's CDL pixels, the one leg whose crop locations are observed; a move means one leg placed the crop's emissions differently.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
         }
       ],
-      "crop_name": "COTTON",
       "iso_3166": "USA",
-      "reason": "Largest US pair after maize and soy at 1.18 Mt, and southern rather than Midwestern. The one US pair whose denominator carries a product-form conversion: NASS reports ginned lint where MapSPAM and FAOSTAT carry seed cotton, and `usda_nass_quickstats.Series.reported_fraction` divides by 0.36 to cross between them. The first capture clears that constant rather than implicating it -- the two legs' production agrees to 0.78x, and FAOSTAT's own US seed-cotton yield agrees with this denominator to 0.95x -- which leaves the head-to-head on conversion emissions. Orbae covers US cotton at 17 provinces with area, enough for the rank controls."
+      "reason": "Largest US pair after maize and soy at 1.18 Mt, and southern rather than Midwestern. The one US pair whose denominator carries a product-form conversion: NASS reports ginned lint where MapSPAM and FAOSTAT carry seed cotton, and `usda_nass_quickstats.Series.reported_fraction` divides by 0.36 to cross between them. The first comparison of our own figures clears that constant rather than implicating it -- the two legs' production agrees to 0.78x, and FAOSTAT's own US seed-cotton yield agrees with this denominator to 0.95x -- which leaves the head-to-head on conversion emissions. Orbae covers US cotton at 17 provinces with area, enough for the rank controls."
     },
     {
       "basis": "reserved",
+      "commodity_id": 27,
       "controls": [
         {
           "baseline": 0.833,
@@ -434,12 +646,12 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "RICE",
       "iso_3166": "USA",
       "reason": "The flooded regime, which no other US pair reaches. Maize, soybean and wheat are all Midwestern row crops on former grassland, so a spread between the legs across them cannot be told apart from a property of that one regime; rice is the cheapest pair that separates the two readings. 0.092 Mt, small on the anchor's own figure and here for what it distinguishes rather than its size. Orbae publishes no US rice, so this pair carries the internal head-to-head alone."
     },
     {
       "basis": "reserved",
+      "commodity_id": 156,
       "controls": [
         {
           "baseline": 3.807,
@@ -450,12 +662,42 @@
           "tolerance": 0.1
         }
       ],
-      "crop_name": "SUGARCANE",
       "iso_3166": "USA",
       "reason": "Subtropical, and the only US pair that lands on peat -- the Everglades Agricultural Area that `further_research.md` measures under repeated peatland drainage pulses -- so it exercises the peatland term the grassland pairs never touch. 0.151 Mt. Orbae does publish US sugarcane, but only four provinces carry any area, too few for a rank correlation to mean anything, so this pair carries the internal head-to-head alone."
     },
     {
+      "basis": "ranked",
+      "commodity_id": 83,
+      "iso_3166": "USA",
+      "reason": "Completes the direct leg's eleven crops with the five it models that no target named. 0.24 Mt. statistical/direct 2.54 in tonnes, with the states ranked alike at only 0.54 (statistical) and 0.60 (proxy)."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 44,
+      "iso_3166": "USA",
+      "reason": "0.08 Mt. statistical/direct 2.17 in tonnes, while the states rank alike at 0.86 (statistical) and 0.96 (proxy): the legs place barley in the same states and differ on how much they give it."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 176,
+      "iso_3166": "USA",
+      "reason": "0.06 Mt on a pulse. statistical/direct 3.21 in tonnes; the states rank alike at 0.79 (statistical) and 0.90 (proxy)."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 116,
+      "iso_3166": "USA",
+      "reason": "0.18 Mt. statistical/direct 6.80 in tonnes, and the statistical leg ranks the states with the direct leg at only 0.50 where the proxy leg reaches 0.93."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 157,
+      "iso_3166": "USA",
+      "reason": "0.03 Mt, and the widest leg gap in the set: the statistical leg gives sugar beet 2.6 Mt against the direct leg's 0.04 Mt (62.9 in tonnes) and the proxy leg's 0.3 Mt. The states still rank alike at 0.82-0.85, so the gap is in how much, not where."
+    },
+    {
       "basis": "control",
+      "commodity_id": 236,
       "controls": [
         {
           "baseline": 0.568,
@@ -492,14 +734,45 @@
           "note": "Over 15 shared provinces.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 1.042,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_WRI",
+          "note": "The proxy leg's forest against the one anchor whose allocation it does not share; beside the statistical leg's control, a move in one leg is separable from a WRI revision.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.929,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_ORBAE_EMISSIONS",
+          "note": "Over 15 provinces. The proxy leg's placement within the country. Emissions rather than factor, because the emissions carry no production term, so the leg's FAOSTAT split cannot move it.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 1.628,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_SLUC_EMISSIONS",
+          "note": "How the two global legs split the country's total among crops, over every pool; outside the USA the only guard that reaches grassland and peat, which no anchor covers.",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "SOYBEAN",
       "iso_3166": "ARG",
       "reason": "6 Mt, temperate grassland-cropland, where the grassland pool has no external anchor at all."
     },
     {
       "basis": "control",
+      "commodity_id": 56,
       "controls": [
         {
           "baseline": 0.637,
@@ -536,20 +809,51 @@
           "note": "Over 15 shared provinces.",
           "statistic": "RANK_CORRELATION",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.713,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_WRI",
+          "note": "The proxy leg's forest against the one anchor whose allocation it does not share; beside the statistical leg's control, a move in one leg is separable from a WRI revision.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.946,
+          "baseline_source_versions": {
+            "ORBAE": "22830b2b1f1f"
+          },
+          "emission_pool": "LUC_ONLY",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_ORBAE_EMISSIONS",
+          "note": "Over 15 provinces. The proxy leg's placement within the country. Emissions rather than factor, because the emissions carry no production term, so the leg's FAOSTAT split cannot move it.",
+          "statistic": "RANK_CORRELATION",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.997,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_SLUC_EMISSIONS",
+          "note": "How the two global legs split the country's total among crops, over every pool; outside the USA the only guard that reaches grassland and peat, which no anchor covers.",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
       "iso_3166": "ARG",
       "reason": "Holds the country fixed against ARG SOYBEAN so a crop-allocation change is separable from a country-level one."
     },
     {
       "basis": "ranked",
-      "crop_name": "SOYBEAN",
+      "commodity_id": 236,
       "iso_3166": "BOL",
       "reason": "9 Mt on only 7 provinces, the thinnest provincial coverage carried, which is itself worth watching. Not a control, on three counts: WRI's row here contradicts itself, giving more deforestation-linked area than FAOSTAT reports harvested (share 1.123); only 3 provinces are shared with Orbae, below the five-province floor, so the Orbae/WRI rank cannot be frozen; and over those 3 the rank is -0.500. A control cannot rest on a row its own anchor disagrees with itself about, so PRY SOYBEAN holds the dry-forest/soy slot instead. This pair remains a target: agreement is a result, and thin coverage is worth watching."
     },
     {
       "basis": "control",
+      "commodity_id": 56,
       "controls": [
         {
           "baseline": 0.597,
@@ -561,14 +865,33 @@
           "measure": "SLUC_OVER_WRI",
           "note": "Forest is 68% of the total EF; a second Congo Basin row guards against a single-country fluke, at 0.597 against CAF's 0.261.",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.709,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_WRI",
+          "note": "The proxy leg's forest against the one anchor whose allocation it does not share; beside the statistical leg's control, a move in one leg is separable from a WRI revision.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 1.125,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_SLUC_EMISSIONS",
+          "note": "How the two global legs split the country's total among crops, over every pool; outside the USA the only guard that reaches grassland and peat, which no anchor covers.",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
       "iso_3166": "COD",
       "reason": "7 Mt, and the implied intensity of ~1,270 tCO2/ha is far above any biome carbon density, so it is the standing example of emissions allocated onto a small production footprint."
     },
     {
       "basis": "control",
+      "commodity_id": 56,
       "controls": [
         {
           "baseline": 1.761,
@@ -580,14 +903,33 @@
           "measure": "SLUC_OVER_WRI",
           "note": "Miombo and mixed woodland: a different biome from the Congo Basin. The only pair in the set where sLUC exceeds WRI, of the seven this comparison carries.",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 1.534,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_WRI",
+          "note": "The proxy leg's forest against the one anchor whose allocation it does not share; beside the statistical leg's control, a move in one leg is separable from a WRI revision.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.902,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_SLUC_EMISSIONS",
+          "note": "How the two global legs split the country's total among crops, over every pool; outside the USA the only guard that reaches grassland and peat, which no anchor covers.",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
       "iso_3166": "AGO",
       "reason": "2 Mt, the smallest carried, kept because it guards the low-materiality end where a rounding or coverage bug would surface."
     },
     {
       "basis": "control",
+      "commodity_id": 56,
       "controls": [
         {
           "baseline": 0.261,
@@ -599,11 +941,47 @@
           "measure": "SLUC_OVER_WRI",
           "note": "Forest-dominated frontier where the method should be strongest; forest is 83% of the total EF. The lowest sLUC/WRI of the seven this comparison carries.",
           "tolerance": 0.1
+        },
+        {
+          "baseline": 0.091,
+          "baseline_source_versions": {
+            "WRI": "559fe23eb752"
+          },
+          "emission_pool": "FOREST",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_WRI",
+          "note": "The proxy leg's forest against the one anchor whose allocation it does not share; beside the statistical leg's control, a move in one leg is separable from a WRI revision. National only, as the statistical leg's is.",
+          "tolerance": 0.1
+        },
+        {
+          "baseline": 0.367,
+          "emission_pool": "TOTAL",
+          "inherited": null,
+          "measure": "JDLUC_PROXY_OVER_SLUC_EMISSIONS",
+          "note": "How the two global legs split the country's total among crops, over every pool; outside the USA the only guard that reaches grassland and peat, which no anchor covers.",
+          "tolerance": 0.1
         }
       ],
-      "crop_name": "MAIZE",
       "iso_3166": "CAF",
       "reason": "NOT eligible at the provincial grain: E3 fails structurally, since GADM gives 17 prefectures where the World Bank gives 7 regions and the relation is many-to-one. Carried as a national ratio only."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 270,
+      "iso_3166": "CAN",
+      "reason": "0.54 Mt on WRI, but the statistical leg gives Canadian rapeseed 53.9 Mt, 36.5 Mt of it peatland occupation, which no outside source covers. Without occupation the legs give 17.4 Mt (statistical) and 18.9 Mt (proxy) against Orbae's 13.6 Mt. Both legs rank the emissions with Orbae at 0.89-0.94 and the factor at only 0.14-0.31."
+    },
+    {
+      "basis": "ranked",
+      "commodity_id": 56,
+      "iso_3166": "CHN",
+      "reason": "2.1 Mt on WRI, in the country with the statistical leg's largest unattributed total (52.7 Mt). The statistical leg gives maize 35.2 Mt and the proxy leg 45.2 Mt, three quarters of each peatland occupation; Orbae gives 23.8 Mt without it. Over 28 provinces the legs rank the emissions with Orbae at only 0.37-0.47."
+    },
+    {
+      "basis": "gap",
+      "commodity_id": 236,
+      "iso_3166": "DEU",
+      "reason": "A sentinel rather than a material pair: on very small production the statistical leg gives German soy a factor near 15 kg/kg against Orbae's 0.13, and its forest emissions are 94 times WRI's. The proxy leg gives a sixth of the statistical leg's tonnes. Carried so that a change to how the statistical leg handles a small producer shows here first."
     }
   ]
 }

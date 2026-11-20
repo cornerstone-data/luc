@@ -1,9 +1,13 @@
-"""One entrypoint. Retrieve the anchors, compare against them, print the result.
+"""One entrypoint. Retrieve the anchors, compare a `trace` table against them, print the result.
 
-  uv run python -m validation                       everything the anchors support
-  uv run python -m validation --stage pull          retrieve and lock, nothing else
-  uv run python -m validation --section comparisons only that section
-  uv run python -m validation --year 2015           a different FAOSTAT vintage
+  uv run python -m validation --table v202611.parquet                       every section
+  uv run python -m validation --table v202611.parquet --section comparisons only that section
+  uv run python -m validation --table v202611.parquet --year 2015           another FAOSTAT year
+  uv run python -m validation --stage pull                                  retrieve and lock
+
+`--table` is a parquet `trace` wrote: a release's table, or a branch's `trace.py <countries>
+--methodology-name ...` runs merged into one, every leg in it compared at once. A check before a
+release therefore needs a `trace` run of the target countries.
 
 **Sections are individually selectable because the whole document will not always fit.** GitHub caps a
 pull-request body at 65,536 characters and the comparison table alone will exceed that once provincial
@@ -13,10 +17,6 @@ rows land, so a slice has to be pastable on its own. Every section stands alone 
 news, because a report that fails on a bad result cannot be used to characterize bad results. It fails
 only on unreadable input or a missing join key. `tools/` is the deliberate exception: a generator that
 emits a broken committed artifact exits nonzero.
-
-`capture` is not a stage here. It runs our own pipeline, so it is `validation.capture`, run
-by hand; until it has been run, every measure with a term of ours is
-reported as not-yet-run rather than omitted -- a missing section reads as a passing one.
 """
 
 import argparse
@@ -35,7 +35,7 @@ DEFAULT_ELIGIBLE_ROWS = 20
 
 
 class Stage(enum.StrEnum):
-    """What to run. `capture` is not here; see the module docstring."""
+    """What to run."""
 
     PULL = enum.auto()
     REPORT = enum.auto()
@@ -45,33 +45,32 @@ class Section(enum.StrEnum):
     """The report's sections, in the order they are printed.
 
     Ordering is deliberate. `ELIGIBLE` comes first because it establishes the universe the rest is
-    drawn from, and because it carries the one BLOCKING finding measurable without a capture: the
+    drawn from, and because it carries the one BLOCKING finding measurable from the anchors alone: the
     pairs the pipeline cannot produce a comparable number for at all outrank any disagreement about
-    a number it can. Denominators come next, because a product-form mismatch makes every factor
-    built on that denominator incomparable. `COMPARISONS` carries the
-    findings, which outrank the anchor tables inside it.
+    a number it can. `COMPARISONS` carries the findings, which outrank the anchor tables inside it.
+    `TOTALS` comes last: it carries no findings, only our totals beside published ones.
     """
 
     ELIGIBLE = enum.auto()
-    YIELDS = enum.auto()
     ANCHORS = enum.auto()
     COMPARISONS = enum.auto()
+    TOTALS = enum.auto()
 
 
 def get_document(
-    repo_root: pathlib.Path, show: int, wanted: tuple[Section, ...], year: int
+    show: int, table_path: pathlib.Path, wanted: tuple[Section, ...], year: int
 ) -> str:
     """Render the requested sections, in `Section` order, joined into one document.
 
+    The document opens by naming the `trace` table it compares, by file name and digest: every
+    figure of ours comes from that one table, so the line is what identifies them.
+
     Everything is computed once whether or not the section that uses it was asked for. None of these
-    reads is expensive -- the largest is a 1.4 MiB parquet -- so a compute-only-what-you-need branch per
+    reads is expensive -- the largest is the `trace` table -- so a compute-only-what-you-need branch per
     section bought a little speed at the cost of four conditionals around the code that does the work.
     """
-    wri_yields = prepare.read_wri_yields(grain_name="national")
-    comparison = prepare.get_yield_comparison(
-        faostat_yields=prepare.get_faostat_yields(), wri_yields=wri_yields, year=year
-    )
-    agreements = tuple(prepare.iter_yield_agreements(comparison=comparison))
+    table = prepare.read_trace_table(path=table_path)
+    commodity_id_to_name = prepare.get_commodity_id_to_name()
     emissions = prepare.read_wri_national_emissions()
     stability = prepare.get_anchor_stability(emissions=emissions)
     deforestation = prepare.get_deforestation_share(
@@ -80,24 +79,18 @@ def get_document(
         year=year,
     )
     comparisons = prepare.get_comparisons(
-        deforestation=deforestation, repo_root=repo_root
+        commodity_id_to_name=commodity_id_to_name,
+        deforestation=deforestation,
+        table=table,
     )
 
-    uncompared = prepare.get_uncompared_targets(comparisons=comparisons)
-    eligible = prepare.get_eligible()
+    uncompared = prepare.get_uncompared_targets(comparisons=comparisons, table=table)
+    eligible = prepare.get_eligible(commodity_id_to_name=commodity_id_to_name)
     rendered = {
         Section.ELIGIBLE: report.render_eligible(
             eligible=eligible,
             findings=prepare.get_perennial_findings(eligible=eligible),
             show=show,
-        ),
-        Section.YIELDS: report.render_yield_agreement(
-            agreements=agreements,
-            findings=prepare.get_yield_findings(agreements=agreements, year=year),
-            unpaired=prepare.get_unpaired_crop_names(
-                comparison=comparison, wri_yields=wri_yields
-            ),
-            year=year,
         ),
         Section.ANCHORS: report.render_anchor_emissions(
             deforestation=deforestation,
@@ -117,14 +110,25 @@ def get_document(
         Section.COMPARISONS: report.render(
             comparisons=comparisons,
             extra_findings=prepare.get_target_anchor_consistency_findings(
-                deforestation=deforestation
+                commodity_id_to_name=commodity_id_to_name, deforestation=deforestation
             ),
             uncompared=uncompared,
+        ),
+        Section.TOTALS: report.render_totals(
+            iso_3166s=tuple(
+                sorted({target.iso_3166 for target in targets.iter_targets()})
+            ),
+            leg_totals=prepare.get_leg_totals(table=table),
+            outside=prepare.get_outside_totals(year=year),
         ),
     }
     assert set(rendered) == set(Section), "a Section has no rendered text"
     document = "\n\n".join(
-        rendered[section] for section in Section if section in wanted
+        [
+            f"_Compared against `{table_path.name:s}`, "
+            f"sha256 `{pull.get_sha256(path=table_path)[:12]:s}`._",
+            *[rendered[section] for section in Section if section in wanted],
+        ]
     )
     # Appended here rather than inside a section: only this function sees the assembled length, and
     # a section measuring itself would stay silent exactly when the whole set went over.
@@ -154,14 +158,13 @@ def main() -> int:
     parser.add_argument(
         "--overwrite",
         action="append",
-        choices=("wri",),
+        choices=("faostat", "wri"),
         default=[],
         help="pull stage only: re-retrieve this source even where the digest matches",
     )
     parser.add_argument(
-        "--repo-root",
-        default=pathlib.Path(__file__).resolve().parent.parent,
-        help="the jdluc checkout, read for code_version",
+        "--table",
+        help="report stage only: the `trace` parquet to compare against the anchors",
         type=pathlib.Path,
     )
     parser.add_argument(
@@ -173,7 +176,7 @@ def main() -> int:
     parser.add_argument(
         "--year",
         default=prepare.REFERENCE_YEAR,
-        help="the FAOSTAT year to compare WRI's undated yield against",
+        help="the FAOSTAT year of harvested area the deforestation share divides by",
         type=int,
     )
     args = parser.parse_args()
@@ -195,9 +198,10 @@ def main() -> int:
                 f"{counts['reused']:d} already current, {counts['changed']:d} changed upstream"
             )
         case Stage.REPORT:
+            assert args.table, "the report stage compares a `trace` table; pass --table"
             document = get_document(
-                repo_root=args.repo_root,
                 show=args.show,
+                table_path=args.table,
                 wanted=tuple(args.section) or tuple(Section),
                 year=args.year,
             )

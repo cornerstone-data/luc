@@ -104,8 +104,8 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
                     affected_rows=1,
                     confidence=schema.Confidence(row["confidence"]),
                     message=(
-                        f"{row['iso_3166']!s} {row['crop_name']!s} {row['measure'].name:s} is "
-                        f"frozen against {frozen_against:s} but this run read {ran_against:s}, so "
+                        f"{row['iso_3166']!s} {row['commodity_name']!s} {row['measure'].name:s} "
+                        f"is frozen against {frozen_against:s} but this run read {ran_against:s}, so "
                         f"its baseline of {baseline:.3f} describes a different yardstick and the "
                         f"movement to {value:.3f} cannot be attributed. Re-freeze it against the "
                         "current anchors rather than reading it"
@@ -113,7 +113,7 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
                     severity=schema.Severity.ADVISORY,
                     slug=(
                         f"stale-baseline-{str(row['iso_3166']).lower():s}"
-                        f"-{str(row['crop_name']).lower():s}"
+                        f"-{int(row['commodity_id']):d}"
                         f"-{row['measure'].name.lower():s}"
                     ),
                 )
@@ -146,13 +146,13 @@ def get_control_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
                 affected_rows=1,
                 confidence=schema.Confidence(row["confidence"]),
                 message=(
-                    f"{row['iso_3166']!s} {row['crop_name']!s} {row['measure'].name:s} is "
-                    f"{value:.3f} against a baseline of {baseline:.3f}, {moved:s}. A control "
+                    f"{row['iso_3166']!s} {row['commodity_name']!s} {row['measure'].name:s} "
+                    f"is {value:.3f} against a baseline of {baseline:.3f}, {moved:s}. A control "
                     "moved, so something changed that was not supposed to" + addendum
                 ),
                 severity=schema.Severity.DEFECT,
                 slug=(
-                    f"control-{str(row['iso_3166']).lower():s}-{str(row['crop_name']).lower():s}"
+                    f"control-{str(row['iso_3166']).lower():s}-{int(row['commodity_id']):d}"
                     f"-{row['measure'].name.lower():s}"
                 ),
             )
@@ -168,23 +168,28 @@ def get_unevaluated_control_findings(
     `get_control_findings` reads the expectation attached to a row, so a control whose row was never
     built is not read at all. `prepare.get_uncompared_targets` does not cover it either: that is
     keyed on the target, and a target keeps its place in the tables on whichever of its measures
-    needs no capture -- USA MAIZE reports an ORBAE_OVER_WRI sitting on its baseline while the three
-    controls that need a capture say nothing at all.
+    reads no `trace` table -- USA MAIZE reports an ORBAE_OVER_WRI sitting on its baseline while the
+    three controls that read one say nothing at all.
 
     ADVISORY, and one finding for all of them. Why a control did not fire is a question the coverage
-    section already answers -- its country was outside the capture, or no anchor reached the pair --
+    section already answers -- its country was not in the table, or no anchor reached the pair --
     and neither is evidence that anything is wrong. That is the same reason a control whose anchors
     moved is ADVISORY rather than a DEFECT.
     """
     evaluated = {
-        (row["iso_3166"], row["crop_name"], row["measure"])
+        (row["iso_3166"], row["commodity_id"], row["measure"], row["statistic"])
         for row in comparisons.to_dict("records")
     }
     unevaluated = [
         control
         for control in targets.iter_controls()
         if control.is_frozen
-        and (control.target.iso_3166, control.target.crop_name, control.measure)
+        and (
+            control.target.iso_3166,
+            control.target.commodity_id,
+            control.measure,
+            control.statistic,
+        )
         not in evaluated
     ]
     if not unevaluated:
@@ -209,48 +214,6 @@ def get_unevaluated_control_findings(
             slug="unexercised-controls",
         )
     ]
-
-
-def get_provenance_findings(comparisons: pandas.DataFrame) -> list[schema.Finding]:
-    """Borrowed evidence, and tables built from more than one `code_version`.
-
-    A mixed-version table is a defect: a cross-country comparison drawn from two pipeline versions
-    is not a comparison. Checked at read time, so it holds regardless of how the artifact was
-    assembled.
-    """
-    findings = []
-    versions = sorted(set(comparisons["code_version"]))
-    if len(versions) > 1:
-        findings.append(
-            schema.Finding(
-                affected_rows=len(comparisons),
-                confidence=schema.Confidence.HIGH,
-                message=(
-                    f"These rows span {len(versions):d} code versions "
-                    f"({', '.join(versions)}). Rows carried forward by a per-ISO merge keep "
-                    "their own version, so a cross-country comparison here would mix "
-                    "pipeline versions"
-                ),
-                severity=schema.Severity.DEFECT,
-                slug="mixed-code-version",
-            )
-        )
-    borrowed = comparisons[comparisons["worst_tier"] == schema.SourceTier.BORROWED]
-    if len(borrowed):
-        findings.append(
-            schema.Finding(
-                affected_iso_3166s=tuple(sorted(set(borrowed["iso_3166"]))),
-                affected_rows=len(borrowed),
-                confidence=schema.Confidence.LOW,
-                message=(
-                    f"{len(borrowed):d} comparison(s) rest on borrowed inputs with no "
-                    "provenance. Usable for ranking a magnitude, never for a claim"
-                ),
-                severity=schema.Severity.ADVISORY,
-                slug="borrowed-evidence",
-            )
-        )
-    return findings
 
 
 def render_findings(findings: list[schema.Finding]) -> str:
@@ -281,8 +244,8 @@ def render_findings(findings: list[schema.Finding]) -> str:
 def render_comparisons(comparisons: pandas.DataFrame) -> str:
     """The target rows in full, and everything else summarised by measure.
 
-    `comparisons` reaches well beyond the chosen set -- every country where an anchor and our capture
-    happen to overlap -- and tabulating all of it costs more characters than a pull-request body
+    `comparisons` reaches well beyond the chosen set -- every country where an anchor and our `trace`
+    table happen to overlap -- and tabulating all of it costs more characters than a pull-request body
     holds. The chosen pairs are what the report is about, so those are listed; the rest is a
     distribution per measure rather than nothing, because a row that is silently dropped reads as a
     row that was never computed.
@@ -294,7 +257,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
     on_target = comparisons[comparisons["is_target"]]
     rows = [
         [
-            f"{row['iso_3166']!s} {row['crop_name']!s}",
+            f"{row['iso_3166']!s} {row['commodity_name']!s}",
             str(row["emission_pool"]),
             str(row["measure"].name),
             str(row["statistic"]),
@@ -313,18 +276,22 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
             schema.Confidence(row["confidence"]).name.lower(),
         ]
         for row in on_target.sort_values(
-            ["iso_3166", "crop_name", "emission_pool"]
+            ["iso_3166", "commodity_name", "emission_pool"]
         ).to_dict("records")
     ]
     rest = comparisons[~comparisons["is_target"]]
-    # Iterated over the distinct measures rather than grouped, because a groupby key types as
-    # Hashable and a measure carries the name this table is sorted and labeled by.
+    # Iterated over the distinct (measure, statistic) pairs rather than grouped, because a groupby
+    # key types as Hashable and a measure carries the name this table is sorted and labeled by. The
+    # statistic is part of the key because one measure can carry a ratio and a rank.
     summary = []
-    for measure in sorted(set(rest["measure"]), key=lambda value: value.name):
-        group = rest[rest["measure"] == measure]
+    for measure, statistic in sorted(
+        set(zip(rest["measure"], rest["statistic"], strict=True)),
+        key=lambda pair: (pair[0].name, pair[1]),
+    ):
+        group = rest[(rest["measure"] == measure) & (rest["statistic"] == statistic)]
         summary.append(
             [
-                f"{measure.name:s} ({group['statistic'].iloc[0]!s})",
+                f"{measure.name:s} ({statistic!s})",
                 f"{len(group):d}",
                 format_number(float(group["ratio"].median()), 3),
                 format_number(float(group["ratio"].quantile(0.1)), 3),
@@ -334,7 +301,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
     return "\n\n".join(
         [
             f"### Comparisons — {len(on_target):d} rows over "
-            f"{len(set(zip(on_target['iso_3166'], on_target['crop_name'], strict=True))):d} "
+            f"{len(set(zip(on_target['iso_3166'], on_target['commodity_id'], strict=True))):d} "
             "chosen pairs",
             format_markdown_table(
                 headers=(
@@ -363,7 +330,7 @@ def render_comparisons(comparisons: pandas.DataFrame) -> str:
             format_markdown_table(
                 headers=("Measure", "rows", "median", "p10", "p90"), rows=summary
             ),
-            "_These are every pair where an anchor and the capture happen to overlap. They are not "
+            "_These are every pair where an anchor and the `trace` table happen to overlap. They are not "
             "targets and carry no expectation, but they are what a chosen pair's figure should be "
             "read against — a control at the median of its own measure is a different claim from "
             "one in the tail._",
@@ -384,14 +351,15 @@ def render_coverage(
         lines.append(
             f"- **{len(uncompared.unanchored):d} target(s) had no anchor at all**: "
             + ", ".join(target.slug for target in uncompared.unanchored)
-            + ". Their country was captured, so the silence is the anchors' and not ours, and it "
-            "is not agreement."
+            + ". Their country is in the `trace` table, so the silence is the anchors' and not "
+            "ours, and it is not agreement."
         )
-    if uncompared.uncaptured:
+    if uncompared.not_in_table:
         lines.append(
-            f"- **{len(uncompared.uncaptured):d} target(s) were not captured**: "
-            + ", ".join(target.slug for target in uncompared.uncaptured)
-            + ". Whether an anchor covers them is unknown until their country is captured."
+            f"- **{len(uncompared.not_in_table):d} target(s) are not in the `trace` table**: "
+            + ", ".join(target.slug for target in uncompared.not_in_table)
+            + ". Whether an anchor covers them is unknown until a `trace` run includes their "
+            "country."
         )
     pattern_only = int(
         (comparisons["comparability"] == schema.Comparability.PATTERN_ONLY).sum()
@@ -414,7 +382,7 @@ def render_anchor_emissions(
     scope_ratios: pandas.Series,
     stability: pandas.DataFrame,
 ) -> str:
-    """WRI measured against itself, which is all an emissions section can do before a capture.
+    """WRI measured against itself, which is all an emissions section can do without our figures.
 
     Three facts, none needing a number of ours. The reporting-year spread bounds what a comparison
     against WRI can resolve while the year is unpinned; the scope ratio removes any guessing about
@@ -468,7 +436,7 @@ def render_eligible(
     """
     rows = [
         [
-            f"{row['iso_3166']!s} {row['crop_name']!s}",
+            f"{row['iso_3166']!s} {row['commodity_name']!s}",
             f"{float(row['deforestation_tonnes']) / schema.TONNES_PER_MEGATONNE:,.2f}",
             f"{float(row['production_kg']) / schema.KG_PER_TONNE / 1e6:,.2f}",
             "".join(
@@ -507,58 +475,118 @@ def render_eligible(
     )
 
 
-def render_yield_agreement(
-    agreements: tuple[schema.YieldAgreement, ...],
-    findings: list[schema.Finding],
-    unpaired: dict[schema.UnpairedReason, tuple[str, ...]],
-    year: int,
-) -> str:
-    """WRI's yields against FAOSTAT's, per crop.
+def format_megatonnes(tonnes: float) -> str:
+    if pandas.isna(tonnes):
+        return "—"
+    return f"{tonnes / schema.TONNES_PER_MEGATONNE:,.1f}"
 
-    A denominator section rather than an emissions one, and it belongs ahead of the comparisons: a
-    crop whose two yields are on different product forms has no comparable emissions factor, so its
-    rows below are not worth reading.
+
+def render_totals(
+    iso_3166s: tuple[str, ...],
+    leg_totals: pandas.DataFrame,
+    outside: pandas.DataFrame,
+) -> str:
+    """Each leg's totals by pool beside published totals: the world and the USA in full, and every
+    target country against FAOSTAT.
+
+    Scope beside every figure rather than a ratio, and no findings: no ratio here is expected to hold
+    still, so none is a control.
     """
-    rows = [
+    legs = (
+        schema.STATISTICAL,
+        schema.JURISDICTIONAL_DIRECT_PROXY,
+        schema.JURISDICTIONAL_DIRECT,
+    )
+    pools = (
+        schema.EmissionPool.FOREST,
+        schema.EmissionPool.GRASSLAND,
+        schema.EmissionPool.PEATLAND_CONVERSION,
+        schema.EmissionPool.PEATLAND_OCCUPATION,
+        schema.EmissionPool.TOTAL,
+        schema.EmissionPool.DROPPED,
+    )
+    ours = leg_totals.reindex(
+        columns=list(legs),
+        index=pandas.MultiIndex.from_product(
+            # The USA is in the first table whether or not a target names it
+            [list(dict.fromkeys([schema.WORLD, "USA", *iso_3166s])), list(pools)]
+        ),
+    )
+    whole = [
         [
-            agreement.crop_name,
-            str(agreement.countries),
-            format_number(agreement.median_ratio, 3),
-            format_number(agreement.lowest_ratio, 2),
-            format_number(agreement.highest_ratio, 2),
-            (
-                "product form"
-                if agreement.is_product_form_mismatch
-                else "off"
-                if agreement.is_beyond_tolerance
-                else "ok"
+            str(scope),
+            str(pool),
+            *[format_megatonnes(tonnes=ours[leg][(scope, pool)]) for leg in legs],
+            "; ".join(
+                f"{format_megatonnes(tonnes=float(row['tonnes']))} {row['source']!s}, "
+                f"{row['label']!s}"
+                for row in outside[
+                    (outside["scope"] == scope) & (outside["pool"] == pool)
+                ].to_dict("records")
+            )
+            or "—",
+        ]
+        for scope in (schema.WORLD, "USA")
+        for pool in pools
+    ]
+    faostat = (
+        outside[outside["source"] == schema.Source.FAOSTAT]
+        .set_index(["scope", "pool"])["tonnes"]
+        .reindex(ours.index)
+    )
+    countries = [
+        [
+            iso_3166,
+            *[
+                format_megatonnes(tonnes=ours[leg][(iso_3166, pool)])
+                for pool in (
+                    schema.EmissionPool.FOREST,
+                    schema.EmissionPool.DROPPED,
+                    schema.EmissionPool.PEATLAND_OCCUPATION,
+                )
+                for leg in legs[:2]
+            ],
+            format_megatonnes(
+                tonnes=float(faostat[(iso_3166, schema.EmissionPool.FOREST)])
+            ),
+            format_megatonnes(
+                tonnes=float(
+                    faostat[(iso_3166, schema.EmissionPool.PEATLAND_OCCUPATION)]
+                )
             ),
         ]
-        for agreement in sorted(agreements, key=lambda a: a.median_ratio)
+        for iso_3166 in iso_3166s
     ]
-    sections = [
-        f"### Yield agreement, WRI against FAOSTAT {year:d}",
-        format_markdown_table(
-            headers=("Crop", "countries", "median", "min", "max", ""), rows=rows
-        ),
-        render_findings(findings=findings),
-    ]
-    if unpaired:
-        total = sum(len(names) for names in unpaired.values())
-        sections.append(
-            "\n".join(
-                [
-                    f"**{total:d} of WRI's crops are not compared.** Their absence is not "
-                    "agreement.",
-                    "",
-                    *[
-                        f"- `{', '.join(names)}` — {reason.value:s}"
-                        for reason, names in unpaired.items()
-                    ],
-                ]
-            )
-        )
-    return "\n\n".join(sections)
+    return "\n\n".join(
+        [
+            "### Totals against outside figures (Mt CO2e)",
+            format_markdown_table(
+                headers=("Scope", "Pool", "statistical", "proxy", "direct", "outside"),
+                rows=whole,
+            ),
+            format_markdown_table(
+                headers=(
+                    "Country",
+                    "forest, statistical",
+                    "forest, proxy",
+                    "dropped, statistical",
+                    "dropped, proxy",
+                    "occupation, statistical",
+                    "occupation, proxy",
+                    "FAOSTAT net forest conversion",
+                    "FAOSTAT drained organic soils",
+                ),
+                rows=countries,
+            ),
+            "_Ours are 20 years of conversions linearly discounted, with weights summing to one, so at "
+            "a steady clearing rate they compare to an annual flux weighted toward recent years; every "
+            "outside figure is annual. FAOSTAT's net forest conversion and the Global Carbon Budget "
+            "cover every cause of forest loss, so they sit beside our forest pool and what we drop "
+            "together, not our forest pool alone. FAOSTAT's drained organic soils use IPCC defaults by "
+            "climate zone, where our peatland occupation is one flat rate per hectare. Grassland has "
+            "no outside figure but EPA's US one, and peatland conversion has none._",
+        ]
+    )
 
 
 def render(
@@ -570,7 +598,6 @@ def render(
     findings = (
         get_control_findings(comparisons=comparisons)
         + get_unevaluated_control_findings(comparisons=comparisons)
-        + get_provenance_findings(comparisons=comparisons)
         + (extra_findings or [])
     )
     document = "\n\n".join(

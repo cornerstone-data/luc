@@ -6,7 +6,7 @@ set. Selection is a person's judgement over the shortlist `prepare.get_eligible`
 `docs/validation.md` section 3.
 
 Each control holds two numbers. `inherited` is a figure from earlier work, used once as a sanity check
-when the first capture sets `baseline`; a large difference between the two is itself reported.
+when `baseline` is first set; a large difference between the two is itself reported.
 Controls fire against `baseline` alone, and a null baseline means not yet frozen. Tolerance is a
 flagging threshold, not a noise band: the pipeline is deterministic, so movement comes only from a
 code or data change.
@@ -42,63 +42,125 @@ BASES_WITH_CONTROLS = frozenset({"control", "reserved"})
 
 
 class Measure(enum.Enum):
-    """A ratio between two sources. The value holds them, so a measure carries its own arithmetic.
+    """Two sources and the quantity compared between them. The value holds all three, so a measure
+    carries its own arithmetic.
+
+    The name is NUMERATOR_OVER_DENOMINATOR. Where a pair is compared on both quantities, the
+    emissions measure adds `_EMISSIONS`; the other names predate the quantity, and the value is what
+    says which one they compare.
 
     ORBAE_OVER_WRI contains no term of ours. A change in our pipeline moves SLUC_OVER_WRI and
     SLUC_OVER_ORBAE together while leaving ORBAE_OVER_WRI unchanged, so an anchor revision is
     distinguishable from a change in our own figures.
     """
 
-    SLUC_OVER_WRI = (schema.Source.SLUC, schema.Source.WRI)
-    SLUC_OVER_ORBAE = (schema.Source.SLUC, schema.Source.ORBAE)
-    ORBAE_OVER_WRI = (schema.Source.ORBAE, schema.Source.WRI)
-    SLUC_OVER_JDLUC = (schema.Source.SLUC, schema.Source.JDLUC)
-    # The only method-family-matched comparison in the design: Orbae's every row is Method=jdLUC, and
-    # the USA is the one jurisdiction where we run a jdLUC leg too. Our leg is the numerator, matching
-    # every measure but ORBAE_OVER_WRI, which is anchor-against-anchor and has no term of ours.
-    JDLUC_OVER_ORBAE = (schema.Source.JDLUC, schema.Source.ORBAE)
+    SLUC_OVER_WRI = (schema.Source.SLUC, schema.Source.WRI, schema.Quantity.EMISSIONS)
+    SLUC_OVER_ORBAE = (schema.Source.SLUC, schema.Source.ORBAE, schema.Quantity.FACTOR)
+    ORBAE_OVER_WRI = (schema.Source.ORBAE, schema.Source.WRI, schema.Quantity.FACTOR)
+    SLUC_OVER_JDLUC = (schema.Source.SLUC, schema.Source.JDLUC, schema.Quantity.FACTOR)
+    # Orbae's every row is Method=jdLUC, and the USA is the one jurisdiction where we run a jdLUC leg
+    # too. Our leg is the numerator, matching every measure but ORBAE_OVER_WRI, which is
+    # anchor-against-anchor and has no term of ours.
+    JDLUC_OVER_ORBAE = (
+        schema.Source.JDLUC,
+        schema.Source.ORBAE,
+        schema.Quantity.FACTOR,
+    )
+    # The proxy leg allocates by CROPGRIDS area share rather than MapSPAM expansion share, so WRI,
+    # which shares the statistical leg's allocation family, is independent of this one's.
+    JDLUC_PROXY_OVER_WRI = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.WRI,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_PROXY_OVER_ORBAE = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.ORBAE,
+        schema.Quantity.FACTOR,
+    )
+    # Orbae's provinces ranked by emissions as well as by factor, since the two rankings disagree:
+    # a leg can place a crop's emissions where Orbae does while ranking its intensity differently.
+    SLUC_OVER_ORBAE_EMISSIONS = (
+        schema.Source.SLUC,
+        schema.Source.ORBAE,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_OVER_ORBAE_EMISSIONS = (
+        schema.Source.JDLUC,
+        schema.Source.ORBAE,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_PROXY_OVER_ORBAE_EMISSIONS = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.ORBAE,
+        schema.Quantity.EMISSIONS,
+    )
+    # The legs against each other in tonnes, which leaves each leg's production out
+    SLUC_OVER_JDLUC_EMISSIONS = (
+        schema.Source.SLUC,
+        schema.Source.JDLUC,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_PROXY_OVER_SLUC_EMISSIONS = (
+        schema.Source.JDLUC_PROXY,
+        schema.Source.SLUC,
+        schema.Quantity.EMISSIONS,
+    )
+    JDLUC_OVER_JDLUC_PROXY_EMISSIONS = (
+        schema.Source.JDLUC,
+        schema.Source.JDLUC_PROXY,
+        schema.Quantity.EMISSIONS,
+    )
 
     @property
     def numerator(self) -> schema.Source:
-        numerator, _ = self.value
+        numerator, _, _ = self.value
         return numerator
 
     @property
     def denominator(self) -> schema.Source:
-        _, denominator = self.value
+        _, denominator, _ = self.value
         return denominator
+
+    @property
+    def quantity(self) -> schema.Quantity:
+        _, _, quantity = self.value
+        return quantity
 
     @property
     def is_anchored(self) -> bool:
         """Whether either side of the ratio is an external anchor.
 
-        SLUC_OVER_JDLUC is the one measure where neither is: both terms are ours, so nothing outside
-        this repository can move it. It therefore has no anchor identity to freeze a baseline
-        against, and needs none -- `code_version` already identifies everything that can move it,
-        which is exactly why a disagreement here implicates one of our own legs.
+        The measures between two legs have neither: both terms are ours, so nothing outside this
+        repository can move them. They therefore have no anchor identity to freeze a baseline
+        against, and need none -- the `trace` table compared identifies everything that can move
+        them, which is exactly why a disagreement there implicates one of our own legs.
         """
-        ours = {schema.Source.SLUC, schema.Source.JDLUC}
+        ours = {schema.Source.SLUC, schema.Source.JDLUC, schema.Source.JDLUC_PROXY}
         return not {self.numerator, self.denominator} <= ours
 
 
 @dataclasses.dataclass(frozen=True)
 class UncomparedTargets:
-    """Targets no comparison reached, split by whether the capture could have reached them."""
+    """Targets no comparison reached, split by whether the `trace` table holds their country."""
 
+    not_in_table: tuple[Target, ...]
     unanchored: tuple[Target, ...]
-    uncaptured: tuple[Target, ...]
 
 
 @dataclasses.dataclass(frozen=True)
 class Target:
+    """A (country, crop) pair, the crop by the commodity id `trace` keys it on: a FAOSTAT item, or
+    `taxonomy`'s own code for a group."""
+
     iso_3166: str
-    crop_name: str
+    commodity_id: int
     basis: str
     reason: str
 
     @property
     def slug(self) -> str:
-        return f"{self.iso_3166:s}-{self.crop_name:s}"
+        return f"{self.iso_3166:s}-{self.commodity_id:d}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -150,7 +212,7 @@ def check_document(document: dict[str, typing.Any]) -> None:
     )
     targets = document["targets"]
     assert targets, f"{TARGETS} names no targets"
-    slugs = [f"{target['iso_3166']:s}-{target['crop_name']:s}" for target in targets]
+    slugs = [f"{target['iso_3166']:s}-{target['commodity_id']:d}" for target in targets]
     duplicated = sorted({slug for slug in slugs if slugs.count(slug) > 1})
     assert not duplicated, f"{TARGETS} repeats {', '.join(duplicated)}"
     for target, slug in zip(targets, slugs, strict=True):
@@ -193,7 +255,7 @@ def check_document(document: dict[str, typing.Any]) -> None:
             else:
                 assert not frozen_against, (
                     f"{slug}: {row['measure']} divides no external anchor, so it cannot be frozen "
-                    "against one; what can move it is our own code, which `code_version` records"
+                    "against one; what can move it is our own `trace` table"
                 )
             # A correlation outside [-1, 1] is not a correlation, and a ratio is never negative.
             for field in ("inherited", "baseline"):
@@ -238,7 +300,7 @@ def iter_targets() -> collections.abc.Iterator[Target]:
     for target in read_document()["targets"]:
         yield Target(
             basis=target["basis"],
-            crop_name=target["crop_name"],
+            commodity_id=target["commodity_id"],
             iso_3166=target["iso_3166"],
             reason=target["reason"],
         )
@@ -269,7 +331,7 @@ def iter_controls() -> collections.abc.Iterator[Control]:
                 statistic=statistic,
                 target=Target(
                     basis=target["basis"],
-                    crop_name=target["crop_name"],
+                    commodity_id=target["commodity_id"],
                     iso_3166=target["iso_3166"],
                     reason=target["reason"],
                 ),
@@ -277,16 +339,3 @@ def iter_controls() -> collections.abc.Iterator[Control]:
                     "tolerance", get_default_tolerance(statistic=statistic)
                 ),
             )
-
-
-def iter_control_targets() -> collections.abc.Iterator[Target]:
-    """The distinct targets carrying a control, in file order.
-
-    A capture must include all of these: a control whose target was not computed removes its own
-    guard, and does so silently.
-    """
-    seen: set[str] = set()
-    for control in iter_controls():
-        if control.target.slug not in seen:
-            seen.add(control.target.slug)
-            yield control.target

@@ -3,8 +3,8 @@
 What these have in common is that the failure is invisible in the output. The report is Markdown, so
 a malformed cell is not an error -- it renders as a broken table nobody notices -- and a body that
 overruns GitHub's limit is not an error either, it is silently truncated. So: a pipe that ends a cell
-early, an empty table reading as agreement, a shape-only ratio indistinguishable from a level, a
-control checked with the wrong arithmetic, and a table drawn from two runs of the pipeline.
+early, an empty table reading as agreement, a shape-only ratio indistinguishable from a level, and a
+control checked with the wrong arithmetic.
 """
 
 import pandas
@@ -40,22 +40,22 @@ def test_a_missing_value_renders_as_a_dash() -> None:
     ("slug", "fires"),
     (
         pytest.param(
-            "control-xaf-soybean-orbae_over_wri",
+            "control-xaf-236-orbae_over_wri",
             False,
             id="0.057-in-correlation-units-is-inside-the-0.10-band",
         ),
         pytest.param(
-            "control-xag-soybean-orbae_over_wri",
+            "control-xag-236-orbae_over_wri",
             True,
             id="0.243-is-outside-it-under-either-arithmetic",
         ),
         pytest.param(
-            "control-xaa-maize-sluc_over_wri",
+            "control-xaa-56-sluc_over_wri",
             False,
             id="a-ratio-within-its-relative-band",
         ),
         pytest.param(
-            "control-xab-soybean-sluc_over_wri",
+            "control-xab-236-sluc_over_wri",
             True,
             id="and-one-well-outside-it",
         ),
@@ -92,55 +92,10 @@ def test_a_control_whose_anchors_moved_is_advisory_not_a_defect() -> None:
             comparisons=fixture.get_comparisons()
         )
     }
-    assert "control-xah-soybean-orbae_over_wri" not in findings
-    stale = findings["stale-baseline-xah-soybean-orbae_over_wri"]
+    assert "control-xah-236-orbae_over_wri" not in findings
+    stale = findings["stale-baseline-xah-236-orbae_over_wri"]
     assert stale.severity == schema.Severity.ADVISORY
     assert fixture.SUPERSEDED_SOURCE_VERSION in stale.message
-
-
-def test_borrowed_evidence_is_reported_at_all() -> None:
-    """BORROWED means no recorded provenance, which the figure agreeing does not repair.
-
-    `schema.SourceTier` calls it sufficient for ranking a magnitude and not for a claim, so the row
-    has to be named even when nothing about its number looks wrong.
-    """
-    findings = {
-        finding.slug: finding
-        for finding in report.get_provenance_findings(
-            comparisons=fixture.get_comparisons()
-        )
-    }
-    borrowed = findings["borrowed-evidence"]
-    assert borrowed.severity == schema.Severity.ADVISORY
-    assert borrowed.confidence == schema.Confidence.LOW
-    assert borrowed.affected_rows == 1
-    assert borrowed.affected_iso_3166s == ("XAB",)
-
-
-def test_a_table_spanning_two_code_versions_is_a_defect() -> None:
-    """A per-ISO merge keeps rows it did not recompute, so one artifact can hold two versions.
-
-    This is a disagreement between two runs of ours rather than between two sources, so no anchor
-    can catch it and nothing about the numbers looks wrong.
-    """
-    comparisons = fixture.get_comparisons()
-    assert "mixed-code-version" not in {
-        finding.slug
-        for finding in report.get_provenance_findings(comparisons=comparisons)
-    }
-    comparisons.loc[comparisons.index[0], "code_version"] = (
-        fixture.SUPERSEDED_CODE_VERSION
-    )
-    findings = {
-        finding.slug: finding
-        for finding in report.get_provenance_findings(comparisons=comparisons)
-    }
-    mixed = findings["mixed-code-version"]
-    assert mixed.severity == schema.Severity.DEFECT
-    # Both versions, since the fix is to recapture whichever of the two is the stale one.
-    assert fixture.CODE_VERSION in mixed.message
-    assert fixture.SUPERSEDED_CODE_VERSION in mixed.message
-    assert mixed.affected_rows == len(comparisons)
 
 
 def test_every_pattern_only_row_is_labelled_as_shape_and_not_level() -> None:
@@ -164,8 +119,12 @@ def test_every_pattern_only_row_is_labelled_as_shape_and_not_level() -> None:
     )
     # One pair, two pools: WRI publishes no production at the provincial grain, so the per-kg
     # factor carries shape while the rollup carries level. The label is the only difference.
-    (shape,) = [line for line in rows if line.startswith("| XAC OILPALM | forest |")]
-    (level,) = [line for line in rows if line.startswith("| XAC OILPALM | total |")]
+    (shape,) = [
+        line for line in rows if line.startswith("| XAC Oil palm fruit | forest |")
+    ]
+    (level,) = [
+        line for line in rows if line.startswith("| XAC Oil palm fruit | total |")
+    ]
     assert "| pattern_only |" in shape
     assert "| level |" in level
     # And the rollup carries its coverage, because 62% of a country on our own provincial weights
@@ -194,7 +153,7 @@ def test_coverage_names_the_targets_no_anchor_covered() -> None:
         comparisons=fixture.get_comparisons(),
         uncompared=fixture.get_uncompared_targets(),
     )
-    assert "XAE-WHEAT" in document
+    assert "XAE-15" in document
 
 
 def test_the_size_note_appears_only_past_the_limit() -> None:
@@ -248,8 +207,9 @@ def test_an_armed_control_that_reached_no_row_is_not_silent() -> None:
             data=[
                 {
                     "iso_3166": control.target.iso_3166,
-                    "crop_name": control.target.crop_name,
+                    "commodity_id": control.target.commodity_id,
                     "measure": control.measure,
+                    "statistic": control.statistic,
                 }
                 for control in rest
             ]

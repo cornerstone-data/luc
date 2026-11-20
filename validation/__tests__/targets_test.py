@@ -16,8 +16,7 @@ import typing
 import iso3166
 import pytest
 
-from jdluc import statistical
-from validation import pull, schema, targets
+from validation import prepare, pull, schema, targets
 
 
 def get_document(**overrides: typing.Any) -> dict[str, typing.Any]:
@@ -40,7 +39,7 @@ def get_document(**overrides: typing.Any) -> dict[str, typing.Any]:
         "targets": [
             {
                 "iso_3166": "XAA",
-                "crop_name": "MAIZE",
+                "commodity_id": 56,
                 "basis": "control",
                 "reason": "Invented, to exercise the reader",
                 "controls": [control],
@@ -298,7 +297,7 @@ def test_the_document_must_name_a_distinct_and_reasoned_set() -> None:
         )
     document = get_document()
     document["targets"].append(dict(document["targets"][0]))
-    with pytest.raises(AssertionError, match="repeats XAA-MAIZE"):
+    with pytest.raises(AssertionError, match="repeats XAA-56"):
         targets.check_document(document=document)
     document = get_document()
     document["targets"][0]["reason"] = "   "
@@ -321,10 +320,9 @@ def test_a_set_chosen_against_another_wri_release_is_refused() -> None:
 )
 def test_a_measure_names_its_two_sources_in_order(measure: targets.Measure) -> None:
     """The name is what the report prints and the value is what the arithmetic reads, so a measure
-    whose two disagree would label a ratio with its own inverse."""
-    assert (
-        measure.name == f"{measure.numerator.name:s}_OVER_{measure.denominator.name:s}"
-    )
+    whose two disagree would label a ratio with its own inverse, or a factor as emissions."""
+    pair = f"{measure.numerator.name:s}_OVER_{measure.denominator.name:s}"
+    assert measure.name in (pair, f"{pair:s}_{measure.quantity.name:s}")
 
 
 def test_only_a_measure_with_both_terms_ours_is_unanchored() -> None:
@@ -334,7 +332,10 @@ def test_only_a_measure_with_both_terms_ours_is_unanchored() -> None:
     decision about which side of that check it falls on, which a per-member test cannot ask.
     """
     assert {measure for measure in targets.Measure if not measure.is_anchored} == {
-        targets.Measure.SLUC_OVER_JDLUC
+        targets.Measure.JDLUC_OVER_JDLUC_PROXY_EMISSIONS,
+        targets.Measure.JDLUC_PROXY_OVER_SLUC_EMISSIONS,
+        targets.Measure.SLUC_OVER_JDLUC,
+        targets.Measure.SLUC_OVER_JDLUC_EMISSIONS,
     }
 
 
@@ -354,7 +355,7 @@ def test_every_statistic_has_a_default_band(statistic: schema.Statistic) -> None
 
 def test_a_control_with_no_baseline_is_carried_rather_than_armed() -> None:
     """Every control in the file is frozen, so this state exists only here -- and it is the state a
-    newly added control arrives in, where reading it as armed would fire on the first capture."""
+    newly added control arrives in, where reading it as armed would fire on the first report."""
     carried = targets.Control(
         baseline=None,
         emission_pool=schema.EmissionPool.FOREST,
@@ -362,7 +363,7 @@ def test_a_control_with_no_baseline_is_carried_rather_than_armed() -> None:
         measure=targets.Measure.SLUC_OVER_WRI,
         note="Invented",
         target=targets.Target(
-            basis="control", crop_name="MAIZE", iso_3166="XAA", reason="Invented"
+            basis="control", commodity_id=56, iso_3166="XAA", reason="Invented"
         ),
     )
     assert not carried.is_frozen
@@ -371,26 +372,12 @@ def test_a_control_with_no_baseline_is_carried_rather_than_armed() -> None:
 
 
 def test_a_target_slug_is_the_pair_a_report_prints() -> None:
-    """`render_coverage` prints these and `iter_control_targets` dedups on them, so the separator is
-    load-bearing in two places that never see each other."""
+    """`render_coverage` prints these and `get_target_anchor_consistency_findings` matches controls
+    on them, so the separator is load-bearing in two places that never see each other."""
     target = targets.Target(
-        basis="ranked", crop_name="MAIZE", iso_3166="XAA", reason="Invented"
+        basis="ranked", commodity_id=56, iso_3166="XAA", reason="Invented"
     )
-    assert target.slug == "XAA-MAIZE"
-
-
-def test_the_control_targets_are_the_pairs_carrying_controls_in_file_order() -> None:
-    """A capture is driven off this list, so a pair missing from it silently loses its guard.
-
-    Deduplicated, because a pair carrying three controls is one target to compute and not three, and
-    in file order, which is materiality order by construction.
-    """
-    slugs = [target.slug for target in targets.iter_control_targets()]
-    assert len(slugs) == len(set(slugs))
-    assert set(slugs) == {control.target.slug for control in targets.iter_controls()}
-    assert slugs == [
-        target.slug for target in targets.iter_targets() if target.slug in set(slugs)
-    ]
+    assert target.slug == "XAA-56"
 
 
 def test_a_frozen_control_carries_the_anchors_it_was_frozen_against() -> None:
@@ -413,10 +400,8 @@ def test_a_frozen_control_carries_the_anchors_it_was_frozen_against() -> None:
 def test_every_target_names_a_crop_and_a_country_that_resolve() -> None:
     """A name nothing downstream resolves is malformed input, and this is where it surfaces.
 
-    `prepare.get_target_anchor_consistency_findings` indexes `statistical.Crop` directly, so an
-    unknown crop raises there rather than dropping the pair's guard and reporting agreement.  The
-    country half has no reader that would raise, and `check_document` catches neither: both fields
-    are well-formed strings.
+    A commodity id no anchor covers would silently match no comparison and read as an uncompared
+    target, and `check_document` catches neither half: both fields are well-formed values.
 
     Every offender at once rather than a parametrized case per pair, because parametrizing over the
     file's own contents reads it while the module is being collected: a malformed set then fails
@@ -425,7 +410,7 @@ def test_every_target_names_a_crop_and_a_country_that_resolve() -> None:
     unresolvable = sorted(
         target.slug
         for target in targets.iter_targets()
-        if target.crop_name not in statistical.Crop.__members__
+        if target.commodity_id not in prepare.COMPARED_COMMODITY_IDS
         or target.iso_3166 not in iso3166.countries_by_alpha3
     )
     assert not unresolvable, (
