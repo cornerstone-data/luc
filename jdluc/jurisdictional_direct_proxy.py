@@ -27,6 +27,11 @@ type Commodity = tang_cropgrids.Crop | gpw_livestock.Livestock
 assert not {e.name for e in tang_cropgrids.Crop} & {
     e.name for e in gpw_livestock.Livestock
 }
+EXCLUDED_CROPS = {
+    # The same trees as kapok seed, mapped again at 1.5 to 5 times FAOSTAT's kapok fruit area
+    tang_cropgrids.Crop.KAPOKFIBER,
+}
+CROPS = tuple(crop for crop in tang_cropgrids.Crop if crop not in EXCLUDED_CROPS)
 
 HERD_HEADS_COLUMN = gpw_livestock.get_herd_heads_column(year=tang_cropgrids.YEAR)
 
@@ -135,9 +140,9 @@ def get_crop_hectares(
 def get_crop_to_area_share(
     crops: tuple[tang_cropgrids.Crop, ...], dset: xarray.Dataset
 ) -> dict[tang_cropgrids.Crop, xarray.DataArray]:
-    """Each crop's share of a cell's crop area, over every crop CROPGRIDS maps."""
+    """Each crop's share of a cell's crop area, over every crop in `CROPS`."""
     total_area = sum(
-        (get_crop_hectares(crop=crop, dset=dset) for crop in tang_cropgrids.Crop),
+        (get_crop_hectares(crop=crop, dset=dset) for crop in CROPS),
         start=xarray.DataArray(numpy.float32(0)),
     )
     total_area = total_area.where(total_area > 0)
