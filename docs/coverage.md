@@ -279,11 +279,12 @@ The statistical pipeline covers the following 32 crops, identified by IFPRI MapS
 
 ### sLUC livestock (statistical)
 
-The statistical pipeline also divides pasture's share of each cell among livestock commodities, by livestock units from Global Pasture Watch's headcounts. "Published as" is as for the crops.
+The statistical pipeline also divides pasture's share of each cell among livestock commodities, by livestock units from Global Pasture Watch's headcounts, and cattle's share between beef and milk by the country's dairy share (see "Statistical" in [`methodology.md`](methodology.md)). "Published as" is as for the crops.
 
 | Commodity   | Grazers                                                                            | Published as                                         |
 | ----------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| BEEF_CATTLE | Cattle                                                                             | 867 (Meat of cattle with the bone, fresh or chilled) |
+| BEEF_CATTLE | Cattle, less milk's part of the dairy share                                        | 867 (Meat of cattle with the bone, fresh or chilled) |
+| MILK_CATTLE | Cattle, 0.85 × the country's dairy share                                           | 882 (Raw milk of cattle)                             |
 | PASTURE     | The residual: buffalo, goats, horses and sheep, and pasture no grazer is mapped on | -3 (PASTURE)                                         |
 
 ### jdLUC (jurisdictional-direct)
