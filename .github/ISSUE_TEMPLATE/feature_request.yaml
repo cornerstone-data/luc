@@ -1,0 +1,51 @@
+name: ✨ Feature / improvement
+description: Propose new work. Raise this before opening a PR.
+title: "[Feature] <title>"
+labels: [enhancement]
+body:
+  - type: checkboxes
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search to see if an issue already exists for this work.
+      options:
+        - label: I have searched the existing issues
+          required: true
+  - type: textarea
+    attributes:
+      label: Context
+      description: What problem does this solve, and why now? Link the source (Miro sticky, decisions doc, meeting notes, …).
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed change
+      description: What you intend to do. Can stay rough at this stage.
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Done when
+      description: The criteria for closing this issue. Must haves block closing; nice to haves can move to a follow-up issue.
+      value: |
+        **Must have**
+        - [ ]
+
+        **Nice to have**
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Anything else?
+      description: |
+        Links? References? Alternatives considered?
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        **Tips**
+        - Write each *Done when* item so anyone can check it without asking you.
+        - Keep *Must have* short; anything that can wait goes under *Nice to have* or a follow-up issue.
+        - Attach images or log files by dragging them into any text field.
