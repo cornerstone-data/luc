@@ -46,13 +46,6 @@ OTHER_2020 = sorted(
 UNATTRIBUTED_0, UNATTRIBUTED_1 = sorted(
     ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[2005]
 )[:2]
-# A crop no `Crop` claims that MapSPAM only starts reporting in 2020.  Compared in 2020's own
-# naming, since two attributed crops are renamed there (ACOF -> COFF, SMIL -> MILL) and would
-# otherwise look 2020-only themselves.
-UNATTRIBUTED_2020_ONLY = sorted(
-    ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[2020]
-    - ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[2010]
-)[0]
 
 
 # `get_hectares_per_pixel` reads its spacing off these coords, and uniform values keep
@@ -82,7 +75,8 @@ def get_dset(
 ) -> xarray.Dataset:
     # A band for every crop of every (quantity, year) -- the real dset always carries all four
     # snapshots.  Unset crops, and unset years, are 0.  Pasture rides along as a cell fraction, and
-    # each grazer as a density in heads/ha, weighed into livestock units as `workflow` weighs them.
+    # each grazer as a density in heads/ha, weighed into livestock units as `workflow` weighs them,
+    # and each cell's hectares are measured on the whole grid, as `workflow` measures them.
     dset = xarray.Dataset(
         {
             ifpri_mapspam.get_band_name(
@@ -113,6 +107,11 @@ def get_dset(
         get_band_name_to_livestock_units(
             dset=dset, species_to_units_per_head=units_per_head or UNITS_PER_HEAD
         )
+        | {
+            "hectares-per-cell:ha": emit.get_hectares_per_pixel(
+                darray=dset["pasture:fraction:2020"]
+            )
+        }
     )
 
 
@@ -139,9 +138,7 @@ def get_density(
     }
 
 
-HECTARES_PER_CELL = get_value(
-    emit.get_hectares_per_pixel(darray=get_dset(values={})["pasture:fraction:2020"])
-)
+HECTARES_PER_CELL = get_value(darray=get_dset(values={})["hectares-per-cell:ha"])
 
 
 @pytest.mark.parametrize(
@@ -211,17 +208,21 @@ HECTARES_PER_CELL = get_value(
             id="crops-it-cannot-attribute-stay-lumped-and-net-against-each-other-leaving-maize-the-whole-cell",
         ),
         pytest.param(
-            # Counting UNATTRIBUTED_2020_ONLY's whole area as expansion from zero would halve
-            # MAIZE's share, although nothing was necessarily planted.
-            {2010: {}, 2020: {"MAIZ": 100.0, UNATTRIBUTED_2020_ONLY: 100.0}},
+            # MapSPAM 2010 counted rubber in rest of crops
+            {2010: {"REST": 100.0}, 2020: {"MAIZ": 100.0, "RUBB": 100.0}},
             2010,
             2020,
             {Crop.MAIZE: 1.0},
-            id="a-crop-the-earlier-snapshot-never-reported-is-newly-named-not-newly-grown-so-it-is-dropped",
+            id="a-crop-2020-first-names-is-not-expansion-where-it-only-left-its-earlier-group",
         ),
         pytest.param(
-            # The converse of the case above -- same shape, one crop different -- and the reason
-            # it cannot simply drop every unattributed crop.
+            {2010: {"REST": 100.0}, 2020: {"MAIZ": 100.0, "RUBB": 200.0}},
+            2010,
+            2020,
+            {Crop.MAIZE: 0.5},
+            id="a-crop-2020-first-names-that-outgrew-its-earlier-group-dilutes",
+        ),
+        pytest.param(
             {2010: {}, 2020: {"MAIZ": 100.0, UNATTRIBUTED_0: 100.0}},
             2010,
             2020,
@@ -230,9 +231,7 @@ HECTARES_PER_CELL = get_value(
         ),
         pytest.param(
             # 2000 is a different MapSPAM release and shares almost no unattributed names with
-            # 2005, so the "reported in both" test above would reject nearly the whole lump here
-            # rather than stabilise it -- hence the span's absence from
-            # `SPANS_WITH_COMPARABLE_CROP_NAMES`.
+            # 2005, so the lump is compared as a whole rather than name by name
             {2000: {}, 2005: {"MAIZ": 100.0, UNATTRIBUTED_0: 100.0}},
             2000,
             2005,
@@ -980,6 +979,39 @@ def test_get_commodity_name_to_totals(
         (name, column): name_to_totals[name][column] for name, column in expected
     } == pytest.approx(
         {key: value * PIXELS * HECTARES_PER_CELL for key, value in expected.items()},
+        nan_ok=True,
+    )
+
+
+def test_a_clip_one_cell_wide_keeps_the_hectares_of_its_cells() -> None:
+    # One column of the 2x2 grid holds half of every total the whole grid holds
+    dset = get_dset(
+        pasture_fraction=dict.fromkeys(ifpri_mapspam.YEARS, 0.5),
+        values={
+            (AREA, 2020): {Crop.WHEAT.value: 100.0},
+            (PRODUCTION, 2020): {Crop.WHEAT.value: 300.0},
+        },
+    )
+    whole, column = (
+        get_name_to_totals(
+            commodity_to_share={Crop.WHEAT: 0.5, Livestock.PASTURE: 0.25},
+            cropland_occupation=2.0,
+            dset=clipped,
+            forest_emissions=10.0,
+            occupation_shares={Crop.WHEAT: 0.5},
+        )
+        for clipped in (dset, dset.isel(x=[0]))
+    )
+    assert {
+        (name, key): value
+        for name, totals in column.items()
+        for key, value in totals.items()
+    } == pytest.approx(
+        {
+            (name, key): value / 2
+            for name, totals in whole.items()
+            for key, value in totals.items()
+        },
         nan_ok=True,
     )
 

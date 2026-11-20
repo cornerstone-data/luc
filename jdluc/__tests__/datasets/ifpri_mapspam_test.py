@@ -1,5 +1,3 @@
-import itertools
-
 import pytest
 
 from jdluc.datasets import ifpri_mapspam
@@ -57,27 +55,6 @@ def test_is_reported_as_group_is_exactly_the_constituents_in_2000() -> None:
         (crop_name, ifpri_mapspam.DECOMPOSITION_YEAR)
         for crop_name in ifpri_mapspam.CONSTITUENT_TO_GROUP_NAME
     }
-
-
-def test_comparable_spans_agree_with_the_vocabularies() -> None:
-    # Not a restatement of the constant: it checks the constant against how much of the
-    # unrecoverable vocabulary the two snapshots actually share.  Listing a pair as comparable
-    # when their names barely overlap is what would make name-matching measure the taxonomy
-    # instead of the land.
-    for before, after in itertools.combinations(sorted(ifpri_mapspam.YEARS), 2):
-        one, two = (
-            ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[before],
-            ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[after],
-        )
-        shared = len(one & two) / len(one | two)
-        if (before, after) in ifpri_mapspam.SPANS_WITH_COMPARABLE_CROP_NAMES:
-            assert shared > 0.5, (
-                f"{before}->{after} called comparable but shares {shared:.0%}"
-            )
-        else:
-            assert shared < 0.2, (
-                f"{before}->{after} called incomparable but shares {shared:.0%}"
-            )
 
 
 @pytest.mark.parametrize("quantity", sorted(ifpri_mapspam.Quantity))

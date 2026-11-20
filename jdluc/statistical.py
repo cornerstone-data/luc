@@ -182,10 +182,9 @@ def get_commodity_hectares(
     commodity: Commodity, dset: xarray.Dataset, year: int
 ) -> xarray.DataArray:
     if isinstance(commodity, gpw_livestock.Livestock):
-        pasture_fraction = dset[f"pasture:fraction:{year:d}"]
         return (
-            pasture_fraction
-            * emit.get_hectares_per_pixel(darray=pasture_fraction)
+            dset[f"pasture:fraction:{year:d}"]
+            * dset["hectares-per-cell:ha"]
             * gpw_livestock.get_livestock_to_grazing_share(dset=dset, year=year)[
                 commodity
             ]
@@ -217,15 +216,11 @@ def get_cropland_expansion(
         for crop in sorted(Crop)
     )
 
-    # Drop any crops which are being newly tracked so they aren't interpreted as an expansion from zero
-    before_names = ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[before]
-    after_names = ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[after]
-    if (before, after) in ifpri_mapspam.SPANS_WITH_COMPARABLE_CROP_NAMES:
-        before_names = after_names = before_names & after_names
-
-    def get_unattributed(names: set[str], year: int) -> xarray.DataArray:
+    def get_unattributed(year: int) -> xarray.DataArray:
         # NB: no canonical lookup is required -- these names are already `year`'s own, and
-        # nothing divides by them, so the raw band is the whole answer
+        # nothing divides by them, so the raw band is the whole answer. They include the crops
+        # 2020 names first, whose area 2005 and 2010 held in a group
+        # (`ifpri_mapspam.NEWLY_NAMED_CROP_TO_EARLIER_GROUP_NAME`)
         return sum(
             (
                 ifpri_mapspam.get_reported_quantity(
@@ -234,14 +229,13 @@ def get_cropland_expansion(
                     reported_crop_name=name,
                     year=year,
                 )
-                for name in sorted(names)
+                for name in sorted(ifpri_mapspam.YEAR_TO_UNRECOVERABLE_CROP_NAMES[year])
             ),
             start=xarray.DataArray(numpy.float32(0)),
         )
 
     unattributed_expansion = (
-        get_unattributed(names=after_names, year=after)
-        - get_unattributed(names=before_names, year=before)
+        get_unattributed(year=after) - get_unattributed(year=before)
     ).clip(min=0)
     return attributed_expansion + unattributed_expansion
 
@@ -252,13 +246,9 @@ def get_commodity_to_share(
     """Each commodity's share of everything a cell emitted in a span, whatever each pixel became."""
     # Pastureland expands alongside the crops, measured net and clipped exactly as a crop's is:
     # GPW is annual, and its gross gain would charge pasture for churn MapSPAM cannot see
-    pasture_fraction_after = dset[f"pasture:fraction:{after:d}"]
-    pasture_fraction_before = dset[f"pasture:fraction:{before:d}"]
     pasture_expansion = (
-        pasture_fraction_after
-        * emit.get_hectares_per_pixel(darray=pasture_fraction_after)
-        - pasture_fraction_before
-        * emit.get_hectares_per_pixel(darray=pasture_fraction_before)
+        (dset[f"pasture:fraction:{after:d}"] - dset[f"pasture:fraction:{before:d}"])
+        * dset["hectares-per-cell:ha"]
     ).clip(min=0)
     total_expansion = (
         get_cropland_expansion(after=after, before=before, dset=dset)
@@ -383,11 +373,10 @@ def get_commodity_name_to_totals(
     MapSPAM crops no row models, the forest and grassland charge where neither cropland nor
     pasture expanded, and the cropland peat pulse where no crop expanded.
     """
-    cropland_occupation_per_hectare = dset[
-        f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"
-    ]
-    hectares = emit.get_hectares_per_pixel(darray=cropland_occupation_per_hectare)
-    cropland_occupation = cropland_occupation_per_hectare * hectares
+    hectares = dset["hectares-per-cell:ha"]
+    cropland_occupation = (
+        dset[f"{emit.CROPLAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"] * hectares
+    )
     pastureland_occupation = (
         dset[f"{emit.PASTURELAND:s}-{emit.PEATLAND_OCCUPATION:s}:tco2e-per-ha"]
         * hectares
@@ -646,6 +635,10 @@ def workflow(
                 ).items()
             },
         )
+    )
+    # NB: on the whole tile, since a clip one cell wide has no spacing to measure a cell by
+    merged["hectares-per-cell:ha"] = emit.get_hectares_per_pixel(
+        darray=merged["dropped-emissions:tco2e-per-ha"]
     )
     # NB: usually we avoid dumping to local mmemory, but since this xarray is small there is no
     # OOM risk.  Doing so speeds up the many downstream reads for each jurisdiction

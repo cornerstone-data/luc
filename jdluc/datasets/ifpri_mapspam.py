@@ -411,22 +411,22 @@ assert {
 } == YEAR_TO_UNRECOVERABLE_CROP_NAMES
 
 
-# Snapshot pairs whose crop names can be matched directly.  Every pair involving the decompose year
-# is excluded: it is a different MapSPAM release (v3.0.7 against v3.2) and its unrecoverable
-# vocabulary is nearly disjoint from 2005's -- a catch-all OTHE leaves and nine crops appear in its
-# place, holding 560 Mha against their 161 and correlating at r = 0.17 per pixel.  A name on only
-# one side of that boundary says the release did not use it, not that the crop was absent.
-SPANS_WITH_COMPARABLE_CROP_NAMES: set[tuple[int, int]] = {
-    (2005, 2010),
-    (2005, 2020),
-    (2010, 2020),
+# The unrecoverable crops 2020 is the first snapshot to name, each with the group 2005 and 2010
+# counted its area in, so the unrecoverable lump holds the same crops in 2005, 2010 and 2020
+NEWLY_NAMED_CROP_TO_EARLIER_GROUP_NAME: dict[str, str] = {
+    "CITR": "TROF",
+    "ONIO": "VEGE",
+    "RUBB": "REST",
+    "TOMA": "VEGE",
 }
-assert {
-    (before, after)
-    for before in YEARS
-    for after in YEARS
-    if before < after and DECOMPOSITION_YEAR not in (before, after)
-} == SPANS_WITH_COMPARABLE_CROP_NAMES
+assert YEAR_TO_UNRECOVERABLE_CROP_NAMES[2005] == YEAR_TO_UNRECOVERABLE_CROP_NAMES[2010]
+assert YEAR_TO_UNRECOVERABLE_CROP_NAMES[2020] == (
+    YEAR_TO_UNRECOVERABLE_CROP_NAMES[2010] | set(NEWLY_NAMED_CROP_TO_EARLIER_GROUP_NAME)
+)
+assert (
+    set(NEWLY_NAMED_CROP_TO_EARLIER_GROUP_NAME.values())
+    <= (YEAR_TO_UNRECOVERABLE_CROP_NAMES[2010])
+)
 
 
 class Quantity(enum.StrEnum):
