@@ -240,7 +240,7 @@ Taiwan is its own country, `TWN`, following CEDA's convention. The World Bank la
 
 ### sLUC (statistical)
 
-The statistical pipeline covers the following 32 crops, identified by IFPRI MapSPAM crop code. "Published as" is the `commodity_id` and `commodity_name` each crop's rows carry in the emissions-factors table (see [`data.md`](data.md#3-emissions-factors-parquet)): a FAOSTAT item, or a negative code of our own where FAOSTAT has none. The two coffees share 656 and the two millets share 79, so each pair is published as one row.
+The statistical pipeline covers the following 32 crops, identified by IFPRI MapSPAM crop code. "Published as" is the `commodity_id` and `commodity_name` each crop's rows carry in the emissions-factors table (see [`data.md`](data.md#3-emissions-factors-parquet)): a FAOSTAT item, or a negative code of our own where FAOSTAT has none. The two coffees share 656 and the two millets share 79, so each pair is published as one row. A crop's production is its item's FAOSTAT production, except where MapSPAM counts several items as one crop: rapeseed also takes mustard seed (292); other oil crops take olives, karite nuts, castor oil seeds, tung nuts, safflower seed, poppy seed, melonseed, linseed, hempseed and other oil seeds (260, 263, 265, 275, 280, 296, 299, 333, 336, 339); and other pulses take broad beans, dry peas, bambara beans, vetches, lupins and other pulses (181, 187, 203, 205, 210, 211).
 
 | Crop           | MapSPAM code | Published as                        |
 | -------------- | ------------ | ----------------------------------- |
