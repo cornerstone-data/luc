@@ -376,20 +376,71 @@ assert len(
     ]
 )
 
-# FAOSTAT crop items no CROPGRIDS crop maps to: co-products, counted in the crop they come from
-CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE = {
-    256: 254,  # palm kernels
-    311: 310,  # kapokseed
-    329: 328,  # cotton seed
-    378: 125,  # cassava leaves
-    767: 328,  # cotton lint
-    778: 310,  # kapok fibre
-    813: 249,  # coir
+# The FAOSTAT crop items whose production each crop code takes in the statistical and proxy legs.
+# Each code takes its own item, except where MapSPAM puts several items in one crop
+METHODOLOGY_TO_CROP_ID_TO_ITEM_CODES: dict[
+    attribute.Methodology, dict[int, tuple[int, ...]]
+] = {
+    attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY: {
+        commodity_id: (commodity_id,)
+        for commodity_id in (
+            METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
+                attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
+            ][crop.name]
+            for crop in tang_cropgrids.Crop
+        )
+        if commodity_id > 0
+    },
+    attribute.Methodology.STATISTICAL: {
+        commodity_id: (commodity_id,)
+        for commodity_id in (
+            METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
+                attribute.Methodology.STATISTICAL
+            ][crop.name]
+            for crop in statistical.Crop
+        )
+        if commodity_id > 0
+    }
+    # MapSPAM's own list of the items in each of these crops: Yu, Q. et al. 2020. A cultivated
+    # planet in 2010 - Part 2: The global gridded agricultural-production maps. Earth System
+    # Science Data 12, 3545-3572, supplement Table S3. The table is for MapSPAM 2010, and MapSPAM
+    # 2020's country totals match these items' FAOSTAT sums about as well as 2010's do
+    | {
+        270: (
+            270,  # rape or colza seed
+            292,  # mustard seed
+        ),
+        InventedCommodityId.OTHER_OILCROPS: (
+            260,  # olives
+            263,  # karite nuts
+            265,  # castor oil seeds
+            275,  # tung nuts
+            280,  # safflower seed
+            296,  # poppy seed
+            299,  # melonseed
+            333,  # linseed
+            336,  # hempseed
+            339,  # other oil seeds
+        ),
+        InventedCommodityId.OTHER_PULSES: (
+            181,  # broad beans and horse beans
+            187,  # peas
+            203,  # bambara beans
+            205,  # vetches
+            210,  # lupins
+            211,  # other pulses
+        ),
+    },
 }
-assert set(CO_PRODUCT_ITEM_CODE_TO_ITEM_CODE.values()) <= set(
-    METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
-        attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
-    ].values()
+# No item counts toward two crops
+assert all(
+    len(
+        {
+            item_code
+            for item_codes in crop_id_to_item_codes.values()
+            for item_code in item_codes
+        }
+    )
+    == sum(len(item_codes) for item_codes in crop_id_to_item_codes.values())
+    for crop_id_to_item_codes in METHODOLOGY_TO_CROP_ID_TO_ITEM_CODES.values()
 )
-# The rest: crops CROPGRIDS does not map (jojoba, tallowtree, leeks and other pome fruits)
-UNMAPPED_CROP_ITEM_CODES = {277, 305, 407, 542}

@@ -2,7 +2,6 @@ import collections
 import collections.abc
 import enum
 import logging
-import math
 
 import numpy
 import pandas
@@ -106,11 +105,14 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
         assessment_year=assessment_year
     )
     for before, after in MAPSPAM_SPANS:
+        # A conversion takes the shares of the span holding its year, open below and closed above.
+        # MapSPAM has no 2015 snapshot, so conversions from 2011 to 2020 all take the span from 2010
+        # to 2020, and it has none after 2020, so every later conversion takes that span too
         in_span = conversion_year.isin(
             [
                 year
                 for year in conversion_years
-                if get_mapspam_span(year=year) == (before, after)
+                if before < min(year, LAST_SNAPSHOT_YEAR) <= after
             ]
         )
         # NB: `emit` charges only converted pixels, and every conversion ends in cropland or
@@ -248,54 +250,8 @@ MAPSPAM_SNAPSHOT_YEARS = tuple(
     sorted({year for span in MAPSPAM_SPANS for year in span})
 )
 assert set(MAPSPAM_SNAPSHOT_YEARS).issubset(gpw_livestock.YEARS)
-
-
-def get_mapspam_span(year: int) -> tuple[int, int]:
-    """The MapSPAM span whose shares a conversion in `year` takes: the one holding it, open below
-    and closed above.
-
-    MapSPAM has no 2015 snapshot, so every conversion from 2011 to 2020 takes the one expansion
-    between 2010 and 2020, and it has none after 2020, so every later conversion takes it too.
-    """
-    *_, last_snapshot_year = MAPSPAM_SNAPSHOT_YEARS
-    (span,) = (
-        (before, after)
-        for before, after in MAPSPAM_SPANS
-        if before < min(year, last_snapshot_year) <= after
-    )
-    return span
-
-
-def get_snapshot_year_to_weight(assessment_year: int) -> dict[int, float]:
-    """Each snapshot's weight in the means of a crop's production and a commodity's area: every
-    conversion year's discount weight, split evenly between the two snapshots of its MapSPAM span.
-    A year after the last snapshot gives its whole weight to that snapshot instead.
-    """
-    *_, last_snapshot_year = MAPSPAM_SNAPSHOT_YEARS
-    year_to_weight = emit.get_year_to_linear_discount_weight(
-        assessment_year=assessment_year
-    )
-    year_to_snapshot_years = {
-        year: (last_snapshot_year,)
-        if year > last_snapshot_year
-        else get_mapspam_span(year=year)
-        for year in year_to_weight
-    }
-    snapshot_year_to_weight = {
-        snapshot_year: sum(
-            weight / len(year_to_snapshot_years[year])
-            for year, weight in year_to_weight.items()
-            if snapshot_year in year_to_snapshot_years[year]
-        )
-        for snapshot_year in MAPSPAM_SNAPSHOT_YEARS
-    }
-    assert math.isclose(sum(snapshot_year_to_weight.values()), 1)
-    return snapshot_year_to_weight
-
-
-HERD_HEADS_COLUMNS = tuple(
-    gpw_livestock.get_herd_heads_column(year=year) for year in MAPSPAM_SNAPSHOT_YEARS
-)
+LAST_SNAPSHOT_YEAR = max(MAPSPAM_SNAPSHOT_YEARS)
+HERD_HEADS_COLUMN = gpw_livestock.get_herd_heads_column(year=LAST_SNAPSHOT_YEAR)
 
 
 def get_commodity_name_to_totals(
@@ -303,13 +259,11 @@ def get_commodity_name_to_totals(
     dairy_share: float,
     dset: xarray.Dataset,
     occupation_shares: dict[Commodity, xarray.DataArray],
-    snapshot_year_to_weight: dict[int, float],
     span_to_commodity_to_share: dict[
         tuple[int, int], dict[Commodity, xarray.DataArray]
     ],
 ) -> dict[str, dict[str, float]]:
-    """Each commodity's emissions and area, a crop's production and a herd's heads, summed over a
-    jurisdiction's cells.
+    """Each commodity's emissions and area and a herd's heads, summed over a jurisdiction's cells.
 
     The conversion shares are keyed by MapSPAM span, and each divides that span's discounted
     emissions bands for its commodity's own land class.
@@ -356,60 +310,29 @@ def get_commodity_name_to_totals(
             for component in emit.EmissionComponent
         }
 
-        # Peat occupation and production: a livestock commodity takes its grazing share of the
-        # pasture peat band and reports its herd; a crop takes its area share of the cropland peat
-        # band and reports MapSPAM's production
+        # A livestock commodity takes its grazing share of the pasture and of the pasture's peat
+        # occupation, and reports its herd; a crop takes its area share of the cropland's peat
+        # occupation
         if isinstance(commodity, gpw_livestock.Livestock):
             occupation = pastureland_occupation * occupation_shares[commodity]
-            year_to_hectares = {
-                year: gpw_livestock.get_livestock_hectares(
-                    dset=dset,
-                    grazing_share=gpw_livestock.get_livestock_to_grazing_share(
-                        dairy_share=dairy_share, dset=dset, year=year
-                    )[commodity],
-                    year=year,
-                )
-                for year in MAPSPAM_SNAPSHOT_YEARS
-            }
+            totals["commodity_hectares"] = gpw_livestock.get_livestock_hectares(
+                dset=dset,
+                grazing_share=gpw_livestock.get_livestock_to_grazing_share(
+                    dairy_share=dairy_share, dset=dset, year=LAST_SNAPSHOT_YEAR
+                )[commodity],
+                year=LAST_SNAPSHOT_YEAR,
+            )
             if commodity in gpw_livestock.LIVESTOCK_TO_SPECIES:
-                totals |= {
-                    gpw_livestock.get_herd_heads_column(
-                        year=year
-                    ): gpw_livestock.get_herd_heads(
-                        dset=dset,
-                        species=gpw_livestock.LIVESTOCK_TO_SPECIES[commodity],
-                        year=year,
-                    )
-                    for year in MAPSPAM_SNAPSHOT_YEARS
-                }
+                totals[HERD_HEADS_COLUMN] = gpw_livestock.get_herd_heads(
+                    dset=dset,
+                    species=gpw_livestock.LIVESTOCK_TO_SPECIES[commodity],
+                    year=LAST_SNAPSHOT_YEAR,
+                )
         else:
             occupation = cropland_occupation * occupation_shares[commodity]
-            year_to_hectares = {
-                year: get_crop_hectares(crop=commodity, dset=dset, year=year)
-                for year in MAPSPAM_SNAPSHOT_YEARS
-            }
-            # NB: a level, so a mean over the snapshots under the weights emissions are summed with
-            totals["production_mt"] = sum(
-                (
-                    snapshot_year_to_weight[year]
-                    * ifpri_mapspam.get_canonical_quantity(
-                        canonical_crop_name=commodity.value,
-                        dset=dset,
-                        quantity=ifpri_mapspam.Quantity.PRODUCTION,
-                        year=year,
-                    )
-                    for year in MAPSPAM_SNAPSHOT_YEARS
-                ),
-                start=xarray.DataArray(numpy.float32(0)),
+            totals["commodity_hectares"] = get_crop_hectares(
+                crop=commodity, dset=dset, year=LAST_SNAPSHOT_YEAR
             )
-
-        totals["commodity_hectares"] = sum(
-            (
-                snapshot_year_to_weight[year] * year_to_hectares[year]
-                for year in MAPSPAM_SNAPSHOT_YEARS
-            ),
-            start=xarray.DataArray(numpy.float32(0)),
-        )
         # NB: occupation is a flat annual rate over the area drained, so dividing it back out
         # recovers that area on `emit`'s 30 m intersection
         totals["peatland_commodity_hectares"] = (
@@ -459,12 +382,10 @@ def get_commodity_name_to_totals(
         start=unattributed["peatland_occupation_emissions_mt"],
     )
 
-    # NB: the residual pasture row names no herd, so it carries no production and `trace` declines
-    # to publish an emission factor for it rather than dividing by zero
+    # NB: the residual pasture row names no herd, so it carries no heads and `trace` declines to
+    # publish an emission factor for it rather than dividing by zero
     return {
-        name: {"production_mt": numpy.nan}
-        | dict.fromkeys(HERD_HEADS_COLUMNS, numpy.nan)
-        | totals
+        name: {HERD_HEADS_COLUMN: numpy.nan} | totals
         for name, totals in utils.get_sum_totals(
             enum_to_name_to_darray=commodity_to_totals
         ).items()
@@ -515,8 +436,8 @@ SCHEMA = {
     "peatland_commodity_hectares": float,
     "peatland_conversion_emissions_mt": float,
     "peatland_occupation_emissions_mt": float,
-    "production_mt": float,
-} | dict.fromkeys(HERD_HEADS_COLUMNS, float)
+    HERD_HEADS_COLUMN: float,
+}
 
 
 @storage.cache_to_parquet(version=1)
@@ -535,9 +456,6 @@ def workflow(
     crops = tuple(commodity for commodity in commodities if isinstance(commodity, Crop))
     logger.info(
         f"Computing emissions for {commodities=:}, {assessment_year=:d} and {tile_id=:s}"
-    )
-    snapshot_year_to_weight = get_snapshot_year_to_weight(
-        assessment_year=assessment_year
     )
     dairy_share = faostat.get_dairy_share(
         iso_3166=iso_3166,
@@ -623,14 +541,13 @@ def workflow(
                     occupation_shares=get_crop_to_area_share(
                         crops=crops,
                         dset=clipped,
-                        year=max(ifpri_mapspam.YEARS),
+                        year=LAST_SNAPSHOT_YEAR,
                     )
                     | gpw_livestock.get_livestock_to_grazing_share(
                         dairy_share=dairy_share,
                         dset=clipped,
-                        year=max(ifpri_mapspam.YEARS),
+                        year=LAST_SNAPSHOT_YEAR,
                     ),
-                    snapshot_year_to_weight=snapshot_year_to_weight,
                     span_to_commodity_to_share=span_to_commodity_to_share,
                 )
                 for commodity_name, totals in commodity_name_to_totals.items():
