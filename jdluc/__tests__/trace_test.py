@@ -312,6 +312,31 @@ def test_iter_national_from_provincials_land_occupation_comes_from_the_summed_to
     assert result["land_occupation_m2_year_per_kg"] == 4.0
 
 
+def test_iter_national_from_provincials_leaves_production_missing_where_every_province_does() -> (
+    None
+):
+    provincials = pandas.DataFrame.from_records(
+        [
+            dict.fromkeys(ADDITIVE_COLUMNS, 0.0)
+            | {
+                "commodity_hectares": 1.0,
+                "commodity_id": 56,
+                "production_kg": numpy.nan,
+            }
+            for _ in range(2)
+        ]
+    )
+    (result,) = iter_national_from_provincials(
+        assessment_year=2020,
+        iso_3166="ISO_A3",
+        methodology=Methodology.STATISTICAL,
+        national_name="NAME",
+        provincials=provincials,
+    )
+    assert numpy.isnan(result["production_kg"])
+    assert numpy.isnan(result["yield_kg_per_ha"])
+
+
 PRODUCTION_YEARS = (2017, 2018, 2019, 2020)
 STATISTICAL_EMISSIONS = (
     pandas.DataFrame.from_records(
