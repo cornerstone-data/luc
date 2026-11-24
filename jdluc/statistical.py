@@ -138,19 +138,18 @@ def get_downscaled_luc_emissions(assessment_year: int, tile_id: str) -> xarray.D
     )
     derived_variable_names.append(name)
 
-    logger.info("Measuring pasture extent at each MAPSPAM snapshot")
-    for year in MAPSPAM_SNAPSHOT_YEARS:
-        name = f"pasture:fraction:{year:d}"
-        # NB: a mask here and an averaging downscale below, so this arrives as a cell fraction
-        luc_and_emissions[name] = (
-            luc_and_emissions[
-                gpw_grassland.DATASET.fully_qualified_band_names[
-                    gpw_grassland.YEARS.index(year)
-                ]
+    logger.info("Measuring pasture extent at the last MAPSPAM snapshot")
+    name = f"pasture:fraction:{LAST_SNAPSHOT_YEAR:d}"
+    # NB: a mask here and an averaging downscale below, so this arrives as a cell fraction
+    luc_and_emissions[name] = (
+        luc_and_emissions[
+            gpw_grassland.DATASET.fully_qualified_band_names[
+                gpw_grassland.YEARS.index(LAST_SNAPSHOT_YEAR)
             ]
-            == gpw_grassland.Grassland.CULTIVATED
-        ).astype(numpy.float32)
-        derived_variable_names.append(name)
+        ]
+        == gpw_grassland.Grassland.CULTIVATED
+    ).astype(numpy.float32)
+    derived_variable_names.append(name)
 
     logger.info("Downsampling emissions from the GLAD grid to the MAPSPAM grid")
     grid = harmonize.Grid.from_tile_id_resolution(
