@@ -217,20 +217,13 @@ def get_cropland_expansion(
     return attributed_expansion + unattributed_expansion
 
 
-def get_commodity_to_share(
+def get_crop_to_expansion_share(
     after: int,
     before: int,
     crops: tuple[Crop, ...],
-    dairy_share: float,
     dset: xarray.Dataset,
-) -> dict[Commodity, xarray.DataArray]:
-    """Each commodity's share of what a cell emitted in a span on land converted to its own class.
-
-    A crop takes its share of crop expansion, so pasture expanding beside it takes none of what
-    was converted to cropland, and where no crop expanded that goes to nobody. The grazers divide
-    what was converted to pasture by grazing share at the end of the span, which always sums to
-    one.
-    """
+) -> dict[Crop, xarray.DataArray]:
+    """Each crop's share of a cell's crop expansion over a span, zero where no crop expanded."""
     cropland_expansion = get_cropland_expansion(after=after, before=before, dset=dset)
     cropland_expansion = cropland_expansion.where(cropland_expansion > 0)
     return {
@@ -239,9 +232,7 @@ def get_commodity_to_share(
             / cropland_expansion
         ).fillna(0)
         for crop in crops
-    } | gpw_livestock.get_livestock_to_grazing_share(
-        dairy_share=dairy_share, dset=dset, year=after
-    )
+    }
 
 
 MAPSPAM_SPANS = ((2000, 2005), (2005, 2010), (2010, 2020))
@@ -255,17 +246,15 @@ HERD_HEADS_COLUMN = gpw_livestock.get_herd_heads_column(year=LAST_SNAPSHOT_YEAR)
 
 def get_commodity_name_to_totals(
     commodities: tuple[Commodity, ...],
-    dairy_share: float,
+    commodity_to_share: dict[Commodity, xarray.DataArray],
     dset: xarray.Dataset,
-    occupation_shares: dict[Commodity, xarray.DataArray],
-    span_to_commodity_to_share: dict[
-        tuple[int, int], dict[Commodity, xarray.DataArray]
-    ],
+    span_to_crop_to_share: dict[tuple[int, int], dict[Crop, xarray.DataArray]],
 ) -> dict[str, dict[str, float]]:
     """Each commodity's emissions and area and a herd's heads, summed over a jurisdiction's cells.
 
-    The conversion shares are keyed by MapSPAM span, and each divides that span's discounted
-    emissions bands for its commodity's own land class.
+    `commodity_to_share` holds each crop's 2020 area share, which divides cropland peat occupation,
+    and each grazer's 2020 grazing share, which divides every span's pasture conversions, pasture
+    peat occupation and pasture area. A crop's conversions take its expansion share of each span.
 
     Beside the commodities sit `DROPPED` and `UNATTRIBUTED` (see `emit.NonCommodity`). Here
     `UNATTRIBUTED` is what the shares leave of the charge: conversion and occupation by the
@@ -285,11 +274,14 @@ def get_commodity_name_to_totals(
     ] = collections.defaultdict(dict)
     for commodity in commodities:
         totals = commodity_to_totals[commodity]
-        land_class = (
-            emit.PASTURELAND
-            if isinstance(commodity, gpw_livestock.Livestock)
-            else emit.CROPLAND
-        )
+        if isinstance(commodity, gpw_livestock.Livestock):
+            land_class = emit.PASTURELAND
+            span_to_share = dict.fromkeys(MAPSPAM_SPANS, commodity_to_share[commodity])
+        else:
+            land_class = emit.CROPLAND
+            span_to_share = {
+                span: span_to_crop_to_share[span][commodity] for span in MAPSPAM_SPANS
+            }
         component_to_emissions = {
             component: sum(
                 (
@@ -297,7 +289,7 @@ def get_commodity_name_to_totals(
                         f"{land_class:s}-{component!s}-emissions:tco2e-per-ha:{before:d}-{after:d}"
                     ]
                     * hectares
-                    * span_to_commodity_to_share[(before, after)][commodity]
+                    * span_to_share[(before, after)]
                     for before, after in MAPSPAM_SPANS
                 ),
                 start=xarray.zeros_like(hectares),
@@ -313,12 +305,10 @@ def get_commodity_name_to_totals(
         # occupation, and reports its herd; a crop takes its area share of the cropland's peat
         # occupation
         if isinstance(commodity, gpw_livestock.Livestock):
-            occupation = pastureland_occupation * occupation_shares[commodity]
+            occupation = pastureland_occupation * commodity_to_share[commodity]
             totals["commodity_hectares"] = gpw_livestock.get_livestock_hectares(
                 dset=dset,
-                grazing_share=gpw_livestock.get_livestock_to_grazing_share(
-                    dairy_share=dairy_share, dset=dset, year=LAST_SNAPSHOT_YEAR
-                )[commodity],
+                grazing_share=commodity_to_share[commodity],
                 year=LAST_SNAPSHOT_YEAR,
             )
             if commodity in gpw_livestock.LIVESTOCK_TO_SPECIES:
@@ -328,7 +318,7 @@ def get_commodity_name_to_totals(
                     year=LAST_SNAPSHOT_YEAR,
                 )
         else:
-            occupation = cropland_occupation * occupation_shares[commodity]
+            occupation = cropland_occupation * commodity_to_share[commodity]
             totals["commodity_hectares"] = get_crop_hectares(
                 crop=commodity, dset=dset, year=LAST_SNAPSHOT_YEAR
             )
@@ -516,12 +506,11 @@ def workflow(
             except NoDataInBounds as exc:
                 logger.warning(repr(exc))
             else:
-                span_to_commodity_to_share = {
-                    (before, after): get_commodity_to_share(
+                span_to_crop_to_share = {
+                    (before, after): get_crop_to_expansion_share(
                         after=after,
                         before=before,
                         crops=crops,
-                        dairy_share=dairy_share,
                         dset=clipped,
                     )
                     for (before, after) in MAPSPAM_SPANS
@@ -533,14 +522,9 @@ def workflow(
                 )
                 commodity_name_to_totals = get_commodity_name_to_totals(
                     commodities=commodities,
-                    dairy_share=dairy_share,
-                    dset=clipped,
-                    # NB: unlike conversion emissions, peatland occupation is a land-management flux on land
-                    # that is drained *now* -- it has no relationship to expansion, and expansion is zero on
-                    # the long-established peat cropland that dominates this pool. So allocate it by each
-                    # crop's share of area occupied -- matching the approach for the jurisdictional-direct leg.
-                    # The pasture peat band is divided by grazing share instead.
-                    occupation_shares=get_crop_to_area_share(
+                    # NB: peat occupation is a flux on land drained now, unrelated to expansion, so
+                    # crops divide it by area share
+                    commodity_to_share=get_crop_to_area_share(
                         crops=crops,
                         dset=clipped,
                         year=LAST_SNAPSHOT_YEAR,
@@ -550,7 +534,8 @@ def workflow(
                         dset=clipped,
                         year=LAST_SNAPSHOT_YEAR,
                     ),
-                    span_to_commodity_to_share=span_to_commodity_to_share,
+                    dset=clipped,
+                    span_to_crop_to_share=span_to_crop_to_share,
                 )
                 for commodity_name, totals in commodity_name_to_totals.items():
                     yield totals | {
