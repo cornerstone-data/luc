@@ -28,7 +28,7 @@ def get_faostat_frame(
             }
             for (iso_3166, species_name, year), value in key_to_value.items()
         ]
-    ).set_index(faostat.LIVESTOCK_IDX_COLUMN_NAMES)
+    ).set_index(faostat.IDX_COLUMN_NAMES)
 
 
 NO_LIVESTOCK_UNITS = dict.fromkeys(faostat.Species, 0.0)
@@ -222,7 +222,7 @@ CATTLE_HEADS = (
         jurisdiction_name="",
         species=CATTLE.name,
     )
-    .set_index(faostat.LIVESTOCK_IDX_COLUMN_NAMES)
+    .set_index(faostat.IDX_COLUMN_NAMES)
 )
 
 
