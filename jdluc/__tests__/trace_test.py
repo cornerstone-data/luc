@@ -6,6 +6,7 @@ from jdluc import statistical
 from jdluc.attribute import Methodology
 from jdluc.datasets.worldbank_jurisdictions import AdminLevel
 from jdluc.jurisdictional_direct_proxy import HERD_HEADS_COLUMN
+from jdluc.taxonomy import InventedCommodityId
 from jdluc.trace import (
     ADDITIVE_COLUMNS,
     attach_ratios,
@@ -13,6 +14,7 @@ from jdluc.trace import (
     derive_production_kg,
     iter_national_from_provincials,
     with_commodity_ids,
+    with_withheld_factors,
 )
 
 JURISDICTIONAL_EMISSIONS = pandas.DataFrame.from_records(
@@ -587,3 +589,33 @@ def test_derive_production_kg_for_the_proxy_leg() -> None:
         .all()
     )
     assert HERD_HEADS_COLUMN not in result.columns
+
+
+def test_with_withheld_factors_blanks_only_the_factors_of_withheld_pairs() -> None:
+    traced = pandas.DataFrame(
+        data={
+            "emissions_factor_kgco2e_per_kg": [1.0, 2.0, 3.0, 4.0],
+            "emissions_mt": [10.0, 20.0, 30.0, 40.0],
+            "yield_kg_per_ha": [5.0, 6.0, 7.0, 8.0],
+        },
+        index=pandas.MultiIndex.from_tuples(
+            [
+                ("CHN", InventedCommodityId.OTHER_OILCROPS),
+                ("TWN", InventedCommodityId.OTHER_OILCROPS),
+                ("TWN", 27),
+                ("TWN001", InventedCommodityId.OTHER_OILCROPS),
+            ],
+            names=["admin_id", "commodity_id"],
+        ),
+    )
+    result = with_withheld_factors(df=traced)
+    assert result["emissions_factor_kgco2e_per_kg"].isna().tolist() == [
+        False,
+        True,
+        False,
+        True,
+    ]
+    pandas.testing.assert_frame_equal(
+        result.drop(columns="emissions_factor_kgco2e_per_kg"),
+        traced.drop(columns="emissions_factor_kgco2e_per_kg"),
+    )

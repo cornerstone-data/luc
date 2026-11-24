@@ -65,6 +65,11 @@ ADDITIVE_COLUMNS = (
     "production_kg",
     *(component.column for component in emit.EmissionComponent),
 )
+# Emissions factors left blank; the rows keep their other columns
+WITHHELD_ISO_3166_COMMODITY_IDS = {
+    # MapSPAM 2010 puts 29 times FAOSTAT's oil crop area on Taiwan
+    ("TWN", taxonomy.InventedCommodityId.OTHER_OILCROPS),
+}
 
 
 def derive_jurisdictional_production_kg(
@@ -264,6 +269,20 @@ def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
     return df
 
 
+def with_withheld_factors(df: pandas.DataFrame) -> pandas.DataFrame:
+    is_withheld = pandas.MultiIndex.from_arrays(
+        [
+            df.index.get_level_values("admin_id").str[:3],
+            df.index.get_level_values("commodity_id"),
+        ]
+    ).isin(list(WITHHELD_ISO_3166_COMMODITY_IDS))
+    return df.assign(
+        emissions_factor_kgco2e_per_kg=df["emissions_factor_kgco2e_per_kg"].mask(
+            cond=is_withheld
+        )
+    )
+
+
 def iter_national_from_provincials(
     assessment_year: int,
     iso_3166: str,
@@ -370,13 +389,15 @@ def workflow(
             ],
         )
     )
-    ret = pandas.concat(
-        [
-            provincials,
-            pandas.DataFrame.from_records(iter_national).set_index(
-                provincials.index.names
-            ),
-        ]
+    ret = with_withheld_factors(
+        df=pandas.concat(
+            [
+                provincials,
+                pandas.DataFrame.from_records(iter_national).set_index(
+                    provincials.index.names
+                ),
+            ]
+        )
     )
     commodity_id_to_name = get_commodity_id_to_name(
         crops=faostat.load(dataset=faostat.CROP_DATASET),
