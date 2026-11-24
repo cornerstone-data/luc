@@ -192,6 +192,12 @@ def get_commodity_name_to_totals(
             totals["commodity_hectares"] = gpw_livestock.get_livestock_hectares(
                 dset=dset, grazing_share=share, year=tang_cropgrids.YEAR
             )
+            if commodity in gpw_livestock.LIVESTOCK_TO_SPECIES:
+                totals[HERD_HEADS_COLUMN] = gpw_livestock.get_herd_heads(
+                    dset=dset,
+                    species=gpw_livestock.LIVESTOCK_TO_SPECIES[commodity],
+                    year=tang_cropgrids.YEAR,
+                )
         else:
             land_class = emit.CROPLAND
             totals["commodity_hectares"] = get_crop_hectares(crop=commodity, dset=dset)
@@ -213,14 +219,6 @@ def get_commodity_name_to_totals(
         )
         totals["peatland_occupation_emissions_mt"] = occupation
         totals["emissions_mt"] = sum(component_to_emissions.values(), start=occupation)
-
-    for livestock, species in gpw_livestock.LIVESTOCK_TO_SPECIES.items():
-        if livestock in commodities:
-            commodity_to_totals[livestock][HERD_HEADS_COLUMN] = (
-                gpw_livestock.get_herd_heads(
-                    dset=dset, species=species, year=tang_cropgrids.YEAR
-                )
-            )
 
     commodity_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
         dset["dropped-emissions:tco2e-per-ha"] * hectares

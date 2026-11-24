@@ -7,6 +7,7 @@ import numpy
 import pandas
 import rasterio.enums
 import xarray
+from rioxarray.exceptions import NoDataInBounds
 
 from jdluc import emit, geo, harmonize, storage, tiling, utils
 from jdluc.datasets import (
@@ -439,8 +440,6 @@ def workflow(
     iso_3166: str,
     tile_id: str,
 ) -> pandas.DataFrame:
-    from rioxarray.exceptions import NoDataInBounds
-
     commodities: tuple[Commodity, ...] = tuple(
         Crop[name] if name in Crop.__members__ else gpw_livestock.Livestock[name]
         for name in commodity_names
@@ -456,9 +455,7 @@ def workflow(
     )
     logger.info(f"Milking cows are {dairy_share:.1%} of {iso_3166:s}'s cattle")
     merged = geo.exact_merge(
-        # NB: this is deferred because it is expensive and would like to cache it
         get_downscaled_luc_emissions(assessment_year=assessment_year, tile_id=tile_id),
-        # MAPSPAM
         harmonize.workflow(
             dataset_names=harmonize.Stack.STATISTICAL_ALLOCATION.value.dataset_names,
             ignore_missing_tiles=True,
@@ -467,7 +464,6 @@ def workflow(
             tile_resolution=harmonize.Stack.STATISTICAL_ALLOCATION.value.tile_resolution,
         ),
     )
-
     # Each grazer's livestock units per head, as FAOSTAT counts them for this country
     merged = merged.assign(
         gpw_livestock.get_band_name_to_livestock_units(
@@ -488,8 +484,7 @@ def workflow(
     merged["hectares-per-cell:ha"] = emit.get_hectares_per_pixel(
         darray=merged["dropped-emissions:tco2e-per-ha"]
     )
-    # NB: usually we avoid dumping to local mmemory, but since this xarray is small there is no
-    # OOM risk.  Doing so speeds up the many downstream reads for each jurisdiction
+    # NB: small enough to hold in memory, which speeds up the many reads for each jurisdiction
     merged = merged.load()
 
     def it() -> collections.abc.Iterator[dict[str, float | str]]:
