@@ -205,6 +205,30 @@ def test_get_crop_to_area_share_leaves_out_excluded_crops() -> None:
     assert result[Crop.MAIZE].item() == 0.5
 
 
+def test_get_commodity_name_to_totals_leaves_no_unattributed_below_zero() -> None:
+    # Cocoa's share rounds a hair above one of a cell charged only on cropland
+    zero = get_darray_for_cells(data=[[0.0]])
+    one = get_darray_for_cells(data=[[1.0]])
+    dset = get_dset_for_crop_areas(crop_to_hectares={Crop.COCOA: [[1.0]]}).assign(
+        {
+            name: zero if name.startswith(PASTURELAND) else one
+            for name in (
+                *LAND_CLASS_COMPONENT_NAMES,
+                f"{CROPLAND:s}-peatland-occupation:tco2e-per-ha",
+                f"{PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
+                "dropped-emissions:tco2e-per-ha",
+                "hectares-per-cell:ha",
+            )
+        }
+    )
+    result = get_commodity_name_to_totals(
+        commodities=(Crop.COCOA,),
+        commodity_to_share={Crop.COCOA: one + 1e-6},
+        dset=dset,
+    )
+    assert result[NonCommodity.UNATTRIBUTED.name]["emissions_mt"] == 0.0
+
+
 def test_get_commodity_name_to_totals() -> None:
     """Two cells of 2 and 3 hectares, one row as a province one cell tall clips to.
 

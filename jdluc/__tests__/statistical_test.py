@@ -793,6 +793,17 @@ PEAT = emit.EmissionComponent.PEATLAND_CONVERSION
         pytest.param(
             0.0,
             {
+                "commodity_to_share": {Crop.WHEAT: 1.0 + 1e-6},
+                "cropland_emissions": {FOREST: 1.0},
+                "cropland_occupation": 1.0,
+                "occupation_shares": {Crop.WHEAT: 1.0 + 1e-6},
+            },
+            {(UNATTRIBUTED, "emissions_mt"): 0.0},
+            id="shares-rounding-above-one-leave-the-unattributed-row-at-zero-not-below",
+        ),
+        pytest.param(
+            0.0,
+            {
                 "occupation_shares": {Livestock.PASTURE: 1.0},
                 "pasture_occupation": emit.PEATLAND_EMISSIONS_ANNUAL_TCO2E_PER_HA,
             },

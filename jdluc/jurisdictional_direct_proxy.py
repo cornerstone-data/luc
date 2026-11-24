@@ -233,12 +233,15 @@ def get_commodity_name_to_totals(
         for component in emit.EmissionComponent
     }
     unattributed = commodity_to_totals[emit.NonCommodity.UNATTRIBUTED]
+    # NB: clipped at zero, since float32 shares that sum to one can round a hair above it
     unattributed |= {
-        component.column: component_to_charged[component]
-        - sum(
-            commodity_to_totals[commodity][component.column]
-            for commodity in commodities
-        )
+        component.column: (
+            component_to_charged[component]
+            - sum(
+                commodity_to_totals[commodity][component.column]
+                for commodity in commodities
+            )
+        ).clip(min=0)
         for component in emit.EmissionComponent
     }
     unattributed["peatland_occupation_emissions_mt"] = (
@@ -248,7 +251,7 @@ def get_commodity_name_to_totals(
             commodity_to_totals[commodity]["peatland_occupation_emissions_mt"]
             for commodity in commodities
         )
-    )
+    ).clip(min=0)
     unattributed["emissions_mt"] = sum(
         (unattributed[component.column] for component in emit.EmissionComponent),
         start=unattributed["peatland_occupation_emissions_mt"],
