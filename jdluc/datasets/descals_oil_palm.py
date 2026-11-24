@@ -104,6 +104,7 @@ def get_path_to_archive() -> str:
     # NB: deliberately not a TemporaryDirectory, so that the archive outlives this call
     path_to_archive = os.path.join(tempfile.mkdtemp(), "data.zip")
     utils.save_remote_url_to_local_path(
+        immutable=True,
         local_path=path_to_archive,
         params={},
         remote_url="https://zenodo.org/api/records/13379129/files/GlobalOilPalm_OP-YoP.zip/content",

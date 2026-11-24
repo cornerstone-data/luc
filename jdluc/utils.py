@@ -6,11 +6,14 @@ import logging
 import threading
 import time
 import typing
+import urllib.parse
 
 import git
 import requests
 import requests.adapters
 import xarray
+
+from jdluc import config, storage
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,29 @@ def save_remote_url_to_local_path(
     # is the failure mode, and without this the read blocks forever
     read_timeout_seconds: int = 120,
     body_retries: int = 3,
+    immutable: bool = False,
 ) -> None:
+    """Stream `remote_url` to `local_path`.
+
+    With `immutable`, the download is shared through SCRATCH_ROOT: a process that finds a copy
+    there takes it rather than asking the publisher, and one that does not downloads as usual and
+    leaves a copy for the next. Only for a URL whose content never changes: nothing refreshes it.
+    The copy is found by the URL's host and path alone, so an immutable URL takes no parameters.
+    """
+    cache_uri: str | None = None
+    if immutable:
+        parts = urllib.parse.urlsplit(remote_url)
+        if params or parts.query:
+            raise ValueError(
+                f"An immutable download takes no parameters, but {remote_url=:s} has {params=:}"
+            )
+        cache_uri = storage.join_uri(
+            prefix=f"sources/{parts.netloc:s}{urllib.parse.unquote(parts.path):s}",
+            root=config.Config.from_dot_env().scratch_root,
+        )
+        if storage.path_exists(uri=cache_uri):
+            storage.get_file(local_path=local_path, uri=cache_uri)
+            return
     for attempt in range(body_retries):
         logger.info(f"GET'ing from {remote_url=:s} with {params=:}")
         try:
@@ -69,6 +94,8 @@ def save_remote_url_to_local_path(
                 raise
             time.sleep(2**attempt)
         else:
+            if cache_uri is not None:
+                storage.put_file(local_path=local_path, uri=cache_uri)
             return
 
 
