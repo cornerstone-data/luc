@@ -307,9 +307,9 @@ The jurisdictional-direct pipeline (USA only) covers the following 11 crops, map
 
 ### Jurisdictional direct proxy
 
-The proxy pipeline covers all 173 CROPGRIDS crops, each published under a FAOSTAT item with FAOSTAT's name for it. Most follow the CROPGRIDS publisher's crop table (`CROPS_matching_v17.xlsx`). Where that table names no item, or a retired one, FAOSTAT's current list gives flax (771), green broad beans (420) and jute-like fibres (782), and our judgement gives pimento (689, dry chillies and peppers) and popcorn (56, with maize). Several crops may share an item: maize and popcorn are both 56, and kapok fibre and kapok seed both 310. The full crosswalk is the proxy leg's entry in `jdluc/taxonomy.py`. Livestock is as in the statistical leg.
+The proxy pipeline covers 172 of the 173 CROPGRIDS crops, each published under a FAOSTAT item with FAOSTAT's name for it. Most follow the CROPGRIDS publisher's crop table (`CROPS_matching_v17.xlsx`). Where that table names no item, or a retired one, FAOSTAT's current list gives flax (771), green broad beans (420) and jute-like fibres (782), and our judgement gives pimento (689, dry chillies and peppers) and popcorn (56, with maize). Several crops may share an item: maize and popcorn are both 56. Kapok fiber is left out (`jurisdictional_direct_proxy.EXCLUDED_CROPS`), since CROPGRIDS maps it on the same trees as kapok seed, which is 310 (kapok fruit). The full crosswalk is the proxy leg's entry in `jdluc/taxonomy.py`. Livestock is as in the statistical leg.
 
-FAOSTAT has no item for the 16 fodder crops, so each takes a code of our own and the name the CROPGRIDS publisher gives it. They carry emissions and area, but no production and so no emissions factor.
+FAOSTAT has no item for the 16 fodder crops, so each takes a code of our own and the name the CROPGRIDS publisher gives it. They carry emissions and area, but no production and so no emissions factor. MapSPAM maps no fodder crops, so the statistical leg has no rows for them.
 
 | Crop         | Published as                           |
 | ------------ | -------------------------------------- |
