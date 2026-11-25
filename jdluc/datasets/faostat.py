@@ -297,7 +297,8 @@ def get_crop_records(
         if PRODUCTION_ELEMENT_CODE in element_code_to_value
     ]
     logger.info(f"After requiring production: {len(records):d} records")
-    return records
+    # NB: columns sorted by name, as the livestock tables' are
+    return [dict(sorted(record.items())) for record in records]
 
 
 def get_crop_records_for_tile(tile_id: str) -> list[dict[str, str | float]]:
@@ -328,29 +329,23 @@ def _get_records_for_tile(
         )
 
 
-LIVESTOCK_IDX_COLUMN_NAMES = [
+IDX_COLUMN_NAMES = [
     "admin_id",
     "admin_level",
-    "commodity_id",
-    "year",
-]
-CROP_IDX_COLUMN_NAMES = [
-    "admin_level",
-    "admin_id",
-    "jurisdiction_name",
     "commodity_id",
     "year",
 ]
 
 CROP_DATASET = base.TabularDataset(
     get_records_for_tile_id=get_crop_records_for_tile,
-    idx_column_names=CROP_IDX_COLUMN_NAMES,
+    idx_column_names=IDX_COLUMN_NAMES,
     product_name="production-crops",
     source_name="faostat",
     # v1: crop_name -> commodity_name
     # v2: coffee as COFF
     # v3: every crop item, keyed by commodity_id
-    version="v3",
+    # v4: move jurisdiction_name from index to fact column
+    version="v4",
 )
 LIVESTOCK_DATASET = base.TabularDataset(
     get_records_for_tile_id=functools.partial(
@@ -359,7 +354,7 @@ LIVESTOCK_DATASET = base.TabularDataset(
         element_columns=LIVESTOCK_ELEMENT_COLUMNS,
         member_name=BULK_MEMBER_NAME,
     ),
-    idx_column_names=LIVESTOCK_IDX_COLUMN_NAMES,
+    idx_column_names=IDX_COLUMN_NAMES,
     product_name="production-livestock",
     source_name="faostat",
     # v1: every item, keyed by commodity_id, with cattle's milk
@@ -372,7 +367,7 @@ LIVESTOCK_PATTERNS_DATASET = base.TabularDataset(
         element_columns=LIVESTOCK_UNITS_ELEMENT_COLUMNS,
         member_name=LIVESTOCK_PATTERNS_BULK_MEMBER_NAME,
     ),
-    idx_column_names=LIVESTOCK_IDX_COLUMN_NAMES,
+    idx_column_names=IDX_COLUMN_NAMES,
     product_name="livestock-patterns",
     source_name="faostat",
     # v1: keyed by commodity_id, as livestock_units

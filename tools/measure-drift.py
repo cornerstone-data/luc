@@ -23,7 +23,7 @@ production_kg must hold to float32 noise under any within-group redistribution.
 
 That full list carries its own controls. The 13 crops in ifpri_mapspam.SHARED_CROP_NAMES -- MAIZE,
 SOYBEAN, WHEAT, RICE and the rest -- take the simple-lookup branch of get_canonical_quantity, and
-get_commodity_to_share builds its denominator from raw per-year snapshots rather than decomposed
+get_crop_to_expansion_share builds its denominator from raw per-year snapshots rather than decomposed
 ones, so nothing about the 2000 decomposition can reach them. Any change confined to that
 decomposition must leave all 13 at exactly zero on every column; movement there is a wiring break,
 not drift.

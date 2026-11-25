@@ -20,6 +20,7 @@ from jdluc.emit import (
     NonCommodity,
 )
 from jdluc.jurisdictional_direct_proxy import (
+    CROPS,
     HERD_HEADS_COLUMN,
     get_commodity_name_to_totals,
     get_crop_to_area_share,
@@ -170,7 +171,7 @@ def test_get_name_to_band_pasture_fraction(grassland: float, expected: float) ->
     assert name_to_band[f"pasture:fraction:{CROPGRIDS_YEAR:d}"].item() == expected
 
 
-def test_get_crop_to_area_share_divides_by_every_crop_cropgrids_maps() -> None:
+def test_get_crop_to_area_share_divides_by_every_crop() -> None:
     result = get_crop_to_area_share(
         crops=(Crop.COCOA,),
         dset=get_dset_for_crop_areas(
@@ -185,6 +186,47 @@ def test_get_crop_to_area_share_divides_by_every_crop_cropgrids_maps() -> None:
     xarray.testing.assert_identical(
         result[Crop.COCOA], get_darray_for_cells(data=[[0.25, 0.0, 0.0]])
     )
+
+
+def test_get_crop_to_area_share_leaves_out_excluded_crops() -> None:
+    # Kapok fiber is the same trees as kapok seed, so it does not dilute the cell
+    result = get_crop_to_area_share(
+        crops=CROPS,
+        dset=get_dset_for_crop_areas(
+            crop_to_hectares={
+                Crop.KAPOKFIBER: [[10.0]],
+                Crop.KAPOKSEED: [[10.0]],
+                Crop.MAIZE: [[10.0]],
+            }
+        ),
+    )
+    assert Crop.KAPOKFIBER not in result
+    assert result[Crop.KAPOKSEED].item() == 0.5
+    assert result[Crop.MAIZE].item() == 0.5
+
+
+def test_get_commodity_name_to_totals_leaves_no_unattributed_below_zero() -> None:
+    # Cocoa's share rounds a hair above one of a cell charged only on cropland
+    zero = get_darray_for_cells(data=[[0.0]])
+    one = get_darray_for_cells(data=[[1.0]])
+    dset = get_dset_for_crop_areas(crop_to_hectares={Crop.COCOA: [[1.0]]}).assign(
+        {
+            name: zero if name.startswith(PASTURELAND) else one
+            for name in (
+                *LAND_CLASS_COMPONENT_NAMES,
+                f"{CROPLAND:s}-peatland-occupation:tco2e-per-ha",
+                f"{PASTURELAND:s}-peatland-occupation:tco2e-per-ha",
+                "dropped-emissions:tco2e-per-ha",
+                "hectares-per-cell:ha",
+            )
+        }
+    )
+    result = get_commodity_name_to_totals(
+        commodities=(Crop.COCOA,),
+        commodity_to_share={Crop.COCOA: one + 1e-6},
+        dset=dset,
+    )
+    assert result[NonCommodity.UNATTRIBUTED.name]["emissions_mt"] == 0.0
 
 
 def test_get_commodity_name_to_totals() -> None:

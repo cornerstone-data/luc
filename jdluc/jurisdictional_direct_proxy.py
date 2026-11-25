@@ -27,6 +27,11 @@ type Commodity = tang_cropgrids.Crop | gpw_livestock.Livestock
 assert not {e.name for e in tang_cropgrids.Crop} & {
     e.name for e in gpw_livestock.Livestock
 }
+EXCLUDED_CROPS = {
+    # The same trees as kapok seed, mapped again at 1.5 to 5 times FAOSTAT's kapok fruit area
+    tang_cropgrids.Crop.KAPOKFIBER,
+}
+CROPS = tuple(crop for crop in tang_cropgrids.Crop if crop not in EXCLUDED_CROPS)
 
 HERD_HEADS_COLUMN = gpw_livestock.get_herd_heads_column(year=tang_cropgrids.YEAR)
 
@@ -135,9 +140,9 @@ def get_crop_hectares(
 def get_crop_to_area_share(
     crops: tuple[tang_cropgrids.Crop, ...], dset: xarray.Dataset
 ) -> dict[tang_cropgrids.Crop, xarray.DataArray]:
-    """Each crop's share of a cell's crop area, over every crop CROPGRIDS maps."""
+    """Each crop's share of a cell's crop area, over every crop in `CROPS`."""
     total_area = sum(
-        (get_crop_hectares(crop=crop, dset=dset) for crop in tang_cropgrids.Crop),
+        (get_crop_hectares(crop=crop, dset=dset) for crop in CROPS),
         start=xarray.DataArray(numpy.float32(0)),
     )
     total_area = total_area.where(total_area > 0)
@@ -187,6 +192,12 @@ def get_commodity_name_to_totals(
             totals["commodity_hectares"] = gpw_livestock.get_livestock_hectares(
                 dset=dset, grazing_share=share, year=tang_cropgrids.YEAR
             )
+            if commodity in gpw_livestock.LIVESTOCK_TO_SPECIES:
+                totals[HERD_HEADS_COLUMN] = gpw_livestock.get_herd_heads(
+                    dset=dset,
+                    species=gpw_livestock.LIVESTOCK_TO_SPECIES[commodity],
+                    year=tang_cropgrids.YEAR,
+                )
         else:
             land_class = emit.CROPLAND
             totals["commodity_hectares"] = get_crop_hectares(crop=commodity, dset=dset)
@@ -209,14 +220,6 @@ def get_commodity_name_to_totals(
         totals["peatland_occupation_emissions_mt"] = occupation
         totals["emissions_mt"] = sum(component_to_emissions.values(), start=occupation)
 
-    for livestock, species in gpw_livestock.LIVESTOCK_TO_SPECIES.items():
-        if livestock in commodities:
-            commodity_to_totals[livestock][HERD_HEADS_COLUMN] = (
-                gpw_livestock.get_herd_heads(
-                    dset=dset, species=species, year=tang_cropgrids.YEAR
-                )
-            )
-
     commodity_to_totals[emit.NonCommodity.DROPPED]["emissions_mt"] = (
         dset["dropped-emissions:tco2e-per-ha"] * hectares
     )
@@ -228,12 +231,15 @@ def get_commodity_name_to_totals(
         for component in emit.EmissionComponent
     }
     unattributed = commodity_to_totals[emit.NonCommodity.UNATTRIBUTED]
+    # NB: clipped at zero, since float32 shares that sum to one can round a hair above it
     unattributed |= {
-        component.column: component_to_charged[component]
-        - sum(
-            commodity_to_totals[commodity][component.column]
-            for commodity in commodities
-        )
+        component.column: (
+            component_to_charged[component]
+            - sum(
+                commodity_to_totals[commodity][component.column]
+                for commodity in commodities
+            )
+        ).clip(min=0)
         for component in emit.EmissionComponent
     }
     unattributed["peatland_occupation_emissions_mt"] = (
@@ -243,7 +249,7 @@ def get_commodity_name_to_totals(
             commodity_to_totals[commodity]["peatland_occupation_emissions_mt"]
             for commodity in commodities
         )
-    )
+    ).clip(min=0)
     unattributed["emissions_mt"] = sum(
         (unattributed[component.column] for component in emit.EmissionComponent),
         start=unattributed["peatland_occupation_emissions_mt"],

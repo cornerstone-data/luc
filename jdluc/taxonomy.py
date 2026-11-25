@@ -17,7 +17,13 @@ come from the FAOSTAT crop table in `trace`.
 
 import enum
 
-from jdluc import attribute, emit, jurisdictional_direct, statistical
+from jdluc import (
+    attribute,
+    emit,
+    jurisdictional_direct,
+    jurisdictional_direct_proxy,
+    statistical,
+)
 from jdluc.datasets import faostat, gpw_livestock, tang_cropgrids
 
 
@@ -150,7 +156,8 @@ METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID: dict[
         ],
         gpw_livestock.Livestock.PASTURE.name: InventedCommodityId.PASTURE,
         # The publisher's crop table (`CROPS_matching_v17.xlsx` in figshare's `CODES.zip`), through
-        # the authors' 2020 FAOSTAT extract. Both kapok crops are 310, kapok fruit
+        # the authors' 2020 FAOSTAT extract. Kapok seed is 310, kapok
+        # fruit; kapok fiber is in `jurisdictional_direct_proxy.EXCLUDED_CROPS`
         tang_cropgrids.Crop.ABACA.name: 809,
         tang_cropgrids.Crop.AGAVE.name: 800,
         tang_cropgrids.Crop.ALMOND.name: 221,
@@ -217,7 +224,6 @@ METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID: dict[
         tang_cropgrids.Crop.HEMPSEED.name: 336,
         tang_cropgrids.Crop.HOP.name: 677,
         tang_cropgrids.Crop.JUTE.name: 780,
-        tang_cropgrids.Crop.KAPOKFIBER.name: 310,
         tang_cropgrids.Crop.KAPOKSEED.name: 310,
         tang_cropgrids.Crop.KARITE.name: 263,
         tang_cropgrids.Crop.KIWI.name: 592,
@@ -360,7 +366,7 @@ assert set(
         attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
     ]
 ) == {
-    *(crop.name for crop in tang_cropgrids.Crop),
+    *(crop.name for crop in jurisdictional_direct_proxy.CROPS),
     *(livestock.name for livestock in gpw_livestock.Livestock),
     *(non_commodity.name for non_commodity in emit.NonCommodity),
 }
@@ -387,7 +393,7 @@ METHODOLOGY_TO_CROP_ID_TO_ITEM_CODES: dict[
             METHODOLOGY_TO_COMMODITY_NAME_TO_COMMODITY_ID[
                 attribute.Methodology.JURISDICTIONAL_DIRECT_PROXY
             ][crop.name]
-            for crop in tang_cropgrids.Crop
+            for crop in jurisdictional_direct_proxy.CROPS
         )
         if commodity_id > 0
     },

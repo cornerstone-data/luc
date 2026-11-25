@@ -65,6 +65,11 @@ ADDITIVE_COLUMNS = (
     "production_kg",
     *(component.column for component in emit.EmissionComponent),
 )
+# Emissions factors left blank; the rows keep their other columns
+WITHHELD_ISO_3166_COMMODITY_IDS = {
+    # MapSPAM 2010 puts 29 times FAOSTAT's oil crop area on Taiwan
+    ("TWN", taxonomy.InventedCommodityId.OTHER_OILCROPS),
+}
 
 
 def derive_jurisdictional_production_kg(
@@ -171,6 +176,21 @@ def derive_production_kg(
             f"{unplaced.sum() / KG_PER_TONNE**2:.3f} kt in all, have no crop area to "
             f"split them by: {sorted(unplaced.index)}"
         )
+    # Crop area with no FAOSTAT production
+    crop_hectares = national_hectares[
+        national_hectares.index.get_level_values("commodity_id").isin(
+            list(taxonomy.METHODOLOGY_TO_CROP_ID_TO_ITEM_CODES[methodology])
+        )
+        & (national_hectares > 0)
+    ]
+    unproduced = crop_hectares[
+        national_production.reindex(crop_hectares.index).fillna(0).to_numpy() == 0
+    ]
+    if len(unproduced) > 0:
+        logger.warning(
+            f"{len(unproduced):d} (country, crop) area(s), {unproduced.sum():.0f} ha in all, "
+            f"have no FAOSTAT production: {sorted(unproduced.index)}"
+        )
 
     ret = flat.drop(columns=["commodity_id", "iso_3166"]).set_index(
         emissions.index.names
@@ -264,6 +284,20 @@ def attach_ratios(df: pandas.DataFrame) -> pandas.DataFrame:
     return df
 
 
+def with_withheld_factors(df: pandas.DataFrame) -> pandas.DataFrame:
+    is_withheld = pandas.MultiIndex.from_arrays(
+        [
+            df.index.get_level_values("admin_id").str[:3],
+            df.index.get_level_values("commodity_id"),
+        ]
+    ).isin(list(WITHHELD_ISO_3166_COMMODITY_IDS))
+    return df.assign(
+        emissions_factor_kgco2e_per_kg=df["emissions_factor_kgco2e_per_kg"].mask(
+            cond=is_withheld
+        )
+    )
+
+
 def iter_national_from_provincials(
     assessment_year: int,
     iso_3166: str,
@@ -276,8 +310,9 @@ def iter_national_from_provincials(
         def safe_div(numer: float, denom: float) -> float:
             return float("nan") if denom == 0 else numer / denom
 
+        # NB: min_count keeps a column NaN, rather than 0, where every province lacks it
         ret = {
-            column_name: float(group[column_name].sum())
+            column_name: float(group[column_name].sum(min_count=1))
             for column_name in ADDITIVE_COLUMNS
         }
         yield_kg_per_ha = safe_div(
@@ -370,13 +405,15 @@ def workflow(
             ],
         )
     )
-    ret = pandas.concat(
-        [
-            provincials,
-            pandas.DataFrame.from_records(iter_national).set_index(
-                provincials.index.names
-            ),
-        ]
+    ret = with_withheld_factors(
+        df=pandas.concat(
+            [
+                provincials,
+                pandas.DataFrame.from_records(iter_national).set_index(
+                    provincials.index.names
+                ),
+            ]
+        )
     )
     commodity_id_to_name = get_commodity_id_to_name(
         crops=faostat.load(dataset=faostat.CROP_DATASET),
