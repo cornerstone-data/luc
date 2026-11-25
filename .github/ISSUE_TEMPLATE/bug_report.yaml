@@ -1,0 +1,73 @@
+name: 🐞 Bug report
+description: Report something that isn't working
+title: "[BUG] <title>"
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search to see if an issue already exists for the bug you encountered.
+      options:
+        - label: I have searched the existing issues
+          required: true
+  - type: textarea
+    attributes:
+      label: Current behavior
+      description: A concise description of what you're experiencing.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected behavior
+      description: A concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. On this tile / country / commodity...
+        2. With this config...
+        3. Run '...'
+        4. See error...
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Environment
+      description: Where it happened.
+      value: |
+        - Commit / release:
+        - Run location (local, cluster, …):
+        - Python:
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Done when
+      description: The criteria for closing this issue. Must haves block closing; nice to haves can move to a follow-up issue.
+      value: |
+        **Must have**
+        - [ ] Bug no longer reproduces with the steps above
+        - [ ] Regression test added
+
+        **Nice to have**
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Anything else?
+      description: |
+        Links? References? Logs?
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        **Tips**
+        - Write each *Done when* item so anyone can check it without asking you.
+        - Keep *Must have* short; anything that can wait goes under *Nice to have* or a follow-up issue.
+        - Attach images or log files by dragging them into any text field.
